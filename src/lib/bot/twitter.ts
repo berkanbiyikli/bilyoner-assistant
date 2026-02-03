@@ -209,6 +209,101 @@ export function formatResultTweet(coupon: BotCoupon, newBankroll: number): strin
   return lines.join('\n');
 }
 
+// ============ CANLI MAÇ TWEET FORMATLARI ============
+
+import type { LiveOpportunity } from './live-types';
+
+/**
+ * Fırsat tipini emoji ve açıklamaya çevirir
+ */
+function formatOpportunityType(type: string): { emoji: string; label: string } {
+  const map: Record<string, { emoji: string; label: string }> = {
+    'goal_imminent': { emoji: '⚡', label: 'Gol Yaklaşıyor!' },
+    'next_goal_home': { emoji: '⚽', label: 'Sıradaki Gol: Ev' },
+    'next_goal_away': { emoji: '⚽', label: 'Sıradaki Gol: Dep' },
+    'over_15': { emoji: '📈', label: '1.5 Üst' },
+    'over_25': { emoji: '📈', label: '2.5 Üst' },
+    'corner_over': { emoji: '🚩', label: 'Korner Üstü' },
+    'card_coming': { emoji: '🟨', label: 'Kart Geliyor' },
+    'btts_yes': { emoji: '🔄', label: 'Karşılıklı Gol' },
+    'comeback': { emoji: '🔥', label: 'Comeback!' },
+    'momentum_shift': { emoji: '💫', label: 'Momentum' },
+  };
+  return map[type] || { emoji: '🎯', label: 'Fırsat' };
+}
+
+/**
+ * Canlı fırsat tweet metni oluşturur
+ */
+export function formatLiveOpportunityTweet(opportunity: LiveOpportunity): string {
+  const lines: string[] = [];
+  const { emoji, label } = formatOpportunityType(opportunity.type);
+  
+  // Header - Canlı maç vurgusu
+  lines.push(`🔴 CANLI | ${emoji} ${label.toUpperCase()}`);
+  lines.push('');
+  
+  // Maç bilgisi
+  lines.push(`⚽ ${opportunity.match.homeTeam} vs ${opportunity.match.awayTeam}`);
+  lines.push(`📍 ${opportunity.match.minute}' | Skor: ${opportunity.match.score}`);
+  lines.push('');
+  
+  // Bahis önerisi
+  lines.push(`🎯 ${opportunity.market}: ${opportunity.pick}`);
+  lines.push(`📊 Oran: ~${opportunity.estimatedOdds.toFixed(2)} | Güven: %${opportunity.confidence}`);
+  lines.push('');
+  
+  // Gerekçe
+  if (opportunity.reasoning) {
+    lines.push(`💡 ${opportunity.reasoning}`);
+    lines.push('');
+  }
+  
+  // Aciliyet göstergesi
+  if (opportunity.urgency === 'critical') {
+    lines.push('🚨 ACİL - Hemen oyna!');
+  } else if (opportunity.urgency === 'high') {
+    lines.push('⏰ Yüksek öncelik');
+  }
+  
+  // Value göstergesi
+  if (opportunity.value >= 15) {
+    lines.push('🔥 YÜKSEK DEĞER!');
+  } else if (opportunity.value >= 10) {
+    lines.push('✨ İyi Değer');
+  }
+  
+  lines.push('');
+  lines.push('#CanlıBahis #LiveBet #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
+/**
+ * Çoklu canlı fırsat özet tweet'i
+ */
+export function formatLiveSummaryTweet(opportunities: LiveOpportunity[]): string {
+  const lines: string[] = [];
+  
+  lines.push(`🔴 CANLI FIRSATLAR (${opportunities.length} adet)`);
+  lines.push('');
+  
+  opportunities.slice(0, 3).forEach((opp, i) => {
+    const { emoji } = formatOpportunityType(opp.type);
+    lines.push(`${i + 1}. ${emoji} ${opp.match.homeTeam} vs ${opp.match.awayTeam}`);
+    lines.push(`   ${opp.match.minute}' | ${opp.market} @${opp.estimatedOdds.toFixed(2)}`);
+  });
+  
+  if (opportunities.length > 3) {
+    lines.push(`   ...ve ${opportunities.length - 3} fırsat daha`);
+  }
+  
+  lines.push('');
+  lines.push('#CanlıBahis #LiveBet #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
 /**
  * Kısa tweet formatı - artık kullanılmıyor, ana format yeterince kısa
  */

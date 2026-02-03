@@ -3,22 +3,23 @@
  * 
  * İşlevler:
  * 1. Aktif kupon maçlarını gerçek zamanlı takip
- * 2. Her 30 dk'da bir kupon durumu tweet at
- * 3. Diğer canlı maçlarda fırsat tara ve an be an paylaş
+ * 2. Değişiklik varsa kupon durumu tweet at (quote tweet)
+ * 3. Diğer canlı maçlarda fırsat tara, yeni fırsat varsa paylaş
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getBankrollState, saveBankrollState } from '@/lib/bot/bankroll-store';
 import { sendQuoteTweet, sendTweet } from '@/lib/bot/twitter';
-import type { BotMatch } from '@/lib/bot/types';
+import type { BotMatch, BankrollState } from '@/lib/bot/types';
 
 // API Football config
 const API_KEY = process.env.API_FOOTBALL_KEY || '';
 const API_BASE = process.env.API_FOOTBALL_BASE_URL || 'https://v3.football.api-sports.io';
 
-// Son tweet zamanları (Redis'te tutulabilir ama şimdilik basit)
-let lastCouponUpdateTweet = 0;
-let lastOpportunityTweet = 0;
+// Son durum cache (spam önleme için)
+let lastCouponSnapshot = '';
+let lastOpportunitySnapshot = '';
+let lastCouponTweetTime = 0;
 
 interface LiveMatchData {
   fixtureId: number;
@@ -296,8 +297,9 @@ async function scanLiveOpportunities(): Promise<Array<{
       };
       
       // ===== GERÇEK VALUE FIRSATLARI =====
+      // NOT: Zaten tutmuş bahisleri önerme!
       
-      // Fırsat 1: 0-0 ve 55-70 dk arası → Sonraki gol ev sahibi/deplasman
+      // Fırsat 1: 0-0 ve 55-70 dk arası → Sonraki gol ev sahibi
       // Mantık: Uzun süre 0-0 giden maçlarda takımlar açılır
       if (totalGoals === 0 && minute >= 55 && minute <= 70) {
         opportunities.push({
@@ -309,7 +311,7 @@ async function scanLiveOpportunities(): Promise<Array<{
         });
       }
       
-      // Fırsat 2: 1-0 veya 0-1 ve 60-75 dk → KG Var
+      // Fırsat 2: 1-0 veya 0-1 ve 60-75 dk → KG Var (henüz tutmamış)
       // Mantık: Geriden gelen takım baskı yapacak
       if ((homeScore === 1 && awayScore === 0) || (homeScore === 0 && awayScore === 1)) {
         if (minute >= 60 && minute <= 75) {
@@ -324,15 +326,15 @@ async function scanLiveOpportunities(): Promise<Array<{
         }
       }
       
-      // Fırsat 3: 2+ gol ve 35-55 dk → Üst 3.5
-      // Mantık: Gollü başlayan maçlar genelde gollü devam eder
-      if (totalGoals >= 2 && minute >= 35 && minute <= 55) {
+      // Fırsat 3: TAM 2 gol ve 35-55 dk → Üst 3.5 (henüz tutmamış!)
+      // NOT: 3+ gol varsa zaten tutmuş, önerme!
+      if (totalGoals === 2 && minute >= 35 && minute <= 55) {
         opportunities.push({
           match: matchData,
           opportunity: 'Üst 3.5 Gol',
-          confidence: 58 + totalGoals * 3,
+          confidence: 62,
           odds: 1.90,
-          reasoning: `${minute}' ${totalGoals} gol, tempo yüksek`,
+          reasoning: `${minute}' ${totalGoals} gol, 2 gol daha lazım`,
         });
       }
       
@@ -344,21 +346,32 @@ async function scanLiveOpportunities(): Promise<Array<{
         opportunities.push({
           match: matchData,
           opportunity: `Çifte Şans ${behindScore}`,
-          confidence: 50,
+          confidence: 55,
           odds: 2.50,
           reasoning: `${behind} için son ${90 - minute} dk`,
         });
       }
       
-      // Fırsat 5: Her iki takım gol atmış, 45-60 dk → Üst 4.5
-      // Mantık: Açık maç, daha çok gol gelir
-      if (homeScore > 0 && awayScore > 0 && totalGoals >= 3 && minute >= 45 && minute <= 60) {
+      // Fırsat 5: TAM 3 gol, KG var, 45-60 dk → Üst 4.5 (henüz tutmamış!)
+      // NOT: 4+ gol varsa zaten tutmuş, önerme!
+      if (homeScore > 0 && awayScore > 0 && totalGoals === 3 && minute >= 45 && minute <= 60) {
         opportunities.push({
           match: matchData,
           opportunity: 'Üst 4.5 Gol',
-          confidence: 52 + totalGoals * 2,
+          confidence: 58,
           odds: 2.30,
-          reasoning: `Açık maç, ${totalGoals} gol var`,
+          reasoning: `Açık maç, 2 gol daha lazım`,
+        });
+      }
+      
+      // Fırsat 6: 0-0 ve 70-80 dk → Alt 1.5 (düşük skor devam edecek)
+      if (totalGoals === 0 && minute >= 70 && minute <= 80) {
+        opportunities.push({
+          match: matchData,
+          opportunity: 'Alt 1.5 Gol',
+          confidence: 65,
+          odds: 1.60,
+          reasoning: `${minute}' hala 0-0, gol zor`,
         });
       }
     }
@@ -456,26 +469,38 @@ export async function GET(request: NextRequest) {
         }
       }
       
-      // 30 dk'da bir kupon durumu tweet at
-      const THIRTY_MINUTES = 30 * 60 * 1000;
-      const shouldTweetCouponUpdate = now - lastCouponUpdateTweet >= THIRTY_MINUTES;
+      // Kupon snapshot oluştur (değişiklik kontrolü için)
+      const currentSnapshot = couponStatuses.map(s => 
+        `${s.match.fixtureId}:${s.live?.homeScore ?? '?'}-${s.live?.awayScore ?? '?'}:${s.predictionStatus}`
+      ).join('|');
       
-      // En az 1 canlı maç varsa tweet at
+      // En az 1 canlı maç varsa ve değişiklik varsa tweet at
       const hasLiveMatch = couponStatuses.some(s => 
         s.live && ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'].includes(s.live.status)
       );
       
-      if (shouldTweetCouponUpdate && hasLiveMatch) {
+      const hasChange = currentSnapshot !== lastCouponSnapshot;
+      const MIN_TWEET_INTERVAL = 10 * 60 * 1000; // Minimum 10 dk arası
+      const canTweet = Date.now() - lastCouponTweetTime >= MIN_TWEET_INTERVAL;
+      
+      if (hasLiveMatch && hasChange && canTweet) {
         const tweetText = formatCouponStatusTweet(couponStatuses);
         
         if (!useMock && state.activeCoupon.tweetId) {
+          // QUOTE TWEET olarak at - orijinal kuponu alıntıla
           await sendQuoteTweet(tweetText, state.activeCoupon.tweetId);
-          lastCouponUpdateTweet = now;
-          log('Kupon durumu tweeti atıldı');
+          lastCouponSnapshot = currentSnapshot;
+          lastCouponTweetTime = Date.now();
+          log('Kupon durumu quote tweeti atıldı');
         } else if (useMock) {
-          log(`[MOCK] Kupon durumu tweeti:\n${tweetText}`);
-          lastCouponUpdateTweet = now;
+          log(`[MOCK] Kupon durumu quote tweeti:\n${tweetText}`);
+          lastCouponSnapshot = currentSnapshot;
+          lastCouponTweetTime = Date.now();
         }
+      } else if (!hasChange) {
+        log('Kupon durumunda değişiklik yok, tweet atılmadı');
+      } else if (!canTweet) {
+        log('Son tweetten 10 dk geçmedi, bekleniyor');
       }
     } else {
       log('Aktif kupon yok');
@@ -488,21 +513,26 @@ export async function GET(request: NextRequest) {
     if (opportunities.length > 0) {
       log(`${opportunities.length} fırsat bulundu!`);
       
-      // 5 dk'da bir fırsat tweet at (her cron çağrısında)
-      const FIVE_MINUTES = 5 * 60 * 1000;
-      const shouldTweetOpportunity = now - lastOpportunityTweet >= FIVE_MINUTES;
+      // Fırsat snapshot oluştur (aynı fırsatları tekrar tweet etme)
+      const oppSnapshot = opportunities.map(o => 
+        `${o.match.fixtureId}:${o.opportunity}`
+      ).join('|');
       
-      if (shouldTweetOpportunity) {
+      const isNewOpportunity = oppSnapshot !== lastOpportunitySnapshot;
+      
+      if (isNewOpportunity) {
         const tweetText = formatOpportunityTweet(opportunities);
         
         if (!useMock) {
           await sendTweet(tweetText);
-          lastOpportunityTweet = now;
-          log('Fırsat tweeti atıldı');
+          lastOpportunitySnapshot = oppSnapshot;
+          log('Yeni fırsat tweeti atıldı');
         } else {
           log(`[MOCK] Fırsat tweeti:\n${tweetText}`);
-          lastOpportunityTweet = now;
+          lastOpportunitySnapshot = oppSnapshot;
         }
+      } else {
+        log('Aynı fırsatlar, tweet atılmadı');
       }
     } else {
       log('Şu an uygun fırsat yok');

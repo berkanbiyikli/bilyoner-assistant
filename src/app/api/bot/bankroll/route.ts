@@ -1,52 +1,97 @@
 /**
  * Bot Bankroll API - Kasa Durumu
+ * Redis'ten okur/yazar
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getBankrollState, saveBankrollState } from '@/lib/bot/bankroll-store';
+import { formatTurkeyTime } from '@/lib/utils';
 
-// State paylaşımı (production'da Redis/KV kullanılacak)
-// Şimdilik basit in-memory
-let bankrollState = {
-  balance: 500,
-  initialBalance: 500,
-  totalBets: 0,
-  wonBets: 0,
-  lostBets: 0,
-  totalStaked: 0,
-  totalWon: 0,
-  profitLoss: 0,
-  winRate: 0,
-  roi: 0,
-};
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  return NextResponse.json({
-    success: true,
-    data: bankrollState,
-  });
+  try {
+    const state = await getBankrollState();
+    
+    // Aktif kupon varsa maç durumlarını ekle
+    let activeCouponInfo = null;
+    if (state.activeCoupon) {
+      const now = new Date();
+      activeCouponInfo = {
+        id: state.activeCoupon.id,
+        createdAt: state.activeCoupon.createdAt,
+        totalOdds: state.activeCoupon.totalOdds,
+        stake: state.activeCoupon.stake,
+        potentialWin: state.activeCoupon.potentialWin,
+        status: state.activeCoupon.status,
+        tweetId: state.activeCoupon.tweetId,
+        matches: state.activeCoupon.matches.map(m => {
+          const kickoff = new Date(m.kickoff);
+          const isStarted = now >= kickoff;
+          const minutesSinceKickoff = isStarted ? Math.floor((now.getTime() - kickoff.getTime()) / 60000) : 0;
+          
+          return {
+            fixtureId: m.fixtureId,
+            teams: `${m.homeTeam} vs ${m.awayTeam}`,
+            league: m.league,
+            kickoffTime: formatTurkeyTime(m.kickoff),
+            prediction: m.prediction.label,
+            odds: m.prediction.odds,
+            isStarted,
+            minutesSinceKickoff: isStarted ? minutesSinceKickoff : null,
+            status: isStarted 
+              ? (minutesSinceKickoff > 105 ? 'Bitti' : `Canlı (~${minutesSinceKickoff}')`)
+              : `Başlamadı (${formatTurkeyTime(m.kickoff)})`,
+          };
+        }),
+      };
+    }
+    
+    return NextResponse.json({
+      success: true,
+      data: {
+        balance: state.balance,
+        initialBalance: state.initialBalance,
+        totalBets: state.totalBets,
+        wonBets: state.wonBets,
+        lostBets: state.lostBets,
+        totalStaked: state.totalStaked,
+        totalWon: state.totalWon,
+        profitLoss: state.balance - state.initialBalance,
+        winRate: state.totalBets > 0 ? (state.wonBets / state.totalBets) * 100 : 0,
+        roi: state.totalStaked > 0 ? ((state.totalWon - state.totalStaked) / state.totalStaked) * 100 : 0,
+        dailyCoupons: state.dailyCoupons,
+      },
+      activeCoupon: activeCouponInfo,
+    });
+  } catch (error) {
+    console.error('[Bankroll API] Error:', error);
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to get bankroll state',
+    }, { status: 500 });
+  }
 }
 
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
+    const state = await getBankrollState();
     
     // Sadece izin verilen alanları güncelle
     if (typeof body.balance === 'number') {
-      bankrollState.balance = body.balance;
+      state.balance = body.balance;
     }
     
-    // İstatistikleri yeniden hesapla
-    bankrollState.profitLoss = bankrollState.balance - bankrollState.initialBalance;
-    bankrollState.winRate = bankrollState.totalBets > 0 
-      ? (bankrollState.wonBets / bankrollState.totalBets) * 100 
-      : 0;
-    bankrollState.roi = bankrollState.totalStaked > 0
-      ? ((bankrollState.totalWon - bankrollState.totalStaked) / bankrollState.totalStaked) * 100
-      : 0;
+    state.lastUpdated = new Date();
+    await saveBankrollState(state);
     
     return NextResponse.json({
       success: true,
-      data: bankrollState,
+      data: {
+        balance: state.balance,
+        profitLoss: state.balance - state.initialBalance,
+      },
     });
   } catch (error) {
     return NextResponse.json({
@@ -58,7 +103,7 @@ export async function PUT(request: NextRequest) {
 
 // Kasayı sıfırla
 export async function DELETE() {
-  bankrollState = {
+  const initialState = {
     balance: 500,
     initialBalance: 500,
     totalBets: 0,
@@ -66,14 +111,34 @@ export async function DELETE() {
     lostBets: 0,
     totalStaked: 0,
     totalWon: 0,
-    profitLoss: 0,
-    winRate: 0,
-    roi: 0,
+    activeCoupon: null,
+    history: [],
+    lastUpdated: new Date(),
+    dailyCoupons: {
+      date: new Date().toISOString().split('T')[0],
+      count: 0,
+      couponIds: [],
+    },
+    streak: {
+      currentStreak: 0,
+      longestWinStreak: 0,
+      longestLoseStreak: 0,
+      lastResults: [],
+      milestones: [],
+    },
+    aiLearning: {
+      leaguePerformance: {},
+      marketPerformance: {},
+      timePerformance: {},
+      confidenceCalibration: [],
+    },
   };
+  
+  await saveBankrollState(initialState as any);
   
   return NextResponse.json({
     success: true,
     message: 'Bankroll reset to 500 TL',
-    data: bankrollState,
+    data: { balance: 500 },
   });
 }

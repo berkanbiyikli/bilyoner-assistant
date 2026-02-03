@@ -304,6 +304,120 @@ export function formatLiveSummaryTweet(opportunities: LiveOpportunity[]): string
   return lines.join('\n');
 }
 
+// ============ CANLI BAHİS SONUÇ FORMATLARI ============
+
+import type { LiveBet } from './live-types';
+
+/**
+ * Canlı bahis yerleştirildi tweet'i
+ */
+export function formatLiveBetPlacedTweet(bet: LiveBet): string {
+  const lines: string[] = [];
+  
+  lines.push('🔴 CANLI BAHİS YERLEŞTİRİLDİ!');
+  lines.push('');
+  lines.push(`⚽ ${bet.match.homeTeam} vs ${bet.match.awayTeam}`);
+  lines.push(`📍 ${bet.match.minuteAtBet}' | Skor: ${bet.match.scoreAtBet}`);
+  lines.push('');
+  lines.push(`🎯 ${bet.market}: ${bet.pick}`);
+  lines.push(`📊 Oran: ${bet.odds.toFixed(2)}`);
+  lines.push(`💰 Stake: ${bet.stake.toFixed(0)}₺ → Potansiyel: ${(bet.stake * bet.odds).toFixed(0)}₺`);
+  lines.push('');
+  lines.push('⏳ Sonuç bekleniyor...');
+  lines.push('');
+  lines.push('#CanlıBahis #LiveBet #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
+/**
+ * Canlı bahis sonuç tweet'i - KAZANDI
+ */
+export function formatLiveBetWonTweet(bet: LiveBet): string {
+  const lines: string[] = [];
+  const profit = bet.result ? bet.result.payout - bet.stake : 0;
+  
+  lines.push('✅ CANLI BAHİS KAZANDI! 🎉');
+  lines.push('');
+  lines.push(`⚽ ${bet.match.homeTeam} vs ${bet.match.awayTeam}`);
+  lines.push(`📍 Final: ${bet.result?.finalScore || '?-?'}`);
+  lines.push('');
+  lines.push(`🎯 ${bet.market}: ${bet.pick} ✓`);
+  lines.push(`📊 Oran: ${bet.odds.toFixed(2)}`);
+  lines.push('');
+  lines.push(`💰 Stake: ${bet.stake.toFixed(0)}₺`);
+  lines.push(`🎉 Kazanç: ${bet.result?.payout.toFixed(0) || 0}₺`);
+  lines.push(`📈 Kar: +${profit.toFixed(0)}₺`);
+  lines.push('');
+  lines.push('#CanlıBahis #Kazandık #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
+/**
+ * Canlı bahis sonuç tweet'i - KAYBETTİ
+ */
+export function formatLiveBetLostTweet(bet: LiveBet): string {
+  const lines: string[] = [];
+  
+  lines.push('❌ CANLI BAHİS KAYBETTİ');
+  lines.push('');
+  lines.push(`⚽ ${bet.match.homeTeam} vs ${bet.match.awayTeam}`);
+  lines.push(`📍 Final: ${bet.result?.finalScore || '?-?'}`);
+  lines.push('');
+  lines.push(`🎯 ${bet.market}: ${bet.pick} ✗`);
+  lines.push('');
+  lines.push(`💸 Kayıp: -${bet.stake.toFixed(0)}₺`);
+  lines.push('');
+  lines.push('Bir sonraki fırsatta görüşürüz! 💪');
+  lines.push('');
+  lines.push('#CanlıBahis #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
+/**
+ * Günlük canlı bahis özeti
+ */
+export function formatLiveDailySummaryTweet(
+  bets: LiveBet[],
+  stats: { won: number; lost: number; profit: number }
+): string {
+  const lines: string[] = [];
+  
+  const isProfit = stats.profit >= 0;
+  
+  lines.push('📊 GÜNLÜK CANLI BAHİS ÖZETİ');
+  lines.push('');
+  lines.push(`✅ Kazanan: ${stats.won}`);
+  lines.push(`❌ Kaybeden: ${stats.lost}`);
+  lines.push(`📈 Başarı: %${stats.won + stats.lost > 0 ? ((stats.won / (stats.won + stats.lost)) * 100).toFixed(0) : 0}`);
+  lines.push('');
+  
+  if (isProfit) {
+    lines.push(`💰 Günlük Kar: +${stats.profit.toFixed(0)}₺ 🎉`);
+  } else {
+    lines.push(`💸 Günlük Zarar: ${stats.profit.toFixed(0)}₺`);
+  }
+  
+  lines.push('');
+  
+  // En iyi bahis
+  const bestWin = bets
+    .filter(b => b.status === 'won' && b.result)
+    .sort((a, b) => (b.result?.payout || 0) - (a.result?.payout || 0))[0];
+  
+  if (bestWin) {
+    lines.push(`🏆 En iyi: ${bestWin.match.homeTeam} vs ${bestWin.match.awayTeam}`);
+    lines.push(`   ${bestWin.pick} @${bestWin.odds.toFixed(2)} → +${((bestWin.result?.payout || 0) - bestWin.stake).toFixed(0)}₺`);
+  }
+  
+  lines.push('');
+  lines.push('#CanlıBahis #GünlükÖzet #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
 /**
  * Kısa tweet formatı - artık kullanılmıyor, ana format yeterince kısa
  */

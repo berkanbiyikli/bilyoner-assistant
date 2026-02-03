@@ -211,25 +211,42 @@ export function formatResultTweet(coupon: BotCoupon, newBankroll: number): strin
 
 // ============ CANLI MAÇ TWEET FORMATLARI ============
 
-import type { LiveOpportunity } from './live-types';
+import type { LiveOpportunity, LiveBet, SnowballChain, LiveMarket } from './live-types';
 
 /**
  * Fırsat tipini emoji ve açıklamaya çevirir
  */
 function formatOpportunityType(type: string): { emoji: string; label: string } {
   const map: Record<string, { emoji: string; label: string }> = {
-    'goal_imminent': { emoji: '⚡', label: 'Gol Yaklaşıyor!' },
-    'next_goal_home': { emoji: '⚽', label: 'Sıradaki Gol: Ev' },
-    'next_goal_away': { emoji: '⚽', label: 'Sıradaki Gol: Dep' },
-    'over_15': { emoji: '📈', label: '1.5 Üst' },
-    'over_25': { emoji: '📈', label: '2.5 Üst' },
-    'corner_over': { emoji: '🚩', label: 'Korner Üstü' },
-    'card_coming': { emoji: '🟨', label: 'Kart Geliyor' },
-    'btts_yes': { emoji: '🔄', label: 'Karşılıklı Gol' },
-    'comeback': { emoji: '🔥', label: 'Comeback!' },
-    'momentum_shift': { emoji: '💫', label: 'Momentum' },
+    'goal_pressure': { emoji: '⚡', label: 'Gol Baskısı' },
+    'home_momentum': { emoji: '🏠', label: 'Ev Sahibi Baskın' },
+    'away_momentum': { emoji: '✈️', label: 'Deplasman Baskın' },
+    'high_tempo': { emoji: '🔥', label: 'Yüksek Tempo' },
+    'low_scoring': { emoji: '🛡️', label: 'Düşük Skor' },
+    'card_risk': { emoji: '🟨', label: 'Kart Riski' },
+    'corner_fest': { emoji: '🚩', label: 'Korner Şov' },
   };
   return map[type] || { emoji: '🎯', label: 'Fırsat' };
+}
+
+/**
+ * Bahis pazarını okunabilir formata çevirir
+ */
+function formatMarket(market: LiveMarket, pick: string): string {
+  const marketLabels: Record<LiveMarket, string> = {
+    'next_goal': 'Sonraki Gol',
+    'match_result': 'Maç Sonucu',
+    'double_chance': 'Çifte Şans',
+    'over_under_15': '1.5 Gol',
+    'over_under_25': '2.5 Gol',
+    'over_under_35': '3.5 Gol',
+    'btts': 'Karşılıklı Gol',
+    'home_over_05': 'Ev 0.5 Üstü',
+    'away_over_05': 'Dep 0.5 Üstü',
+    'corner_over': 'Korner',
+    'card_over': 'Kart',
+  };
+  return `${marketLabels[market] || market}: ${pick}`;
 }
 
 /**
@@ -305,8 +322,6 @@ export function formatLiveSummaryTweet(opportunities: LiveOpportunity[]): string
 }
 
 // ============ CANLI BAHİS SONUÇ FORMATLARI ============
-
-import type { LiveBet } from './live-types';
 
 /**
  * Canlı bahis yerleştirildi tweet'i
@@ -414,6 +429,129 @@ export function formatLiveDailySummaryTweet(
   
   lines.push('');
   lines.push('#CanlıBahis #GünlükÖzet #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
+// ============ KATLAMA (SNOWBALL) TWEET FORMATLARI ============
+
+/**
+ * Katlama zinciri başladı
+ */
+export function formatSnowballStartTweet(chain: SnowballChain, firstBet: LiveBet): string {
+  const lines: string[] = [];
+  
+  lines.push('🎰 KATLAMA BAŞLADI!');
+  lines.push('');
+  lines.push(`💰 Başlangıç: ${chain.initialStake.toFixed(0)}₺`);
+  lines.push(`🎯 Hedef: ${(chain.initialStake * chain.targetMultiplier).toFixed(0)}₺ (${chain.targetMultiplier}x)`);
+  lines.push(`📊 Max ${chain.maxSteps} bahis`);
+  lines.push('');
+  lines.push('─────────────────');
+  lines.push(`1️⃣ İLK BAHİS:`);
+  lines.push('');
+  lines.push(`⚽ ${firstBet.match.homeTeam} vs ${firstBet.match.awayTeam}`);
+  lines.push(`📍 ${firstBet.match.minuteAtBet}' | ${firstBet.match.scoreAtBet}`);
+  lines.push(`🎯 ${formatMarket(firstBet.market, firstBet.pick)}`);
+  lines.push(`📊 @${firstBet.odds.toFixed(2)}`);
+  lines.push('');
+  lines.push(`💰 ${firstBet.stake.toFixed(0)}₺ → ${(firstBet.stake * firstBet.odds).toFixed(0)}₺`);
+  lines.push('');
+  lines.push('#Katlama #Snowball #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
+/**
+ * Katlama devam ediyor (kazandı, sonraki bahis)
+ */
+export function formatSnowballContinueTweet(chain: SnowballChain, lastBet: LiveBet, nextBet: LiveBet): string {
+  const lines: string[] = [];
+  
+  const stepEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+  
+  lines.push(`✅ ${stepEmojis[chain.currentStep - 2] || '✓'} KAZANDIK!`);
+  lines.push('');
+  lines.push(`⚽ ${lastBet.match.homeTeam} ${lastBet.result?.finalScore} ${lastBet.match.awayTeam}`);
+  lines.push(`🎯 ${lastBet.pick} @${lastBet.odds.toFixed(2)} ✓`);
+  lines.push('');
+  lines.push(`💰 ${chain.initialStake.toFixed(0)}₺ → ${chain.currentStake.toFixed(0)}₺`);
+  lines.push(`📈 Şu ana kadar ${(chain.currentStake / chain.initialStake).toFixed(1)}x`);
+  lines.push('');
+  lines.push('─────────────────');
+  lines.push(`${stepEmojis[chain.currentStep - 1] || '🔢'} SONRAKİ BAHİS:`);
+  lines.push('');
+  lines.push(`⚽ ${nextBet.match.homeTeam} vs ${nextBet.match.awayTeam}`);
+  lines.push(`📍 ${nextBet.match.minuteAtBet}' | ${nextBet.match.scoreAtBet}`);
+  lines.push(`🎯 ${formatMarket(nextBet.market, nextBet.pick)}`);
+  lines.push(`📊 @${nextBet.odds.toFixed(2)}`);
+  lines.push('');
+  lines.push(`💰 ${nextBet.stake.toFixed(0)}₺ → ${(nextBet.stake * nextBet.odds).toFixed(0)}₺`);
+  lines.push('');
+  lines.push('#Katlama #Snowball #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
+/**
+ * Katlama başarıyla tamamlandı
+ */
+export function formatSnowballWonTweet(chain: SnowballChain): string {
+  const lines: string[] = [];
+  const profit = chain.finalPayout! - chain.initialStake;
+  const multiplier = chain.finalPayout! / chain.initialStake;
+  
+  lines.push('🎉🎉🎉 KATLAMA BAŞARILI! 🎉🎉🎉');
+  lines.push('');
+  lines.push(`💰 ${chain.initialStake.toFixed(0)}₺ → ${chain.finalPayout!.toFixed(0)}₺`);
+  lines.push(`📈 ${multiplier.toFixed(1)}x KATLANDI!`);
+  lines.push(`🎯 ${chain.bets.length} bahiste ${chain.bets.length} kazandı`);
+  lines.push('');
+  lines.push('─────────────────');
+  lines.push('📊 ÖZET:');
+  
+  chain.bets.forEach((bet, i) => {
+    const stepEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
+    lines.push(`${stepEmojis[i]} ${bet.match.homeTeam} vs ${bet.match.awayTeam}`);
+    lines.push(`   ${bet.pick} @${bet.odds.toFixed(2)} ✅`);
+  });
+  
+  lines.push('');
+  lines.push(`🏆 TOPLAM KAR: +${profit.toFixed(0)}₺`);
+  lines.push('');
+  lines.push('#Katlama #Kazandık #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
+/**
+ * Katlama kaybetti
+ */
+export function formatSnowballLostTweet(chain: SnowballChain, lastBet: LiveBet): string {
+  const lines: string[] = [];
+  
+  lines.push('❌ KATLAMA SONA ERDİ');
+  lines.push('');
+  lines.push(`⚽ ${lastBet.match.homeTeam} ${lastBet.result?.finalScore || '?-?'} ${lastBet.match.awayTeam}`);
+  lines.push(`🎯 ${lastBet.pick} ✗`);
+  lines.push('');
+  lines.push(`📊 ${chain.currentStep}. bahiste kaybettik`);
+  lines.push(`💰 ${chain.initialStake.toFixed(0)}₺ başlangıç`);
+  lines.push(`💸 Kayıp: -${chain.initialStake.toFixed(0)}₺`);
+  lines.push('');
+  
+  // Önceki bahisleri göster
+  if (chain.bets.length > 1) {
+    lines.push('Önceki bahisler:');
+    chain.bets.slice(0, -1).forEach(bet => {
+      lines.push(`✅ ${bet.match.homeTeam} vs ${bet.match.awayTeam} @${bet.odds.toFixed(2)}`);
+    });
+    lines.push('');
+  }
+  
+  lines.push('Yeni katlama yakında başlayacak! 💪');
+  lines.push('');
+  lines.push('#Katlama #BilyonerBot');
   
   return lines.join('\n');
 }

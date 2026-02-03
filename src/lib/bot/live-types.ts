@@ -57,19 +57,31 @@ export interface LiveMatchStats {
   awayDangerousAttacks: number;
 }
 
-// ============ FIRSAT TİPLERİ ============
+// ============ GERÇEK BAHİS PAZARLARI ============
 
+// Canlı bahis için kullanılabilecek gerçek pazarlar
+export type LiveMarket = 
+  | 'next_goal'           // Sonraki Gol (Ev/Dep/Gol Yok)
+  | 'match_result'        // Maç Sonucu (1/X/2)
+  | 'double_chance'       // Çifte Şans (1X/X2/12)
+  | 'over_under_15'       // 1.5 Üst/Alt
+  | 'over_under_25'       // 2.5 Üst/Alt
+  | 'over_under_35'       // 3.5 Üst/Alt
+  | 'btts'                // Karşılıklı Gol (Var/Yok)
+  | 'home_over_05'        // Ev Sahibi 0.5 Üstü
+  | 'away_over_05'        // Deplasman 0.5 Üstü
+  | 'corner_over'         // Korner Üstü (7.5/8.5/9.5)
+  | 'card_over';          // Kart Üstü (3.5/4.5)
+
+// Fırsat tipleri - analiz için (pazar değil)
 export type OpportunityType = 
-  | 'goal_imminent'       // Gol geliyor (şut baskısı + 0-0)
-  | 'next_goal_home'      // Ev sahibi sonraki golü atar
-  | 'next_goal_away'      // Deplasman sonraki golü atar
-  | 'over_15'             // Maçta 1.5 üstü olur
-  | 'over_25'             // Maçta 2.5 üstü olur
-  | 'corner_over'         // Korner üstü
-  | 'card_coming'         // Kart gelecek
-  | 'btts_yes'            // Karşılıklı gol olur
-  | 'comeback'            // Geri dönüş potansiyeli
-  | 'momentum_shift';     // Momentum değişimi
+  | 'goal_pressure'       // Gol baskısı var (şut + top kontrolü)
+  | 'home_momentum'       // Ev sahibi baskın
+  | 'away_momentum'       // Deplasman baskın
+  | 'high_tempo'          // Yüksek tempo (gol gelir)
+  | 'low_scoring'         // Düşük tempolu maç
+  | 'card_risk'           // Kart riski yüksek
+  | 'corner_fest';        // Korner festivali
 
 export interface LiveOpportunity {
   id: string;
@@ -192,7 +204,7 @@ export interface LiveBet {
   };
   
   // Bahis detayı
-  market: string;
+  market: LiveMarket;
   pick: string;
   odds: number;
   stake: number;
@@ -202,6 +214,10 @@ export interface LiveBet {
   placedAt: Date;
   settledAt?: Date;
   
+  // Katlama bilgisi
+  chainId?: string;        // Hangi katlama zincirine ait
+  chainStep?: number;      // Zincirdeki kaçıncı adım (1, 2, 3...)
+  
   // Sonuç
   result?: {
     finalScore: string;
@@ -210,10 +226,48 @@ export interface LiveBet {
   };
 }
 
+// ============ KATLAMA (SNOWBALL) SİSTEMİ ============
+
+export interface SnowballChain {
+  id: string;
+  
+  // Başlangıç
+  initialStake: number;     // Başlangıç kasası (örn: 100 TL)
+  currentStake: number;     // Şu anki kasa
+  targetMultiplier: number; // Hedef çarpan (örn: 5x = 500 TL)
+  
+  // Durum
+  status: 'active' | 'won' | 'lost';
+  currentStep: number;      // Şu anki adım
+  maxSteps: number;         // Max adım sayısı (örn: 5)
+  
+  // Bahisler
+  bets: LiveBet[];
+  
+  // İstatistik
+  startedAt: Date;
+  endedAt?: Date;
+  
+  // Sonuç
+  finalPayout?: number;
+  profit?: number;
+}
+
+// Varsayılan katlama ayarları
+export const DEFAULT_SNOWBALL_CONFIG = {
+  initialStake: 100,        // 100 TL ile başla
+  targetMultiplier: 5,      // 5x hedef (500 TL)
+  maxSteps: 5,              // Max 5 bahis
+  minOdds: 1.40,            // Min oran
+  maxOdds: 2.00,            // Max oran (çok riskli olmasın)
+  minConfidence: 70,        // Min güven
+};
+
 // ============ TWEET TİPLERİ ============
 
 export interface LiveTweetData {
-  type: 'opportunity' | 'bet_placed' | 'bet_result';
+  type: 'opportunity' | 'bet_placed' | 'bet_result' | 'chain_started' | 'chain_update' | 'chain_finished';
   opportunity?: LiveOpportunity;
   bet?: LiveBet;
+  chain?: SnowballChain;
 }

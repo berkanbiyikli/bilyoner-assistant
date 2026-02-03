@@ -34,8 +34,14 @@ export const LEAGUE_PRIORITIES: Record<number, number> = {
   40: 75,    // Championship
   41: 65,    // League One
   42: 60,    // League Two
-  45: 55,    // FA Cup
-  48: 54,    // League Cup
+  
+  // 🏆 Lig Kupaları (Yüksek Öncelik - Güzel Maçlar!)
+  45: 91,    // FA Cup (İngiltere)
+  48: 90,    // EFL Cup / League Cup / Carabao Cup (İngiltere)
+  143: 89,   // Copa del Rey (İspanya)
+  137: 88,   // Coppa Italia (İtalya)
+  81: 87,    // DFB Pokal (Almanya)
+  66: 86,    // Coupe de France (Fransa)
   
   // 🇪🇸 İspanya Alt Ligler
   141: 74,   // La Liga 2
@@ -45,11 +51,9 @@ export const LEAGUE_PRIORITIES: Record<number, number> = {
   
   // 🇩🇪 Almanya Alt Ligler
   79: 72,    // 2. Bundesliga
-  81: 53,    // DFB Pokal
   
   // 🇫🇷 Fransa Alt Ligler
   62: 71,    // Ligue 2
-  66: 52,    // Coupe de France
   
   // 🌍 Diğer Avrupa
   179: 50,   // Scottish Premiership
@@ -99,6 +103,7 @@ export const LEAGUE_CATEGORIES = {
   TOP_5: [39, 140, 135, 78, 61],
   TURKEY: [203, 204],
   UEFA: [2, 3, 848],
+  CUPS: [45, 48, 143, 137, 81, 66],  // 🏆 Lig Kupaları
   INTERNATIONAL: [1, 4, 9, 6],
 } as const;
 
@@ -130,7 +135,15 @@ export const TOP_20_LEAGUES = [
   { id: 103, name: 'Eliteserien', country: 'Norway', flag: '🇳🇴' },
   { id: 106, name: 'Ekstraklasa', country: 'Poland', flag: '🇵🇱' },
   
-  // 🌏 Diğer Kıtalar
+  // � Lig Kupaları
+  { id: 45, name: 'FA Cup', country: 'England', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+  { id: 48, name: 'EFL Cup', country: 'England', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+  { id: 143, name: 'Copa del Rey', country: 'Spain', flag: '🇪🇸' },
+  { id: 137, name: 'Coppa Italia', country: 'Italy', flag: '🇮🇹' },
+  { id: 81, name: 'DFB Pokal', country: 'Germany', flag: '🇩🇪' },
+  { id: 66, name: 'Coupe de France', country: 'France', flag: '🇫🇷' },
+  
+  // �🌏 Diğer Kıtalar
   { id: 307, name: 'Saudi Pro League', country: 'Saudi Arabia', flag: '🇸🇦' },
   { id: 71, name: 'Serie A', country: 'Brazil', flag: '🇧🇷' },
   { id: 128, name: 'Liga Profesional', country: 'Argentina', flag: '🇦🇷' },
@@ -174,6 +187,7 @@ export const BILYONER_LEAGUES: number[] = [
   
   // İspanya
   141,  // La Liga 2
+  143,  // Copa del Rey
   
   // İtalya
   136,  // Serie B
@@ -217,6 +231,7 @@ export function getLeagueCategory(leagueId: number): string {
   if (LEAGUE_CATEGORIES.TOP_5.includes(leagueId as never)) return 'top5';
   if (LEAGUE_CATEGORIES.TURKEY.includes(leagueId as never)) return 'turkey';
   if (LEAGUE_CATEGORIES.UEFA.includes(leagueId as never)) return 'uefa';
+  if (LEAGUE_CATEGORIES.CUPS.includes(leagueId as never)) return 'cups';
   if (LEAGUE_CATEGORIES.INTERNATIONAL.includes(leagueId as never)) return 'international';
   return 'other';
 }

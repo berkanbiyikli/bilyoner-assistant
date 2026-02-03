@@ -209,6 +209,85 @@ export function formatResultTweet(coupon: BotCoupon, newBankroll: number): strin
   return lines.join('\n');
 }
 
+// ============ Z RAPORU - GÜN SONU ÖZETİ ============
+
+import type { BankrollState } from './types';
+
+/**
+ * Z Raporu - Günün özet tweeti (gece 02:00'de atılır)
+ * Kasa durumu, gün içi performans, istatistikler
+ */
+export function formatDailyReportTweet(coupon: BotCoupon, state: BankrollState): string {
+  const lines: string[] = [];
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('tr-TR', { 
+    day: 'numeric', 
+    month: 'long', 
+    year: 'numeric' 
+  });
+  
+  const isWon = coupon.status === 'won';
+  const profit = coupon.result?.profit || -coupon.stake;
+  
+  // Header - Z Raporu
+  lines.push('📊 GÜN SONU Z RAPORU');
+  lines.push(`📅 ${dateStr}`);
+  lines.push('━━━━━━━━━━━━━━━━━');
+  lines.push('');
+  
+  // Günün Kuponu Sonucu
+  lines.push(isWon ? '✅ KUPON KAZANDI!' : '❌ KUPON KAYBETTİ');
+  lines.push('');
+  
+  // Maç Detayları
+  coupon.matches.forEach((match, i) => {
+    const result = coupon.result?.matchResults.find(r => r.fixtureId === match.fixtureId);
+    const won = result?.predictionWon;
+    const emoji = won ? '✅' : '❌';
+    const score = result ? `${result.homeScore}-${result.awayScore}` : '?-?';
+    const pred = formatPredictionShort(match.prediction.label);
+    
+    lines.push(`${emoji} ${match.homeTeam} ${score} ${match.awayTeam}`);
+    lines.push(`   └ ${pred} @${match.prediction.odds.toFixed(2)}`);
+  });
+  
+  lines.push('');
+  lines.push('━━━━━━━━━━━━━━━━━');
+  
+  // Finansal Özet
+  lines.push('');
+  lines.push('💰 KASA DURUMU');
+  lines.push(`   Yatırım: ${coupon.stake.toFixed(0)}₺`);
+  lines.push(`   Oran: ${coupon.totalOdds.toFixed(2)}x`);
+  
+  if (isWon) {
+    lines.push(`   Kazanç: +${coupon.potentialWin.toFixed(0)}₺`);
+    lines.push(`   Net Kar: +${profit.toFixed(0)}₺ 🎉`);
+  } else {
+    lines.push(`   Kayıp: -${Math.abs(profit).toFixed(0)}₺ 💸`);
+  }
+  
+  lines.push('');
+  lines.push(`💼 Güncel Kasa: ${state.balance.toFixed(0)}₺`);
+  
+  // Genel İstatistikler
+  const winRate = state.totalBets > 0 ? ((state.wonBets / state.totalBets) * 100).toFixed(0) : '0';
+  const totalProfit = state.totalWon - state.totalStaked;
+  const roi = state.totalStaked > 0 ? ((totalProfit / state.totalStaked) * 100).toFixed(1) : '0';
+  
+  lines.push('');
+  lines.push('📈 GENEL İSTATİSTİK');
+  lines.push(`   Toplam: ${state.totalBets} kupon`);
+  lines.push(`   Kazanan: ${state.wonBets} | Kaybeden: ${state.lostBets}`);
+  lines.push(`   Win Rate: %${winRate}`);
+  lines.push(`   ROI: %${roi}`);
+  
+  lines.push('');
+  lines.push('#Bahis #ZRaporu #BilyonerBot');
+  
+  return lines.join('\n');
+}
+
 // ============ CANLI MAÇ TWEET FORMATLARI ============
 
 import type { LiveOpportunity, LiveBet, SnowballChain, LiveMarket } from './live-types';

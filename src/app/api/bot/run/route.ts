@@ -289,7 +289,7 @@ ${liveUpdates.join('\n')}
 }
 
 /**
- * Kupon sonucunu kontrol et
+ * Kupon sonucunu kontrol et - Tüm maçlar bitene kadar bekler
  */
 async function handleCheckResult(
   state: BankrollState, 
@@ -307,10 +307,56 @@ async function handleCheckResult(
   
   log('Kupon sonucu kontrol ediliyor...');
   
+  // Tüm maçların durumunu kontrol et
+  const apiKey = process.env.API_FOOTBALL_KEY;
+  const baseUrl = process.env.API_FOOTBALL_BASE_URL || 'https://v3.football.api-sports.io';
+  
+  let allMatchesFinished = true;
+  let finishedCount = 0;
+  const totalMatches = state.activeCoupon.matches.length;
+  
+  for (const match of state.activeCoupon.matches) {
+    try {
+      const res = await fetch(`${baseUrl}/fixtures?id=${match.fixtureId}`, {
+        headers: { 'x-apisports-key': apiKey || '' },
+      });
+      const data = await res.json();
+      const fixture = data?.response?.[0];
+      
+      if (!fixture) continue;
+      
+      const status = fixture.fixture?.status?.short;
+      const finishedStatuses = ['FT', 'AET', 'PEN', 'AWD', 'WO'];
+      
+      if (finishedStatuses.includes(status)) {
+        finishedCount++;
+      } else {
+        allMatchesFinished = false;
+      }
+    } catch (error) {
+      log(`Maç durumu kontrol hatası: ${match.fixtureId}`);
+      allMatchesFinished = false;
+    }
+  }
+  
+  // Tüm maçlar bitmedişse bekle
+  if (!allMatchesFinished) {
+    log(`Maçlar henüz bitmiyor (${finishedCount}/${totalMatches} tamamlandı)`);
+    return NextResponse.json({
+      success: true,
+      message: `Maçlar devam ediyor (${finishedCount}/${totalMatches} bitti)`,
+      finishedCount,
+      totalMatches,
+      logs,
+    });
+  }
+  
+  log(`Tüm maçlar bitti (${finishedCount}/${totalMatches})`);
+  
   const updatedCoupon = await checkCouponResults(state.activeCoupon);
   
   if (updatedCoupon.status === 'pending') {
-    log('Kupon henüz sonuçlanmadı');
+    log('Kupon henüz sonuçlanmadı (API gecikmesi olabilir)');
     return NextResponse.json({
       success: true,
       message: 'Kupon henüz sonuçlanmadı',
@@ -350,19 +396,20 @@ async function handleCheckResult(
   
   log(`Yeni kasa: ${state.balance.toFixed(2)} TL`);
   
-  // Sonuç tweeti (quote tweet olarak)
+  // Z RAPORU - Gün sonu özet tweeti
   const useMock = process.env.TWITTER_MOCK === 'true';
   const quoteTweetId = updatedCoupon.tweetId || REFERENCE_TWEET_ID;
   
   if (!useMock) {
-    const resultText = formatResultTweet(updatedCoupon, state.balance);
-    await sendQuoteTweet(resultText, quoteTweetId);
-    log('Sonuç tweeti gönderildi');
+    const { formatDailyReportTweet } = await import('@/lib/bot/twitter');
+    const zRaporuText = formatDailyReportTweet(updatedCoupon, state);
+    await sendQuoteTweet(zRaporuText, quoteTweetId);
+    log('Z Raporu gönderildi');
   }
   
   return NextResponse.json({
     success: true,
-    message: `Kupon ${isWon ? 'KAZANDI' : 'KAYBETTİ'}`,
+    message: `Kupon ${isWon ? 'KAZANDI' : 'KAYBETTİ'} - Z Raporu gönderildi`,
     result: {
       status: updatedCoupon.status,
       profit,

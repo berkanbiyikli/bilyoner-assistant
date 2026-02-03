@@ -7,11 +7,11 @@
     },
     {
       "path": "/api/bot/run?action=check-live",
-      "schedule": "*/30 14-20 * * *"
+      "schedule": "*/30 14-23 * * *"
     },
     {
       "path": "/api/bot/run?action=check-result",
-      "schedule": "30 20 * * *"
+      "schedule": "0 23 * * *"
     }
   ]
 }

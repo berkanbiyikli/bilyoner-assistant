@@ -532,9 +532,9 @@ async function handleValueAlert(
   log('Yüksek value betler taranıyor...');
   
   // Günün maçlarını al
-  const matchesResult = await getDailyMatches();
+  const matches = await getDailyMatches();
   
-  if (!matchesResult.success || !matchesResult.matches) {
+  if (!matches || matches.length === 0) {
     log('Maçlar alınamadı');
     return NextResponse.json({
       success: false,
@@ -547,7 +547,7 @@ async function handleValueAlert(
   const couponFixtureIds = state.activeCoupon?.matches.map(m => m.fixtureId) || [];
   
   // Yüksek value betleri bul
-  const alerts = findHighValueBets(matchesResult.matches, couponFixtureIds);
+  const alerts = findHighValueBets(matches, couponFixtureIds);
   
   if (alerts.length === 0) {
     log('Yüksek value bet bulunamadı');

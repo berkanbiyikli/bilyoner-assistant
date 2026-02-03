@@ -14,6 +14,8 @@ import type {
   BotConfig,
   DEFAULT_BOT_CONFIG 
 } from './types';
+import { DEFAULT_STREAK_INFO } from './streak-tracker';
+import { DEFAULT_AI_LEARNING_STATS } from './ai-learning';
 
 // ============ STORE INTERFACE ============
 
@@ -58,6 +60,10 @@ const initialState: BankrollState = {
     count: 0,
     couponIds: [],
   },
+  // 🔥 Streak Takibi
+  streak: DEFAULT_STREAK_INFO,
+  // 🤖 AI Öğrenme
+  aiLearning: DEFAULT_AI_LEARNING_STATS,
 };
 
 // ============ STORE ============
@@ -315,6 +321,10 @@ const INITIAL_SERVER_STATE: BankrollState = {
     count: 0,
     couponIds: [],
   },
+  // 🔥 Streak Takibi
+  streak: DEFAULT_STREAK_INFO,
+  // 🤖 AI Öğrenme
+  aiLearning: DEFAULT_AI_LEARNING_STATS,
   activeCoupon: null,
   history: [],
   lastUpdated: new Date(),

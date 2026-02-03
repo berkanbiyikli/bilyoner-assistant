@@ -80,10 +80,16 @@ export async function GET(request: NextRequest) {
       case 'check-result':
         return await handleCheckResult(state, log, logs);
         
+      case 'reminder':
+        return await handleMatchReminder(state, log, logs);
+        
+      case 'value-alert':
+        return await handleValueAlert(state, log, logs);
+        
       default:
         return NextResponse.json({ 
           error: 'Invalid action', 
-          validActions: ['new-coupon', 'check-live', 'check-result'] 
+          validActions: ['new-coupon', 'check-live', 'check-result', 'reminder', 'value-alert'] 
         }, { status: 400 });
     }
     
@@ -372,11 +378,30 @@ async function handleCheckResult(
   log(`Kupon sonuçlandı: ${isWon ? 'KAZANDI' : 'KAYBETTİ'}`);
   log(`Kar/Zarar: ${profit.toFixed(2)} TL`);
   
+  // 🔥 Streak güncelle
+  const { updateStreak, checkMilestones, formatStreakTweet, formatMilestoneTweet, DEFAULT_STREAK_INFO } = await import('@/lib/bot/streak-tracker');
+  const currentStreak = state.streak || DEFAULT_STREAK_INFO;
+  state.streak = updateStreak(currentStreak, isWon);
+  log(`Streak güncellendi: ${state.streak.currentStreak > 0 ? '+' : ''}${state.streak.currentStreak}`);
+  
+  // 🤖 AI Learning güncelle
+  const { learnFromCouponResult, DEFAULT_AI_LEARNING_STATS } = await import('@/lib/bot/ai-learning');
+  const currentAI = state.aiLearning || DEFAULT_AI_LEARNING_STATS;
+  state.aiLearning = learnFromCouponResult(updatedCoupon, currentAI);
+  log('AI öğrenme istatistikleri güncellendi');
+  
   // Kasayı güncelle
   state.balance += winAmount;
   state.wonBets += isWon ? 1 : 0;
   state.lostBets += isWon ? 0 : 1;
   state.totalWon += winAmount;
+  
+  // 🏆 Milestone kontrolü
+  const newMilestones = checkMilestones(state, state.streak);
+  if (newMilestones.length > 0) {
+    state.streak.milestones = [...state.streak.milestones, ...newMilestones];
+    log(`${newMilestones.length} yeni milestone kazanıldı!`);
+  }
   
   // History'ye ekle
   state.history.push({
@@ -402,9 +427,26 @@ async function handleCheckResult(
   
   if (!useMock) {
     const { formatDailyReportTweet } = await import('@/lib/bot/twitter');
+    const { sendTweet } = await import('@/lib/bot/twitter');
+    
+    // 1. Z Raporu gönder
     const zRaporuText = formatDailyReportTweet(updatedCoupon, state);
     await sendQuoteTweet(zRaporuText, quoteTweetId);
     log('Z Raporu gönderildi');
+    
+    // 2. Streak tweet'i (3+ seri varsa)
+    const streakTweetText = formatStreakTweet(state.streak, state);
+    if (streakTweetText) {
+      await sendTweet(streakTweetText);
+      log('Streak tweeti gönderildi');
+    }
+    
+    // 3. Milestone tweetleri
+    for (const milestone of newMilestones) {
+      const milestoneTweetText = formatMilestoneTweet(milestone, state);
+      await sendTweet(milestoneTweetText);
+      log(`Milestone tweeti gönderildi: ${milestone.type}`);
+    }
   }
   
   return NextResponse.json({
@@ -414,7 +456,132 @@ async function handleCheckResult(
       status: updatedCoupon.status,
       profit,
       newBalance: state.balance,
+      streak: state.streak.currentStreak,
+      newMilestones: newMilestones.map(m => m.type),
     },
+    logs,
+  });
+}
+
+/**
+ * Maç öncesi hatırlatma (30 dk önce)
+ */
+async function handleMatchReminder(
+  state: BankrollState, 
+  log: (msg: string) => void,
+  logs: string[]
+) {
+  if (!state.activeCoupon) {
+    log('Aktif kupon yok, hatırlatma gerekmez');
+    return NextResponse.json({
+      success: true,
+      message: 'Aktif kupon yok',
+      logs,
+    });
+  }
+  
+  const { getUpcomingMatches, formatMatchReminderTweet, formatMultiMatchReminderTweet } = await import('@/lib/bot/alerts');
+  
+  const reminders = getUpcomingMatches(state.activeCoupon, 30);
+  
+  if (reminders.length === 0) {
+    log('Hatırlatılacak maç yok');
+    return NextResponse.json({
+      success: true,
+      message: '30 dakika içinde maç yok',
+      logs,
+    });
+  }
+  
+  log(`${reminders.length} maç 30 dakika içinde başlayacak`);
+  
+  const useMock = process.env.TWITTER_MOCK === 'true';
+  const quoteTweetId = state.activeCoupon.tweetId || REFERENCE_TWEET_ID;
+  
+  if (!useMock) {
+    const reminderText = reminders.length === 1 
+      ? formatMatchReminderTweet(reminders[0])
+      : formatMultiMatchReminderTweet(reminders);
+    
+    await sendQuoteTweet(reminderText, quoteTweetId);
+    log('Hatırlatma tweeti gönderildi');
+  }
+  
+  return NextResponse.json({
+    success: true,
+    message: `${reminders.length} maç hatırlatması gönderildi`,
+    reminders: reminders.map(r => ({
+      match: `${r.homeTeam} vs ${r.awayTeam}`,
+      minutesUntil: r.minutesUntilKickoff,
+    })),
+    logs,
+  });
+}
+
+/**
+ * Yüksek value bet alert
+ */
+async function handleValueAlert(
+  state: BankrollState, 
+  log: (msg: string) => void,
+  logs: string[]
+) {
+  const { findHighValueBets, formatValueBetAlertTweet } = await import('@/lib/bot/alerts');
+  const { getDailyMatches } = await import('@/lib/api-football/daily-matches');
+  
+  log('Yüksek value betler taranıyor...');
+  
+  // Günün maçlarını al
+  const matchesResult = await getDailyMatches();
+  
+  if (!matchesResult.success || !matchesResult.matches) {
+    log('Maçlar alınamadı');
+    return NextResponse.json({
+      success: false,
+      message: 'Maçlar alınamadı',
+      logs,
+    });
+  }
+  
+  // Kupondaki maçları çıkar
+  const couponFixtureIds = state.activeCoupon?.matches.map(m => m.fixtureId) || [];
+  
+  // Yüksek value betleri bul
+  const alerts = findHighValueBets(matchesResult.matches, couponFixtureIds);
+  
+  if (alerts.length === 0) {
+    log('Yüksek value bet bulunamadı');
+    return NextResponse.json({
+      success: true,
+      message: 'Yüksek value bet yok',
+      logs,
+    });
+  }
+  
+  log(`${alerts.length} yüksek value bet bulundu`);
+  
+  // Sadece en iyisini tweet et (günde max 1-2 olsun)
+  const bestAlert = alerts[0];
+  
+  const useMock = process.env.TWITTER_MOCK === 'true';
+  
+  if (!useMock) {
+    const { sendTweet } = await import('@/lib/bot/twitter');
+    const alertText = formatValueBetAlertTweet(bestAlert);
+    await sendTweet(alertText);
+    log(`Value alert tweeti gönderildi: ${bestAlert.homeTeam} vs ${bestAlert.awayTeam}`);
+  }
+  
+  return NextResponse.json({
+    success: true,
+    message: `Value alert gönderildi: ${bestAlert.value.toFixed(0)}% value`,
+    alert: {
+      match: `${bestAlert.homeTeam} vs ${bestAlert.awayTeam}`,
+      prediction: bestAlert.prediction.label,
+      odds: bestAlert.prediction.odds,
+      value: bestAlert.value,
+    },
+    totalAlerts: alerts.length,
     logs,
   });
 }

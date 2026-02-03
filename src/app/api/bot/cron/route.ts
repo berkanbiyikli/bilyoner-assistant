@@ -243,13 +243,19 @@ function formatCouponStatusTweet(statuses: CouponMatchStatus[]): string {
 }
 
 /**
- * Canlı fırsat tara - Diğer maçlarda value bet ara
+ * Canlı fırsat tara - Gerçek value bet fırsatları
+ * 
+ * Mantık:
+ * - 85+ dk'da fırsat vermiyoruz (maç bitiyor)
+ * - Zaten tutmuş tahminleri önermiyoruz
+ * - Gerçekçi senaryolar: comeback, gol beklentisi yüksek maçlar
  */
 async function scanLiveOpportunities(): Promise<Array<{
   match: LiveMatchData;
   opportunity: string;
   confidence: number;
   odds: number;
+  reasoning: string;
 }>> {
   try {
     // Canlı maçları çek
@@ -265,6 +271,7 @@ async function scanLiveOpportunities(): Promise<Array<{
       opportunity: string;
       confidence: number;
       odds: number;
+      reasoning: string;
     }> = [];
     
     for (const fixture of liveMatches.slice(0, 50)) {
@@ -272,6 +279,10 @@ async function scanLiveOpportunities(): Promise<Array<{
       const awayScore = fixture.goals?.away ?? 0;
       const minute = fixture.fixture?.status?.elapsed || 0;
       const totalGoals = homeScore + awayScore;
+      const status = fixture.fixture?.status?.short || '';
+      
+      // 85+ dk veya devre arası/maç sonu - fırsat yok
+      if (minute >= 85 || status === 'HT' || status === 'FT') continue;
       
       const matchData: LiveMatchData = {
         fixtureId: fixture.fixture?.id,
@@ -280,55 +291,82 @@ async function scanLiveOpportunities(): Promise<Array<{
         homeScore,
         awayScore,
         minute,
-        status: fixture.fixture?.status?.short || '',
+        status,
         league: fixture.league?.name || '',
       };
       
-      // Fırsat 1: 0-0 ve 60+ dk → Alt 2.5 value
-      if (totalGoals === 0 && minute >= 60 && minute <= 75) {
+      // ===== GERÇEK VALUE FIRSATLARI =====
+      
+      // Fırsat 1: 0-0 ve 55-70 dk arası → Sonraki gol ev sahibi/deplasman
+      // Mantık: Uzun süre 0-0 giden maçlarda takımlar açılır
+      if (totalGoals === 0 && minute >= 55 && minute <= 70) {
         opportunities.push({
           match: matchData,
-          opportunity: 'Alt 2.5 Gol',
-          confidence: 70 + Math.floor((minute - 60) * 1.5),
-          odds: 1.30 + (75 - minute) * 0.02,
+          opportunity: 'Sonraki Gol Ev Sahibi',
+          confidence: 55,
+          odds: 2.10,
+          reasoning: `${minute}' 0-0, takımlar açılacak`,
         });
       }
       
-      // Fırsat 2: 2+ gol ve 45-60 dk → Üst 2.5 value
-      if (totalGoals >= 2 && minute >= 45 && minute <= 60) {
-        opportunities.push({
-          match: matchData,
-          opportunity: 'Üst 2.5 Gol',
-          confidence: 65 + totalGoals * 5,
-          odds: 1.50 + (60 - minute) * 0.02,
-        });
+      // Fırsat 2: 1-0 veya 0-1 ve 60-75 dk → KG Var
+      // Mantık: Geriden gelen takım baskı yapacak
+      if ((homeScore === 1 && awayScore === 0) || (homeScore === 0 && awayScore === 1)) {
+        if (minute >= 60 && minute <= 75) {
+          const behind = homeScore === 0 ? matchData.homeTeam : matchData.awayTeam;
+          opportunities.push({
+            match: matchData,
+            opportunity: 'KG Var',
+            confidence: 60,
+            odds: 1.80,
+            reasoning: `${behind} beraberlik için bastıracak`,
+          });
+        }
       }
       
-      // Fırsat 3: Bir taraf 2+ farkla önde ve 70+ dk → O taraf MS
-      if (Math.abs(homeScore - awayScore) >= 2 && minute >= 70) {
-        const leader = homeScore > awayScore ? matchData.homeTeam : matchData.awayTeam;
-        opportunities.push({
-          match: matchData,
-          opportunity: `MS ${leader}`,
-          confidence: 80 + (minute - 70),
-          odds: 1.10 + (90 - minute) * 0.01,
-        });
-      }
-      
-      // Fırsat 4: Her iki takım da gol atmış ve 30-60 dk → 3.5 üstü value
-      if (homeScore > 0 && awayScore > 0 && minute >= 30 && minute <= 60) {
+      // Fırsat 3: 2+ gol ve 35-55 dk → Üst 3.5
+      // Mantık: Gollü başlayan maçlar genelde gollü devam eder
+      if (totalGoals >= 2 && minute >= 35 && minute <= 55) {
         opportunities.push({
           match: matchData,
           opportunity: 'Üst 3.5 Gol',
-          confidence: 55 + totalGoals * 5,
-          odds: 2.00 + (60 - minute) * 0.03,
+          confidence: 58 + totalGoals * 3,
+          odds: 1.90,
+          reasoning: `${minute}' ${totalGoals} gol, tempo yüksek`,
+        });
+      }
+      
+      // Fırsat 4: 1 fark ve 70-80 dk → Çifte şans geriden gelen
+      // Mantık: Son 20 dk comeback ihtimali
+      if (Math.abs(homeScore - awayScore) === 1 && minute >= 70 && minute <= 80) {
+        const behind = homeScore < awayScore ? matchData.homeTeam : matchData.awayTeam;
+        const behindScore = homeScore < awayScore ? 'X2' : '1X';
+        opportunities.push({
+          match: matchData,
+          opportunity: `Çifte Şans ${behindScore}`,
+          confidence: 50,
+          odds: 2.50,
+          reasoning: `${behind} için son ${90 - minute} dk`,
+        });
+      }
+      
+      // Fırsat 5: Her iki takım gol atmış, 45-60 dk → Üst 4.5
+      // Mantık: Açık maç, daha çok gol gelir
+      if (homeScore > 0 && awayScore > 0 && totalGoals >= 3 && minute >= 45 && minute <= 60) {
+        opportunities.push({
+          match: matchData,
+          opportunity: 'Üst 4.5 Gol',
+          confidence: 52 + totalGoals * 2,
+          odds: 2.30,
+          reasoning: `Açık maç, ${totalGoals} gol var`,
         });
       }
     }
     
     // En iyi 3 fırsatı döndür (confidence'a göre sırala)
+    // Minimum %55 güven
     return opportunities
-      .filter(o => o.confidence >= 65)
+      .filter(o => o.confidence >= 55)
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 3);
       
@@ -346,6 +384,7 @@ function formatOpportunityTweet(opportunities: Array<{
   opportunity: string;
   confidence: number;
   odds: number;
+  reasoning: string;
 }>): string {
   const lines: string[] = [];
   
@@ -353,11 +392,12 @@ function formatOpportunityTweet(opportunities: Array<{
   lines.push('');
   
   opportunities.forEach((opp, i) => {
-    const { match, opportunity, confidence, odds } = opp;
+    const { match, opportunity, confidence, odds, reasoning } = opp;
     
     lines.push(`${i + 1}. ${match.homeTeam} ${match.homeScore}-${match.awayScore} ${match.awayTeam}`);
     lines.push(`   ⏱️ ${match.minute}' | ${match.league}`);
-    lines.push(`   🎯 ${opportunity} @${odds.toFixed(2)} | %${confidence} güven`);
+    lines.push(`   🎯 ${opportunity} @${odds.toFixed(2)}`);
+    lines.push(`   💡 ${reasoning}`);
     
     if (i < opportunities.length - 1) lines.push('');
   });

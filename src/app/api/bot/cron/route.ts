@@ -20,6 +20,7 @@ const API_BASE = process.env.API_FOOTBALL_BASE_URL || 'https://v3.football.api-s
 let lastCouponSnapshot = '';
 let lastOpportunitySnapshot = '';
 let lastCouponTweetTime = 0;
+let lastOpportunityTweetTime = 0; // Fırsat tweetleri için de cooldown
 
 interface LiveMatchData {
   fixtureId: number;
@@ -244,13 +245,19 @@ function formatCouponStatusTweet(statuses: CouponMatchStatus[]): string {
 }
 
 /**
- * Canlı fırsat tara - Gerçek value bet fırsatları
+ * Canlı fırsat tara - SADECE Sıradaki Gol bahislerine odaklan
  * 
  * Mantık:
- * - 85+ dk'da fırsat vermiyoruz (maç bitiyor)
- * - Zaten tutmuş tahminleri önermiyoruz
- * - Gerçekçi senaryolar: comeback, gol beklentisi yüksek maçlar
+ * - 80+ dk'da fırsat vermiyoruz (maç bitiyor)
+ * - İstatistik bazlı karar: şut baskısı, top kontrolü, tehlikeli atak
+ * - Dominant takımı bul → Sıradaki gol o atar
+ * - Aynı maçı tekrar önerme
  */
+
+// Daha önce önerilen maçları takip et (spam önleme)
+const suggestedMatches = new Map<number, { timestamp: number; opportunity: string }>();
+const SUGGESTION_COOLDOWN = 30 * 60 * 1000; // 30 dakika aynı maçı önerme
+
 async function scanLiveOpportunities(): Promise<Array<{
   match: LiveMatchData;
   opportunity: string;
@@ -275,113 +282,230 @@ async function scanLiveOpportunities(): Promise<Array<{
       reasoning: string;
     }> = [];
     
+    // Eski öneri kayıtlarını temizle
+    const now = Date.now();
+    for (const [fixtureId, data] of suggestedMatches) {
+      if (now - data.timestamp > SUGGESTION_COOLDOWN) {
+        suggestedMatches.delete(fixtureId);
+      }
+    }
+    
     for (const fixture of liveMatches.slice(0, 50)) {
+      const fixtureId = fixture.fixture?.id;
       const homeScore = fixture.goals?.home ?? 0;
       const awayScore = fixture.goals?.away ?? 0;
       const minute = fixture.fixture?.status?.elapsed || 0;
       const totalGoals = homeScore + awayScore;
       const status = fixture.fixture?.status?.short || '';
+      const leagueName = fixture.league?.name || '';
       
-      // 85+ dk veya devre arası/maç sonu - fırsat yok
-      if (minute >= 85 || status === 'HT' || status === 'FT') continue;
+      // 80+ dk veya devre arası/maç sonu - fırsat yok
+      if (minute >= 80 || status === 'HT' || status === 'FT') continue;
+      
+      // 15 dk'dan önce veri yetersiz
+      if (minute < 15) continue;
       
       const matchData: LiveMatchData = {
-        fixtureId: fixture.fixture?.id,
+        fixtureId,
         homeTeam: fixture.teams?.home?.name || '',
         awayTeam: fixture.teams?.away?.name || '',
         homeScore,
         awayScore,
         minute,
         status,
-        league: fixture.league?.name || '',
+        league: leagueName,
       };
       
-      // ===== GERÇEK VALUE FIRSATLARI =====
-      // NOT: Zaten tutmuş bahisleri önerme!
+      // İstatistikleri çek (varsa)
+      const stats = fixture.statistics;
+      let homePossession = 50;
+      let awayPossession = 50;
+      let homeShotsOn = 0;
+      let awayShotsOn = 0;
+      let homeShots = 0;
+      let awayShots = 0;
+      let homeDangerous = 0;
+      let awayDangerous = 0;
       
-      // Fırsat 1: 0-0 ve 55-70 dk arası → Sonraki gol ev sahibi
-      // Mantık: Uzun süre 0-0 giden maçlarda takımlar açılır
-      if (totalGoals === 0 && minute >= 55 && minute <= 70) {
-        opportunities.push({
-          match: matchData,
-          opportunity: 'Sonraki Gol Ev Sahibi',
-          confidence: 55,
-          odds: 2.10,
-          reasoning: `${minute}' 0-0, takımlar açılacak`,
-        });
+      if (stats && Array.isArray(stats) && stats.length >= 2) {
+        const homeStats = stats[0]?.statistics || [];
+        const awayStats = stats[1]?.statistics || [];
+        
+        for (const s of homeStats) {
+          if (s.type === 'Ball Possession') homePossession = parseInt(s.value) || 50;
+          if (s.type === 'Shots on Goal') homeShotsOn = parseInt(s.value) || 0;
+          if (s.type === 'Total Shots') homeShots = parseInt(s.value) || 0;
+          if (s.type === 'Dangerous Attacks') homeDangerous = parseInt(s.value) || 0;
+        }
+        for (const s of awayStats) {
+          if (s.type === 'Ball Possession') awayPossession = parseInt(s.value) || 50;
+          if (s.type === 'Shots on Goal') awayShotsOn = parseInt(s.value) || 0;
+          if (s.type === 'Total Shots') awayShots = parseInt(s.value) || 0;
+          if (s.type === 'Dangerous Attacks') awayDangerous = parseInt(s.value) || 0;
+        }
       }
       
-      // Fırsat 2: 1-0 veya 0-1 ve 60-75 dk → KG Var (henüz tutmamış)
-      // Mantık: Geriden gelen takım baskı yapacak
-      if ((homeScore === 1 && awayScore === 0) || (homeScore === 0 && awayScore === 1)) {
-        if (minute >= 60 && minute <= 75) {
-          const behind = homeScore === 0 ? matchData.homeTeam : matchData.awayTeam;
+      // ===== SADECE SIRADAKİ GOL BAHİSLERİ =====
+      
+      // Dominant takımı tespit et
+      const homeScore_dominance = (homeShotsOn * 3) + (homeShots * 1.5) + (homePossession * 0.5) + (homeDangerous * 0.5);
+      const awayScore_dominance = (awayShotsOn * 3) + (awayShots * 1.5) + (awayPossession * 0.5) + (awayDangerous * 0.5);
+      
+      const totalShotsOn = homeShotsOn + awayShotsOn;
+      const dominanceRatio = homeScore_dominance > 0 ? awayScore_dominance / homeScore_dominance : 1;
+      
+      // SIRADAKİ GOL - EV SAHİBİ
+      // Şartlar: Ev sahibi dominant, istatistikler yeterli
+      if (homeScore_dominance > awayScore_dominance * 1.4 && totalShotsOn >= 3) {
+        const confidenceBase = 55;
+        let bonus = 0;
+        const reasons: string[] = [];
+        
+        // İsabetli şut üstünlüğü
+        if (homeShotsOn >= awayShotsOn + 2) {
+          bonus += 10;
+          reasons.push(`${homeShotsOn} isabetli şut`);
+        }
+        
+        // Top kontrolü
+        if (homePossession >= 58) {
+          bonus += 8;
+          reasons.push(`%${homePossession} top`);
+        }
+        
+        // Ev avantajı + golsüz
+        if (totalGoals === 0 && minute >= 30) {
+          bonus += 5;
+          reasons.push(`${minute}' golsüz baskı`);
+        }
+        
+        // Gerçekçi oran hesapla (dominance'a göre)
+        const impliedProb = (confidenceBase + bonus) / 100;
+        const odds = Math.max(1.50, Math.min(2.50, 1 / impliedProb + 0.15));
+        
+        const finalConfidence = confidenceBase + bonus;
+        
+        // Minimum %62 güven ve daha önce önerilmemiş
+        const prevSuggestion = suggestedMatches.get(fixtureId);
+        const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Ev Sahibi');
+        
+        if (finalConfidence >= 62 && !alreadySuggested) {
           opportunities.push({
             match: matchData,
-            opportunity: 'KG Var',
-            confidence: 60,
-            odds: 1.80,
-            reasoning: `${behind} beraberlik için bastıracak`,
+            opportunity: 'Sıradaki Gol Ev Sahibi',
+            confidence: finalConfidence,
+            odds: parseFloat(odds.toFixed(2)),
+            reasoning: reasons.join(', ') || 'Ev sahibi baskın',
           });
         }
       }
       
-      // Fırsat 3: TAM 2 gol ve 35-55 dk → Üst 3.5 (henüz tutmamış!)
-      // NOT: 3+ gol varsa zaten tutmuş, önerme!
-      if (totalGoals === 2 && minute >= 35 && minute <= 55) {
-        opportunities.push({
-          match: matchData,
-          opportunity: 'Üst 3.5 Gol',
-          confidence: 62,
-          odds: 1.90,
-          reasoning: `${minute}' ${totalGoals} gol, 2 gol daha lazım`,
-        });
+      // SIRADAKİ GOL - DEPLASMAN
+      // Şartlar: Deplasman dominant, istatistikler yeterli
+      if (awayScore_dominance > homeScore_dominance * 1.4 && totalShotsOn >= 3) {
+        const confidenceBase = 52; // Deplasman için biraz düşük başla
+        let bonus = 0;
+        const reasons: string[] = [];
+        
+        // İsabetli şut üstünlüğü
+        if (awayShotsOn >= homeShotsOn + 2) {
+          bonus += 12;
+          reasons.push(`${awayShotsOn} isabetli şut`);
+        }
+        
+        // Top kontrolü
+        if (awayPossession >= 55) {
+          bonus += 8;
+          reasons.push(`%${awayPossession} top`);
+        }
+        
+        // Deplasmanda baskı yapmak daha zor, golsüz baskı önemli
+        if (totalGoals === 0 && minute >= 35) {
+          bonus += 8;
+          reasons.push(`${minute}' deplasmanda baskın`);
+        }
+        
+        // Gerçekçi oran hesapla
+        const impliedProb = (confidenceBase + bonus) / 100;
+        const odds = Math.max(1.65, Math.min(2.80, 1 / impliedProb + 0.20));
+        
+        const finalConfidence = confidenceBase + bonus;
+        
+        const prevSuggestion = suggestedMatches.get(fixtureId);
+        const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Deplasman');
+        
+        if (finalConfidence >= 62 && !alreadySuggested) {
+          opportunities.push({
+            match: matchData,
+            opportunity: 'Sıradaki Gol Deplasman',
+            confidence: finalConfidence,
+            odds: parseFloat(odds.toFixed(2)),
+            reasoning: reasons.join(', ') || 'Deplasman baskın',
+          });
+        }
       }
       
-      // Fırsat 4: 1 fark ve 70-80 dk → Çifte şans geriden gelen
-      // Mantık: Son 20 dk comeback ihtimali
-      if (Math.abs(homeScore - awayScore) === 1 && minute >= 70 && minute <= 80) {
-        const behind = homeScore < awayScore ? matchData.homeTeam : matchData.awayTeam;
-        const behindScore = homeScore < awayScore ? 'X2' : '1X';
-        opportunities.push({
-          match: matchData,
-          opportunity: `Çifte Şans ${behindScore}`,
-          confidence: 55,
-          odds: 2.50,
-          reasoning: `${behind} için son ${90 - minute} dk`,
-        });
-      }
-      
-      // Fırsat 5: TAM 3 gol, KG var, 45-60 dk → Üst 4.5 (henüz tutmamış!)
-      // NOT: 4+ gol varsa zaten tutmuş, önerme!
-      if (homeScore > 0 && awayScore > 0 && totalGoals === 3 && minute >= 45 && minute <= 60) {
-        opportunities.push({
-          match: matchData,
-          opportunity: 'Üst 4.5 Gol',
-          confidence: 58,
-          odds: 2.30,
-          reasoning: `Açık maç, 2 gol daha lazım`,
-        });
-      }
-      
-      // Fırsat 6: 0-0 ve 70-80 dk → Alt 1.5 (düşük skor devam edecek)
-      if (totalGoals === 0 && minute >= 70 && minute <= 80) {
-        opportunities.push({
-          match: matchData,
-          opportunity: 'Alt 1.5 Gol',
-          confidence: 65,
-          odds: 1.60,
-          reasoning: `${minute}' hala 0-0, gol zor`,
-        });
+      // ÜST 2.5 GOL - Açık maçlar (sadece 1-2 gol varsa ve tempolu)
+      if (totalGoals >= 1 && totalGoals <= 2 && minute >= 25 && minute <= 60 && totalShotsOn >= 5) {
+        const shotRate = totalShotsOn / minute;
+        const goalRate = totalGoals / minute;
+        
+        // Dakikada 0.1+ isabetli şut = tempolu maç
+        if (shotRate >= 0.10) {
+          const projectedGoals = goalRate * 90;
+          const confidenceBase = 55;
+          let bonus = 0;
+          const reasons: string[] = [];
+          
+          if (projectedGoals >= 3.5) {
+            bonus += 12;
+            reasons.push(`projeksiyon ${projectedGoals.toFixed(1)} gol`);
+          }
+          
+          if (totalShotsOn >= 7) {
+            bonus += 8;
+            reasons.push(`${totalShotsOn} isabetli şut`);
+          }
+          
+          // Mevcut gol avantajı
+          if (totalGoals === 2) {
+            bonus += 5;
+            reasons.push(`${totalGoals} gol, 1 tane daha lazım`);
+          }
+          
+          const finalConfidence = confidenceBase + bonus;
+          const odds = totalGoals === 2 ? 1.55 : 1.85;
+          
+          const prevSuggestion = suggestedMatches.get(fixtureId);
+          const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Üst 2.5');
+          
+          if (finalConfidence >= 65 && !alreadySuggested) {
+            opportunities.push({
+              match: matchData,
+              opportunity: 'Üst 2.5 Gol',
+              confidence: finalConfidence,
+              odds,
+              reasoning: reasons.join(', ') || 'Tempolu maç',
+            });
+          }
+        }
       }
     }
     
     // En iyi 3 fırsatı döndür (confidence'a göre sırala)
-    // Minimum %55 güven
-    return opportunities
-      .filter(o => o.confidence >= 55)
+    const topOpps = opportunities
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 3);
+    
+    // Önerilen maçları kaydet (spam önleme)
+    for (const opp of topOpps) {
+      suggestedMatches.set(opp.match.fixtureId, {
+        timestamp: Date.now(),
+        opportunity: opp.opportunity,
+      });
+    }
+    
+    return topOpps;
       
   } catch (error) {
     console.error('[Cron] Fırsat tarama hatası:', error);
@@ -390,7 +514,7 @@ async function scanLiveOpportunities(): Promise<Array<{
 }
 
 /**
- * Fırsat tweet metni oluştur
+ * Fırsat tweet metni oluştur - Sıradaki Gol odaklı
  */
 function formatOpportunityTweet(opportunities: Array<{
   match: LiveMatchData;
@@ -401,24 +525,33 @@ function formatOpportunityTweet(opportunities: Array<{
 }>): string {
   const lines: string[] = [];
   
-  lines.push('🔥 CANLI FIRSAT!');
+  // Başlık - fırsat tipine göre
+  const hasNextGoal = opportunities.some(o => o.opportunity.includes('Sıradaki'));
+  
+  if (hasNextGoal) {
+    lines.push('⚽ SIRADAKİ GOL TAHMİNİ');
+  } else {
+    lines.push('🔥 CANLI FIRSAT!');
+  }
   lines.push('');
   
   opportunities.forEach((opp, i) => {
     const { match, opportunity, confidence, odds, reasoning } = opp;
     
-    lines.push(`${i + 1}. ${match.homeTeam} ${match.homeScore}-${match.awayScore} ${match.awayTeam}`);
-    lines.push(`   ⏱️ ${match.minute}' | ${match.league}`);
-    lines.push(`   🎯 ${opportunity} @${odds.toFixed(2)}`);
-    lines.push(`   💡 ${reasoning}`);
+    // Takım ismi kısalt (çok uzunsa)
+    const home = match.homeTeam.length > 18 ? match.homeTeam.substring(0, 16) + '..' : match.homeTeam;
+    const away = match.awayTeam.length > 18 ? match.awayTeam.substring(0, 16) + '..' : match.awayTeam;
+    
+    lines.push(`${i + 1}. ${home} ${match.homeScore}-${match.awayScore} ${away}`);
+    lines.push(`⏱️ ${match.minute}' | ${match.league}`);
+    lines.push(`🎯 ${opportunity} @${odds.toFixed(2)}`);
+    lines.push(`📊 ${reasoning}`);
     
     if (i < opportunities.length - 1) lines.push('');
   });
   
   lines.push('');
-  lines.push('⚡ Hızlı hareket et!');
-  lines.push('');
-  lines.push('#CanlıBahis #LiveBet #BilyonerBot');
+  lines.push('#CanlıBahis #SıradakiGol');
   
   return lines.join('\n');
 }
@@ -519,20 +652,26 @@ export async function GET(request: NextRequest) {
       ).join('|');
       
       const isNewOpportunity = oppSnapshot !== lastOpportunitySnapshot;
+      const MIN_OPPORTUNITY_INTERVAL = 15 * 60 * 1000; // Minimum 15 dk arası
+      const canTweetOpportunity = Date.now() - lastOpportunityTweetTime >= MIN_OPPORTUNITY_INTERVAL;
       
-      if (isNewOpportunity) {
+      if (isNewOpportunity && canTweetOpportunity) {
         const tweetText = formatOpportunityTweet(opportunities);
         
         if (!useMock) {
           await sendTweet(tweetText);
           lastOpportunitySnapshot = oppSnapshot;
+          lastOpportunityTweetTime = Date.now();
           log('Yeni fırsat tweeti atıldı');
         } else {
           log(`[MOCK] Fırsat tweeti:\n${tweetText}`);
           lastOpportunitySnapshot = oppSnapshot;
+          lastOpportunityTweetTime = Date.now();
         }
-      } else {
+      } else if (!isNewOpportunity) {
         log('Aynı fırsatlar, tweet atılmadı');
+      } else if (!canTweetOpportunity) {
+        log('Son fırsat tweetinden 15 dk geçmedi, bekleniyor');
       }
     } else {
       log('Şu an uygun fırsat yok');

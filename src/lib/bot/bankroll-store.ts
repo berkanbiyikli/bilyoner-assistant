@@ -1,11 +1,13 @@
 /**
- * Bankroll Store - Kasa Yönetimi (Zustand + localStorage)
+ * Bankroll Store - Kasa Yönetimi (Zustand + localStorage + Redis)
  * 
  * 500 TL başlangıç kasası, Kelly Criterion %0.1
- * Tam client-side, veritabanı yok
+ * Server-side: Upstash Redis ile kalıcı storage
+ * Client-side: Zustand + localStorage
  */
 
 import { create } from 'zustand';
+import { Redis } from '@upstash/redis';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { 
   BankrollState, 
@@ -333,23 +335,73 @@ const INITIAL_SERVER_STATE: BankrollState = {
 // In-memory cache for serverless (persists within same instance)
 let serverStateCache: BankrollState | null = null;
 
+// Redis key for bot state
+const REDIS_STATE_KEY = 'bilyoner:bot:state';
+
+// Redis client singleton
+let redis: Redis | null = null;
+
+function getRedis(): Redis | null {
+  if (redis) return redis;
+  
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  
+  if (!url || !token) {
+    console.log('[Bankroll] Redis credentials not found, using memory cache');
+    return null;
+  }
+  
+  redis = new Redis({ url, token });
+  return redis;
+}
+
 /**
  * Server-side state'i yükle
- * Vercel KV yoksa environment variable kullan
+ * Önce Redis, yoksa memory cache, yoksa default state
  */
 export async function getBankrollState(): Promise<BankrollState> {
-  // Cache varsa döndür
+  // Memory cache varsa döndür (aynı instance için hızlı)
   if (serverStateCache) {
     return serverStateCache;
   }
   
-  // Environment variable'dan state oku
-  const stateJson = process.env.BOT_STATE;
+  // Redis'ten oku
+  const redisClient = getRedis();
+  if (redisClient) {
+    try {
+      const stored = await redisClient.get<string>(REDIS_STATE_KEY);
+      if (stored) {
+        const parsed = typeof stored === 'string' ? JSON.parse(stored) : stored;
+        const parsedState: BankrollState = {
+          ...INITIAL_SERVER_STATE,
+          ...parsed,
+          lastUpdated: new Date(parsed.lastUpdated),
+          activeCoupon: parsed.activeCoupon ? {
+            ...parsed.activeCoupon,
+            createdAt: new Date(parsed.activeCoupon.createdAt),
+            matches: parsed.activeCoupon.matches.map((m: any) => ({
+              ...m,
+              kickoff: new Date(m.kickoff),
+            })),
+          } : null,
+        };
+        serverStateCache = parsedState;
+        console.log('[Bankroll] State Redis\'ten yüklendi, activeCoupon:', parsedState.activeCoupon?.id || 'yok');
+        return parsedState;
+      }
+    } catch (e) {
+      console.error('[Bankroll] Redis okuma hatası:', e);
+    }
+  }
   
+  // Fallback: Environment variable'dan state oku
+  const stateJson = process.env.BOT_STATE;
   if (stateJson) {
     try {
       const parsed = JSON.parse(stateJson);
       const parsedState: BankrollState = {
+        ...INITIAL_SERVER_STATE,
         ...parsed,
         lastUpdated: new Date(parsed.lastUpdated),
         activeCoupon: parsed.activeCoupon ? {
@@ -364,11 +416,12 @@ export async function getBankrollState(): Promise<BankrollState> {
       serverStateCache = parsedState;
       return parsedState;
     } catch (e) {
-      console.error('[Bankroll] State parse hatası:', e);
+      console.error('[Bankroll] ENV State parse hatası:', e);
     }
   }
   
   // Default state döndür
+  console.log('[Bankroll] Default state kullanılıyor');
   const defaultState = { ...INITIAL_SERVER_STATE };
   serverStateCache = defaultState;
   return defaultState;
@@ -376,9 +429,10 @@ export async function getBankrollState(): Promise<BankrollState> {
 
 /**
  * Server-side state'i kaydet
- * Console'a log yaz (Vercel logs'da görülebilir)
+ * Redis'e yaz, memory cache'i güncelle
  */
 export async function saveBankrollState(state: BankrollState): Promise<void> {
+  // Memory cache güncelle
   serverStateCache = state;
   
   // State'i console'a log yaz (debug için)
@@ -391,8 +445,18 @@ export async function saveBankrollState(state: BankrollState): Promise<void> {
     activeCoupon: state.activeCoupon?.id || null,
   }));
   
-  // TODO: Vercel KV veya Upstash Redis entegrasyonu
-  // await kv.set('bot-state', JSON.stringify(state));
+  // Redis'e kaydet
+  const redisClient = getRedis();
+  if (redisClient) {
+    try {
+      await redisClient.set(REDIS_STATE_KEY, JSON.stringify(state));
+      console.log('[Bankroll] State Redis\'e kaydedildi');
+    } catch (e) {
+      console.error('[Bankroll] Redis yazma hatası:', e);
+    }
+  } else {
+    console.warn('[Bankroll] Redis bağlantısı yok, state sadece memory\'de');
+  }
 }
 
 // ============ GÜNLÜK LİMİT FONKSİYONLARI ============

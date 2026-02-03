@@ -248,8 +248,9 @@ async function handleCheckLive(
       const homeScore = fixture.goals?.home ?? 0;
       const awayScore = fixture.goals?.away ?? 0;
       
-      // Canlı maç mı?
-      if (['1H', '2H', 'HT'].includes(status)) {
+      // Canlı maç mı? (1H, 2H, HT, ET, P, LIVE, BT)
+      const liveStatuses = ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'];
+      if (liveStatuses.includes(status)) {
         const predType = match.prediction.type;
         const totalGoals = homeScore + awayScore;
         

@@ -6,6 +6,7 @@
 
 import { TwitterApi } from 'twitter-api-v2';
 import type { BotCoupon, TweetResponse } from './types';
+import { formatTurkeyTime } from '@/lib/utils';
 
 // ============ TWITTER CLIENT (OAuth 1.0a + OAuth 2.0) ============
 
@@ -157,11 +158,7 @@ export function formatNewCouponTweet(coupon: BotCoupon, bankroll: number): strin
   
   // Maçlar - her biri bir satırda
   coupon.matches.forEach((match, i) => {
-    const time = new Date(match.kickoff).toLocaleTimeString('tr-TR', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      timeZone: 'Europe/Istanbul'
-    });
+    const time = formatTurkeyTime(match.kickoff);
     const pred = formatPredictionShort(match.prediction.label);
     lines.push(`${i + 1}. ${match.homeTeam} - ${match.awayTeam}`);
     lines.push(`   ⏰ ${time} | ${pred} @${match.prediction.odds.toFixed(2)}`);

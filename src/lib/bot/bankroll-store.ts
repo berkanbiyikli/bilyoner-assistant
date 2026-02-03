@@ -286,3 +286,83 @@ export function getBankrollStats() {
     hasActiveCoupon: !!state.activeCoupon,
   };
 }
+
+// ============ SERVER-SIDE STATE (Vercel KV veya Environment Variable) ============
+
+// Initial state for server-side
+const INITIAL_SERVER_STATE: BankrollState = {
+  balance: 500,
+  initialBalance: 500,
+  totalBets: 0,
+  wonBets: 0,
+  lostBets: 0,
+  totalStaked: 0,
+  totalWon: 0,
+  activeCoupon: null,
+  history: [],
+  lastUpdated: new Date(),
+};
+
+// In-memory cache for serverless (persists within same instance)
+let serverStateCache: BankrollState | null = null;
+
+/**
+ * Server-side state'i yükle
+ * Vercel KV yoksa environment variable kullan
+ */
+export async function getBankrollState(): Promise<BankrollState> {
+  // Cache varsa döndür
+  if (serverStateCache) {
+    return serverStateCache;
+  }
+  
+  // Environment variable'dan state oku
+  const stateJson = process.env.BOT_STATE;
+  
+  if (stateJson) {
+    try {
+      const parsed = JSON.parse(stateJson);
+      const parsedState: BankrollState = {
+        ...parsed,
+        lastUpdated: new Date(parsed.lastUpdated),
+        activeCoupon: parsed.activeCoupon ? {
+          ...parsed.activeCoupon,
+          createdAt: new Date(parsed.activeCoupon.createdAt),
+          matches: parsed.activeCoupon.matches.map((m: any) => ({
+            ...m,
+            kickoff: new Date(m.kickoff),
+          })),
+        } : null,
+      };
+      serverStateCache = parsedState;
+      return parsedState;
+    } catch (e) {
+      console.error('[Bankroll] State parse hatası:', e);
+    }
+  }
+  
+  // Default state döndür
+  const defaultState = { ...INITIAL_SERVER_STATE };
+  serverStateCache = defaultState;
+  return defaultState;
+}
+
+/**
+ * Server-side state'i kaydet
+ * Console'a log yaz (Vercel logs'da görülebilir)
+ */
+export async function saveBankrollState(state: BankrollState): Promise<void> {
+  serverStateCache = state;
+  
+  // State'i console'a log yaz (debug için)
+  console.log('[Bankroll] State güncellendi:', JSON.stringify({
+    balance: state.balance,
+    totalBets: state.totalBets,
+    wonBets: state.wonBets,
+    lostBets: state.lostBets,
+    activeCoupon: state.activeCoupon?.id || null,
+  }));
+  
+  // TODO: Vercel KV veya Upstash Redis entegrasyonu
+  // await kv.set('bot-state', JSON.stringify(state));
+}

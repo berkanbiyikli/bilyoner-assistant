@@ -1,10 +1,13 @@
 /**
  * Daily Matches API Route
  * Top 20 ligden günlük maçları döndürür
+ * Redis cache ile optimize edilmiş
  */
 
 import { NextResponse } from 'next/server';
 import { getDailyMatches, getDailyMatchStats, getDailyMatchesForLeagues } from '@/lib/api-football/daily-matches';
+import { cacheGet, cacheSet, redisCacheKeys, REDIS_TTL } from '@/lib/cache/redis-cache';
+import type { DailyMatchFixture } from '@/types/api-football';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +20,7 @@ export async function GET(request: Request) {
 
     // Tarih parse
     let date: Date | undefined;
+    let dateStr = 'today';
     if (dateParam && dateParam !== 'today') {
       date = new Date(dateParam);
       if (isNaN(date.getTime())) {
@@ -25,6 +29,9 @@ export async function GET(request: Request) {
           { status: 400 }
         );
       }
+      dateStr = dateParam;
+    } else {
+      dateStr = new Date().toISOString().split('T')[0];
     }
 
     // Lig filtresi parse
@@ -32,10 +39,43 @@ export async function GET(request: Request) {
       ? leaguesParam.split(',').map(id => parseInt(id)).filter(id => !isNaN(id))
       : undefined;
 
-    // Maçları getir
-    let matches = leagueIds && leagueIds.length > 0
+    // Cache key oluştur
+    const cacheKey = leagueIds 
+      ? `${redisCacheKeys.dailyMatches(dateStr)}:${leagueIds.join('-')}`
+      : redisCacheKeys.dailyMatches(dateStr);
+
+    // Canlı maç varsa cache'i atla (güncel veri lazım)
+    let matches: DailyMatchFixture[];
+    
+    if (!liveOnly) {
+      // Redis cache kontrol
+      const cached = await cacheGet<DailyMatchFixture[]>(cacheKey);
+      if (cached) {
+        // Cache'den gelen veride canlı maç var mı kontrol et
+        const hasLive = cached.some(m => m.status.isLive);
+        if (!hasLive) {
+          // Canlı maç yoksa cache'i kullan
+          const stats = getDailyMatchStats(cached);
+          return NextResponse.json({
+            success: true,
+            data: cached,
+            stats,
+            timestamp: new Date().toISOString(),
+            cached: true,
+          });
+        }
+      }
+    }
+
+    // Maçları API'den getir
+    matches = leagueIds && leagueIds.length > 0
       ? await getDailyMatchesForLeagues(leagueIds, date)
       : await getDailyMatches(date);
+
+    // Cache'e kaydet (canlı maç yoksa daha uzun TTL)
+    const hasLiveMatches = matches.some(m => m.status.isLive);
+    const ttl = hasLiveMatches ? REDIS_TTL.DAILY_MATCHES : REDIS_TTL.DAILY_MATCHES * 5;
+    cacheSet(cacheKey, matches, ttl).catch(() => {});
 
     // Sadece canlı maçlar isteniyorsa filtrele
     if (liveOnly) {

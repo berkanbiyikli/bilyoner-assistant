@@ -1,6 +1,7 @@
 /**
  * Match Detail API Route
  * On-demand maç detayları (H2H, tahmin, hakem stats, bahis önerileri)
+ * Redis cache ile optimize edilmiş
  */
 
 import { NextResponse } from 'next/server';
@@ -16,6 +17,7 @@ import {
   cacheKeys,
   CACHE_TTL,
 } from '@/lib/cache/memory-cache';
+import { cacheGet, cacheSet, redisCacheKeys, REDIS_TTL } from '@/lib/cache/redis-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -507,6 +509,17 @@ export async function GET(request: Request) {
       );
     }
 
+    // Redis cache kontrolü (tüm response)
+    const cacheKey = redisCacheKeys.matchDetail(parseInt(fixtureId));
+    const cachedResponse = await cacheGet<object>(cacheKey);
+    if (cachedResponse) {
+      return NextResponse.json({
+        success: true,
+        data: cachedResponse,
+        cached: true,
+      });
+    }
+
     const leagueIdNum = leagueId ? parseInt(leagueId) : 0;
 
     // Paralel olarak tüm verileri çek
@@ -587,53 +600,59 @@ export async function GET(request: Request) {
       weights: WEIGHTS,
     } : undefined;
 
+    // Response data'yı oluştur
+    const responseData = {
+      ...matchDetail,
+      refereeStats,
+      betSuggestions,
+      teamStats,
+      playerCards: {
+        home: homePlayerCards,
+        away: awayPlayerCards,
+      },
+      // Yeni: Poisson analizi
+      poissonAnalysis: poissonAnalysis ? {
+        expectedHomeGoals: poissonAnalysis.xg.homeXG,
+        expectedAwayGoals: poissonAnalysis.xg.awayXG,
+        expectedTotalGoals: poissonAnalysis.xg.totalXG,
+        mostLikelyScore: poissonAnalysis.mostLikelyScore,
+        probabilities: {
+          homeWin: poissonAnalysis.probabilities.homeWin,
+          draw: poissonAnalysis.probabilities.draw,
+          awayWin: poissonAnalysis.probabilities.awayWin,
+          over15: poissonAnalysis.probabilities.over15,
+          over25: poissonAnalysis.probabilities.over25,
+          over35: poissonAnalysis.probabilities.over35,
+          bttsYes: poissonAnalysis.probabilities.bttsYes,
+        },
+        topScores: poissonAnalysis.probabilities.exactScores.slice(0, 5),
+      } : null,
+      // Yeni: Value bet analizi
+      valueBets: valueBetAnalyses.length > 0 ? {
+        count: valueBetAnalyses.length,
+        bets: valueBetAnalyses.map(v => ({
+          market: v.market,
+          pick: v.pick,
+          value: v.value,
+          edge: v.edge,
+          fairOdds: v.fairOdds,
+          kellyStake: v.kelly.halfKelly,
+          recommendation: v.recommendation,
+        })),
+        bestBet: valueBetAnalyses[0] ? {
+          market: valueBetAnalyses[0].market,
+          pick: valueBetAnalyses[0].pick,
+          value: valueBetAnalyses[0].value,
+        } : null,
+      } : null,
+    };
+
+    // Redis cache'e kaydet (async)
+    cacheSet(cacheKey, responseData, REDIS_TTL.MATCH_DETAIL).catch(() => {});
+
     return NextResponse.json({
       success: true,
-      data: {
-        ...matchDetail,
-        refereeStats,
-        betSuggestions,
-        teamStats,
-        playerCards: {
-          home: homePlayerCards,
-          away: awayPlayerCards,
-        },
-        // Yeni: Poisson analizi
-        poissonAnalysis: poissonAnalysis ? {
-          expectedHomeGoals: poissonAnalysis.xg.homeXG,
-          expectedAwayGoals: poissonAnalysis.xg.awayXG,
-          expectedTotalGoals: poissonAnalysis.xg.totalXG,
-          mostLikelyScore: poissonAnalysis.mostLikelyScore,
-          probabilities: {
-            homeWin: poissonAnalysis.probabilities.homeWin,
-            draw: poissonAnalysis.probabilities.draw,
-            awayWin: poissonAnalysis.probabilities.awayWin,
-            over15: poissonAnalysis.probabilities.over15,
-            over25: poissonAnalysis.probabilities.over25,
-            over35: poissonAnalysis.probabilities.over35,
-            bttsYes: poissonAnalysis.probabilities.bttsYes,
-          },
-          topScores: poissonAnalysis.probabilities.exactScores.slice(0, 5),
-        } : null,
-        // Yeni: Value bet analizi
-        valueBets: valueBetAnalyses.length > 0 ? {
-          count: valueBetAnalyses.length,
-          bets: valueBetAnalyses.map(v => ({
-            market: v.market,
-            pick: v.pick,
-            value: v.value,
-            edge: v.edge,
-            fairOdds: v.fairOdds,
-            kellyStake: v.kelly.halfKelly,
-            recommendation: v.recommendation,
-          })),
-          bestBet: valueBetAnalyses[0] ? {
-            market: valueBetAnalyses[0].market,
-            pick: valueBetAnalyses[0].pick,
-            value: valueBetAnalyses[0].value,
-          } : null,
-        } : null,
-      },
+      data: responseData,
     });
   } catch (error) {
     console.error('[Match Detail API] Error:', error);

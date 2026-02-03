@@ -159,7 +159,8 @@ export function formatNewCouponTweet(coupon: BotCoupon, bankroll: number): strin
   coupon.matches.forEach((match, i) => {
     const time = new Date(match.kickoff).toLocaleTimeString('tr-TR', { 
       hour: '2-digit', 
-      minute: '2-digit' 
+      minute: '2-digit',
+      timeZone: 'Europe/Istanbul'
     });
     const pred = formatPredictionShort(match.prediction.label);
     lines.push(`${i + 1}. ${match.homeTeam} - ${match.awayTeam}`);

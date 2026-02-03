@@ -127,6 +127,7 @@ export function formatValueBetAlertTweet(alert: ValueBetAlert): string {
   const time = alert.kickoff.toLocaleTimeString('tr-TR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Europe/Istanbul',
   });
   
   // Emoji based on value
@@ -197,6 +198,7 @@ export function formatMatchReminderTweet(reminder: MatchReminder): string {
   const time = reminder.kickoff.toLocaleTimeString('tr-TR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Europe/Istanbul',
   });
   
   lines.push('⏰ MAÇ HATIRLATMASI');
@@ -229,6 +231,7 @@ export function formatMultiMatchReminderTweet(reminders: MatchReminder[]): strin
     const time = r.kickoff.toLocaleTimeString('tr-TR', {
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'Europe/Istanbul',
     });
     lines.push(`${i + 1}. ${r.homeTeam} vs ${r.awayTeam}`);
     lines.push(`   ⏰ ${time} | ${r.prediction.label} @${r.prediction.odds.toFixed(2)}`);
@@ -256,6 +259,7 @@ export function formatCouponStartReminderTweet(coupon: BotCoupon): string {
   const time = firstKickoff.toLocaleTimeString('tr-TR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Europe/Istanbul',
   });
   
   lines.push('🎬 KUPON BAŞLIYOR!');
@@ -267,6 +271,7 @@ export function formatCouponStartReminderTweet(coupon: BotCoupon): string {
     const matchTime = new Date(match.kickoff).toLocaleTimeString('tr-TR', {
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'Europe/Istanbul',
     });
     lines.push(`${i + 1}. ${match.homeTeam} vs ${match.awayTeam}`);
     lines.push(`   ${matchTime} | ${match.prediction.label} @${match.prediction.odds.toFixed(2)}`);

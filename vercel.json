@@ -18,6 +18,10 @@
       "schedule": "*/5 14-23 * * *"
     },
     {
+      "path": "/api/bot/live",
+      "schedule": "*/10 14-23 * * *"
+    },
+    {
       "path": "/api/bot/run?action=check-result",
       "schedule": "0 23 * * *"
     }

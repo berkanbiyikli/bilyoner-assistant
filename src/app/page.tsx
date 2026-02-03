@@ -9,6 +9,7 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -398,10 +399,12 @@ export default function DailyMatchesPage() {
                     <span className="text-muted-foreground">maç</span>
                   </Badge>
                   {data.stats.live > 0 && (
-                    <Badge className="bg-red-600 gap-1 animate-pulse">
-                      <Radio className="h-3 w-3" />
-                      <span>{data.stats.live} canlı</span>
-                    </Badge>
+                    <Link href="/live">
+                      <Badge className="bg-red-600 gap-1 animate-pulse cursor-pointer hover:bg-red-700">
+                        <Radio className="h-3 w-3" />
+                        <span>{data.stats.live} canlı</span>
+                      </Badge>
+                    </Link>
                   )}
                   <Badge variant="secondary" className="gap-1">
                     <Clock className="h-3 w-3" />

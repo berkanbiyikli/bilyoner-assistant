@@ -737,17 +737,17 @@ function generateBetSuggestions(
     if (avgPerMatch >= 3.0) {
       suggestions.push({
         type: 'over_under',
-        market: '2.5 Üst',
+        market: 'Ü2.5',
         confidence: Math.min(85, Math.round(avgPerMatch * 25)),
-        reasoning: `Her iki takımın maç başı gol ortalaması: ${avgPerMatch.toFixed(1)}`,
+        reasoning: `Gol ort: ${avgPerMatch.toFixed(1)}`,
         priority: avgPerMatch >= 3.5 ? 'high' : 'medium',
       });
     } else if (avgPerMatch <= 2.0) {
       suggestions.push({
         type: 'over_under',
-        market: '2.5 Alt',
+        market: 'A2.5',
         confidence: Math.min(80, Math.round((4 - avgPerMatch) * 25)),
-        reasoning: `Her iki takımın maç başı gol ortalaması: ${avgPerMatch.toFixed(1)}`,
+        reasoning: `Gol ort: ${avgPerMatch.toFixed(1)}`,
         priority: avgPerMatch <= 1.5 ? 'high' : 'medium',
       });
     }
@@ -765,9 +765,9 @@ function generateBetSuggestions(
       if (bttsConfidence >= 55) {
         suggestions.push({
           type: 'btts',
-          market: 'KG Var',
+          market: 'KG',
           confidence: Math.min(80, bttsConfidence),
-          reasoning: `Ev: ${homeGoalRate.toFixed(1)} gol/maç, Dep: ${awayGoalRate.toFixed(1)} gol/maç`,
+          reasoning: `Ev: ${homeGoalRate.toFixed(1)}, Dep: ${awayGoalRate.toFixed(1)}`,
           priority: bttsConfidence >= 70 ? 'high' : 'medium',
         });
       }
@@ -784,9 +784,9 @@ function generateBetSuggestions(
     if (avgHtGoals >= 1.3 || (htData.over15Rate >= 50 && htDataAway.over15Rate >= 50)) {
       suggestions.push({
         type: 'ht_goals',
-        market: 'İY 1.5 Üst',
+        market: 'İY Ü1.5',
         confidence: Math.min(75, Math.round(avgHtGoals * 35)),
-        reasoning: `İlk yarı gol ortalaması: ${avgHtGoals.toFixed(1)}`,
+        reasoning: `İY gol ort: ${avgHtGoals.toFixed(1)}`,
         priority: avgHtGoals >= 1.8 ? 'high' : 'medium',
       });
     }

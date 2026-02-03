@@ -212,8 +212,8 @@ export default function DailyMatchesPage() {
         if (bttsRate >= 60) {
           suggestions.push({
             type: 'btts',
-            market: 'Karşılıklı Gol',
-            pick: 'KG Var',
+            market: 'KG',
+            pick: 'Var',
             confidence: Math.min(80, Math.round(bttsRate)),
             odds: Number((1.60 + (100 - bttsRate) / 50).toFixed(2)),
             value: bttsRate >= 70 ? 'high' : 'medium',
@@ -264,8 +264,8 @@ export default function DailyMatchesPage() {
         const confidence = Math.min(80, 55 + Math.round((avgTotal - 2.5) * 15));
         suggestions.push({
           type: 'goals',
-          market: 'Alt/Üst 2.5',
-          pick: 'Üst 2.5',
+          market: 'Ü2.5',
+          pick: 'Üst',
           confidence,
           odds: Number((1.70 + (100 - confidence) / 50).toFixed(2)),
           value: avgTotal >= 3.5 ? 'high' : 'medium',
@@ -275,8 +275,8 @@ export default function DailyMatchesPage() {
         const confidence = Math.min(75, 50 + Math.round((2.5 - avgTotal) * 20));
         suggestions.push({
           type: 'goals',
-          market: 'Alt/Üst 2.5',
-          pick: 'Alt 2.5',
+          market: 'A2.5',
+          pick: 'Alt',
           confidence,
           odds: Number((1.80 + (100 - confidence) / 50).toFixed(2)),
           value: avgTotal <= 1.5 ? 'high' : 'medium',

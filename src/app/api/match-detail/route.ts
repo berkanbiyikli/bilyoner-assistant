@@ -746,7 +746,7 @@ function generateBetSuggestions(
     if (avgTotalGoals >= 3.2) {
       suggestions.push({
         type: 'goals',
-        market: 'Alt/Üst 2.5 Gol',
+        market: 'Ü2.5 Gol',
         pick: 'Üst 2.5',
         confidence: Math.min(85, 60 + Math.round((avgTotalGoals - 2.5) * 30)),
         reasoning: `Ev sahibi maç başı ${(homeStats.goalsScored / homeStats.matchesPlayed).toFixed(1)} gol, deplasman ${(awayStats.goalsScored / awayStats.matchesPlayed).toFixed(1)} gol atıyor`,
@@ -755,7 +755,7 @@ function generateBetSuggestions(
     } else if (avgTotalGoals <= 2.2) {
       suggestions.push({
         type: 'goals',
-        market: 'Alt/Üst 2.5 Gol',
+        market: 'A2.5 Gol',
         pick: 'Alt 2.5',
         confidence: Math.min(80, 55 + Math.round((2.5 - avgTotalGoals) * 35)),
         reasoning: `Her iki takım da düşük skorlu maçlar oynuyor (ort. ${avgTotalGoals.toFixed(1)} gol)`,
@@ -769,8 +769,8 @@ function generateBetSuggestions(
     if (bttsRate >= 65) {
       suggestions.push({
         type: 'btts',
-        market: 'Karşılıklı Gol',
-        pick: 'KG Var',
+        market: 'KG',
+        pick: 'Var',
         confidence: Math.min(85, Math.round(bttsRate)),
         reasoning: `Son maçların %${bttsRate.toFixed(0)}'ında her iki takım da gol attı`,
         value: bttsRate >= 75 ? 'high' : 'medium',
@@ -778,8 +778,8 @@ function generateBetSuggestions(
     } else if (bttsRate <= 30) {
       suggestions.push({
         type: 'btts',
-        market: 'Karşılıklı Gol',
-        pick: 'KG Yok',
+        market: 'KG',
+        pick: 'Yok',
         confidence: Math.min(80, 50 + Math.round((40 - bttsRate))),
         reasoning: `Son maçların sadece %${bttsRate.toFixed(0)}'ında karşılıklı gol var`,
         value: bttsRate <= 20 ? 'high' : 'medium',
@@ -795,8 +795,8 @@ function generateBetSuggestions(
     if (htOver05Rate >= 80) {
       suggestions.push({
         type: 'goals',
-        market: 'İY Alt/Üst 0.5',
-        pick: 'İY Üst 0.5',
+        market: 'İY Ü0.5',
+        pick: 'Üst 0.5',
         confidence: Math.min(90, Math.round(htOver05Rate)),
         reasoning: `Maçların %${htOver05Rate.toFixed(0)}'ında ilk yarı gol var`,
         value: htOver05Rate >= 90 ? 'high' : 'medium',
@@ -804,8 +804,8 @@ function generateBetSuggestions(
     } else if (htOver05Rate <= 40) {
       suggestions.push({
         type: 'goals',
-        market: 'İY Alt/Üst 0.5',
-        pick: 'İY Alt 0.5',
+        market: 'İY A0.5',
+        pick: 'Alt 0.5',
         confidence: Math.min(75, 50 + Math.round((50 - htOver05Rate))),
         reasoning: `Maçların %${(100 - htOver05Rate).toFixed(0)}'ında ilk yarı gol yok`,
         value: htOver05Rate <= 25 ? 'high' : 'medium',
@@ -815,8 +815,8 @@ function generateBetSuggestions(
     if (htOver15Rate >= 60) {
       suggestions.push({
         type: 'goals',
-        market: 'İY Alt/Üst 1.5',
-        pick: 'İY Üst 1.5',
+        market: 'İY Ü1.5',
+        pick: 'Üst 1.5',
         confidence: Math.min(80, Math.round(htOver15Rate + 10)),
         reasoning: `Maçların %${htOver15Rate.toFixed(0)}'ında ilk yarı 2+ gol var`,
         value: htOver15Rate >= 70 ? 'high' : 'medium',
@@ -895,8 +895,8 @@ function generateBetSuggestions(
     if (avgCards >= 5) {
       suggestions.push({
         type: 'cards',
-        market: 'Toplam Kart',
-        pick: 'Üst 4.5 Kart',
+        market: 'Kart',
+        pick: 'Ü4.5',
         confidence: Math.min(90, 60 + Math.round((avgCards - 4.5) * 15) + cardConfidenceBoost),
         reasoning: `Hakem ${refereeStats.name} maç başına ${avgCards.toFixed(1)} kart çıkarıyor (×${refereeMultiplier.cards.toFixed(2)} çarpan)`,
         value: avgCards >= 6 ? 'high' : 'medium',
@@ -904,8 +904,8 @@ function generateBetSuggestions(
     } else if (avgCards <= 3.5) {
       suggestions.push({
         type: 'cards',
-        market: 'Toplam Kart',
-        pick: 'Alt 4.5 Kart',
+        market: 'Kart',
+        pick: 'A4.5',
         confidence: Math.min(80, 55 + Math.round((4.5 - avgCards) * 12) - cardConfidenceBoost),
         reasoning: `Hakem ${refereeStats.name} kart konusunda ılımlı (ort. ${avgCards.toFixed(1)} kart)`,
         value: avgCards <= 2.5 ? 'high' : 'low',

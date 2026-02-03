@@ -193,14 +193,14 @@ export function analyzeMatchComprehensive(
   // Gol bahisleri
   if (over25Prob >= 0.60) {
     recommendations.push({
-      market: 'Alt/Üst 2.5',
+      market: 'Ü2.5',
       pick: 'Üst 2.5',
       confidence: Math.round(over25Prob * 100),
       reasoning: styleMatchup.reasoning
     });
   } else if (over25Prob <= 0.40) {
     recommendations.push({
-      market: 'Alt/Üst 2.5',
+      market: 'A2.5',
       pick: 'Alt 2.5',
       confidence: Math.round((1 - over25Prob) * 100),
       reasoning: styleMatchup.reasoning
@@ -210,15 +210,15 @@ export function analyzeMatchComprehensive(
   // BTTS
   if (bttsProb >= 0.60) {
     recommendations.push({
-      market: 'Karşılıklı Gol',
-      pick: 'KG Var',
+      market: 'KG',
+      pick: 'Var',
       confidence: Math.round(bttsProb * 100),
       reasoning: styleMatchup.reasoning
     });
   } else if (bttsProb <= 0.35) {
     recommendations.push({
-      market: 'Karşılıklı Gol',
-      pick: 'KG Yok',
+      market: 'KG',
+      pick: 'Yok',
       confidence: Math.round((1 - bttsProb) * 100),
       reasoning: styleMatchup.reasoning
     });

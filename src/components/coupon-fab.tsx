@@ -48,11 +48,9 @@ export function CouponFAB() {
   const isOpen = useCouponIsOpen();
   const { toggleOpen } = useCouponStore();
 
-  if (count === 0) return null;
-
   return (
     <>
-      {/* FAB Button */}
+      {/* FAB Button - Her zaman görünür */}
       <button
         onClick={toggleOpen}
         className={cn(
@@ -61,14 +59,20 @@ export function CouponFAB() {
           "bg-gradient-to-r from-green-500 to-emerald-600",
           "text-white font-medium shadow-lg",
           "hover:shadow-xl hover:scale-105 transition-all",
-          "animate-bounce-subtle"
+          count > 0 && "animate-bounce-subtle"
         )}
       >
         <ShoppingCart className="h-5 w-5" />
         <span>Kupon</span>
-        <Badge className="bg-white text-green-600 hover:bg-white">
-          {count}
-        </Badge>
+        {count > 0 ? (
+          <Badge className="bg-white text-green-600 hover:bg-white">
+            {count}
+          </Badge>
+        ) : (
+          <Badge variant="secondary" className="bg-white/20 text-white hover:bg-white/30">
+            0
+          </Badge>
+        )}
       </button>
 
       {/* Slide-over Panel */}

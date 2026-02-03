@@ -82,10 +82,27 @@ export async function GET() {
     // En iyi fırsatları filtrele
     const bestOpportunities = filterBestOpportunities(allOpportunities, 1, 5);
     
+    // Canlı maç özetleri
+    const matchSummaries = liveMatches.map(m => ({
+      fixture: `${m.homeTeam} vs ${m.awayTeam}`,
+      score: `${m.homeScore}-${m.awayScore}`,
+      minute: m.minute,
+      status: m.status,
+      league: m.league,
+      stats: m.stats ? {
+        shots: `${m.stats.homeShotsTotal || 0}-${m.stats.awayShotsTotal || 0}`,
+        shotsOnTarget: `${m.stats.homeShotsOnTarget || 0}-${m.stats.awayShotsOnTarget || 0}`,
+        corners: `${m.stats.homeCorners || 0}-${m.stats.awayCorners || 0}`,
+        cards: `${(m.stats.homeYellowCards || 0) + (m.stats.homeRedCards || 0)}-${(m.stats.awayYellowCards || 0) + (m.stats.awayRedCards || 0)}`,
+        possession: `${m.stats.homePossession || 50}%-${m.stats.awayPossession || 50}%`,
+      } : null,
+    }));
+    
     const result = {
       opportunities: bestOpportunities,
       allOpportunitiesCount: allOpportunities.length,
       matches: liveMatches.length,
+      liveMatches: matchSummaries,
       timestamp: new Date().toISOString(),
       processingTime: Date.now() - startTime,
     };

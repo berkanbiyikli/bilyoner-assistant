@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   }
   
   // Tweet'teki kupon bilgileri (3 Şubat 2026 - 19:10)
-  // GERÇEK fixture ID'ler!
+  // GERÇEK fixture ID'ler ve DOĞRU saatler!
   const tweetCoupon: BotCoupon = {
     id: 'BOT-20260203-1910',
     createdAt: new Date('2026-02-03T19:10:00'),
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
         awayTeamId: 489,
         league: 'Serie A',
         leagueId: 135,
-        kickoff: new Date('2026-02-03T20:45:00'),
+        kickoff: new Date('2026-02-03T19:45:00Z'), // 22:45 TSİ
         prediction: {
           type: 'over25',
           label: 'Üst 2.5',
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
         awayTeamId: 254,
         league: 'Scottish Premiership',
         leagueId: 179,
-        kickoff: new Date('2026-02-03T21:00:00'),
+        kickoff: new Date('2026-02-03T20:00:00Z'), // 23:00 TSİ
         prediction: {
           type: 'btts',
           label: 'KG Var',
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
         awayTeamId: 347,
         league: 'Ekstraklasa',
         leagueId: 106,
-        kickoff: new Date('2026-02-03T19:30:00'),
+        kickoff: new Date('2026-02-03T19:30:00Z'), // 22:30 TSİ
         prediction: {
           type: 'away',
           label: 'MS 2',
@@ -96,11 +96,19 @@ export async function GET(request: NextRequest) {
     // State'i yükle
     const state = await getBankrollState();
     
+    // Eğer bu kupon zaten varsa, tekrar düşürme
+    const alreadyExists = state.activeCoupon?.id === tweetCoupon.id;
+    
     // Kuponu ekle
     state.activeCoupon = tweetCoupon;
-    state.balance = state.balance - tweetCoupon.stake; // 500 - 50 = 450
-    state.totalBets += 1;
-    state.totalStaked += tweetCoupon.stake;
+    
+    if (!alreadyExists) {
+      // İlk kez ekleniyor - kasadan düş
+      state.balance = 450; // Sabit: 500 - 50 = 450
+      state.totalBets = 1;
+      state.totalStaked = 50;
+    }
+    
     state.lastUpdated = new Date();
     
     // Redis'e kaydet

@@ -277,9 +277,16 @@ export async function generateBotCoupon(
     status: 'pending',
   };
   
-  console.log(`[Bot] Kupon oluşturuldu: ${coupon.id}`);
+  console.log(`[Bot] ========= KUPON DETAYI =========`);
+  console.log(`[Bot] Kupon ID: ${coupon.id}`);
   console.log(`[Bot] Toplam oran: ${coupon.totalOdds}, Stake: ${coupon.stake} TL`);
+  for (const m of selectedMatches) {
+    console.log(`[Bot] ✓ ${m.match.homeTeam.name} vs ${m.match.awayTeam.name}`);
+    console.log(`[Bot]   Tahmin: ${m.bestSuggestion.pick} @${m.bestSuggestion.odds} (Güven: %${m.bestSuggestion.confidence})`);
+    console.log(`[Bot]   Value: ${m.bestSuggestion.value} | Sebep: ${m.bestSuggestion.reasoning?.substring(0, 60)}...`);
+  }
   console.log(`[Bot] Mor kutu önerileri kullanıldı! ✅`);
+  console.log(`[Bot] ===================================`);
   
   return coupon;
 }
@@ -304,10 +311,12 @@ function filterAndScoreBetSuggestions(
     if (kickoff < minKickoff || kickoff > maxKickoff) continue;
     
     // En iyi mor kutu önerisini bul (confidence'a göre)
+    // SIKI FİLTRELER - Sadece kaliteli tahminler
     const validSuggestions = betSuggestions
-      .filter(s => s.confidence >= 60) // Min %60 güven
+      .filter(s => s.confidence >= config.minConfidence) // Config'den min güven (%70)
       .filter(s => s.odds >= config.minMatchOdds && s.odds <= config.maxMatchOdds)
       .filter(s => ['goals', 'btts', 'result'].includes(s.type)) // Sadece temel bahisler
+      .filter(s => s.value === 'high' || s.value === 'medium') // Sadece değerli tahminler
       .sort((a, b) => b.confidence - a.confidence);
     
     if (validSuggestions.length === 0) continue;
@@ -339,25 +348,36 @@ function filterAndScoreBetSuggestions(
 
 /**
  * Mor kutu önerisi için puan hesaplar
+ * SADECE BETSUGGESTİONS'DAN GELEN TAHMİNLERİ KULLANIR
  */
 function calculateSuggestionScore(suggestion: BetSuggestion, match: DailyMatchFixture): number {
   let score = 0;
   
-  // Confidence (0-100) - ana etken
-  score += suggestion.confidence * 0.4;
+  // Confidence (0-100) - ANA ETKEN
+  // %70+ = güvenilir, %80+ = çok güvenilir
+  score += suggestion.confidence * 0.5; // Ağırlığı artırdık
   
-  // Value değeri (high = +15, medium = +8, low = +0)
-  if (suggestion.value === 'high') score += 15;
-  else if (suggestion.value === 'medium') score += 8;
+  // Value değeri - ZORUNLU high veya medium olmalı
+  // high = +20, medium = +10
+  if (suggestion.value === 'high') score += 20;
+  else if (suggestion.value === 'medium') score += 10;
+  // low value zaten filtreleniyor
   
-  // Oran bonusu (1.5-2.0 arası ideal)
-  if (suggestion.odds >= 1.5 && suggestion.odds <= 2.5) {
-    score += 10;
+  // Oran bonusu (1.5-2.2 arası ideal - güvenli bölge)
+  if (suggestion.odds >= 1.50 && suggestion.odds <= 2.20) {
+    score += 15;
+  } else if (suggestion.odds >= 1.35 && suggestion.odds <= 2.50) {
+    score += 8;
   }
   
-  // Reasoning uzunluğu (detaylı analiz = daha iyi)
+  // Reasoning kalitesi (detaylı analiz = daha iyi)
   if (suggestion.reasoning && suggestion.reasoning.length > 50) {
     score += 5;
+  }
+  
+  // Bahis tipi bonusu (Üst 2.5 ve KG Var daha güvenilir)
+  if (suggestion.pick === 'Üst 2.5' || suggestion.pick === 'KG Var') {
+    score += 8;
   }
   
   return score;

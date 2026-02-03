@@ -6,6 +6,7 @@
 import { apiFootballFetch, getTodayForApi, formatDateForApi } from './client';
 import { ProcessedFixture, FixtureResponse, ProcessedStatistics, MatchEvent } from '@/types/api-football';
 import { getFixtureStatistics, getFixtureEvents } from './fixtures';
+import { formatTurkeyDate, formatTurkeyTime } from '@/lib/utils';
 
 // === DÜNYANIN EN İYİ 10 LİGİ ===
 export const TOP_10_LEAGUES = [
@@ -250,13 +251,11 @@ interface StandingsResponse {
 // === Fixture işleme ===
 function processFixture(fixture: FixtureResponse): ProcessedFixture {
   const status = fixture.fixture.status.short;
-  const dateObj = new Date(fixture.fixture.date);
-  const time = dateObj.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
   
   return {
     id: fixture.fixture.id,
-    date: fixture.fixture.date,
-    time,
+    date: formatTurkeyDate(fixture.fixture.date),
+    time: formatTurkeyTime(fixture.fixture.date),
     timestamp: fixture.fixture.timestamp,
     venue: fixture.fixture.venue?.name || null,
     status: {

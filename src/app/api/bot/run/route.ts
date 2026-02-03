@@ -18,7 +18,14 @@ import {
   formatResultTweet 
 } from '@/lib/bot/twitter';
 import type { BotCoupon, BankrollState } from '@/lib/bot/types';
-import { getBankrollState, saveBankrollState } from '@/lib/bot/bankroll-store';
+import { 
+  getBankrollState, 
+  saveBankrollState,
+  isDailyLimitReached,
+  incrementDailyCoupon,
+  getRemainingDailyCoupons,
+  getDailyCouponCount,
+} from '@/lib/bot/bankroll-store';
 
 // Referans kupon tweet ID'si
 const REFERENCE_TWEET_ID = '2018718852276715712';
@@ -91,7 +98,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Yeni kupon oluştur (günde 1 kez)
+ * Yeni kupon oluştur (günde maks 3 kez)
  */
 async function handleNewCoupon(
   state: BankrollState, 
@@ -109,6 +116,22 @@ async function handleNewCoupon(
     });
   }
   
+  // Günlük limit kontrolü
+  const maxDaily = DEFAULT_BOT_CONFIG.maxDailyCoupons;
+  if (isDailyLimitReached(state, maxDaily)) {
+    const count = getDailyCouponCount(state);
+    log(`Günlük kupon limiti doldu (${count}/${maxDaily})`);
+    return NextResponse.json({
+      success: true,
+      message: 'Günlük kupon limiti doldu',
+      dailyLimit: maxDaily,
+      dailyCount: count,
+      logs,
+    });
+  }
+  
+  const remaining = getRemainingDailyCoupons(state, maxDaily);
+  log(`Günlük kalan kupon hakkı: ${remaining}/${maxDaily}`);
   log('Yeni kupon oluşturuluyor...');
   
   const newCoupon = await generateBotCoupon(DEFAULT_BOT_CONFIG, state.balance);
@@ -140,6 +163,9 @@ async function handleNewCoupon(
   
   // Tweet ID'yi kupona ekle
   newCoupon.tweetId = tweetId;
+  
+  // Günlük kupon sayacını artır
+  state = incrementDailyCoupon(state, newCoupon.id);
   
   // State güncelle
   state.balance -= newCoupon.stake;

@@ -19,7 +19,7 @@ import { FavoriteButton } from '@/components/favorite-button';
 import { useMatchDetail } from '@/hooks/useDailyMatches';
 import type { DailyMatchFixture, BetSuggestion } from '@/types/api-football';
 import { ChevronDown, ChevronUp, TrendingUp, Target, Zap, AlertTriangle, BarChart3, DollarSign, Plus, Check } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatTurkeyDate, formatTurkeyTime } from '@/lib/utils';
 import { useCouponStore } from '@/lib/coupon/store';
 import type { RiskCategory } from '@/lib/coupon/types';
 
@@ -66,15 +66,13 @@ function BetSuggestionCard({ suggestion, fixture }: BetSuggestionCardProps) {
     e.stopPropagation();
     if (inCoupon) return;
     
-    const kickoffDate = new Date(fixture.timestamp * 1000);
-    
     addSelection({
       fixtureId: fixture.id,
       homeTeam: fixture.homeTeam.name,
       awayTeam: fixture.awayTeam.name,
       league: fixture.league.name,
-      date: kickoffDate.toLocaleDateString('tr-TR'),
-      time: kickoffDate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
+      date: formatTurkeyDate(fixture.timestamp * 1000),
+      time: formatTurkeyTime(fixture.timestamp * 1000),
       market: suggestion.market,
       pick: suggestion.pick,
       odds: suggestion.odds,

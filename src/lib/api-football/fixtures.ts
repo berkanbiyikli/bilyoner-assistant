@@ -3,6 +3,7 @@
  */
 
 import { apiFootballFetch, getTodayForApi, formatDateForApi } from './client';
+import { formatTurkeyDate, formatTurkeyTime } from '@/lib/utils';
 import { 
   FixtureResponse, 
   ProcessedFixture,
@@ -117,13 +118,12 @@ export async function getTeamLastFixtures(teamId: number, last?: number): Promis
  * Raw fixture verisini işle
  */
 function processFixture(fixture: FixtureResponse): ProcessedFixture {
-  const date = new Date(fixture.fixture.date);
   const statusCode = fixture.fixture.status.short;
 
   return {
     id: fixture.fixture.id,
-    date: date.toLocaleDateString('tr-TR'),
-    time: date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
+    date: formatTurkeyDate(fixture.fixture.date),
+    time: formatTurkeyTime(fixture.fixture.date),
     timestamp: fixture.fixture.timestamp,
     status: {
       code: statusCode,

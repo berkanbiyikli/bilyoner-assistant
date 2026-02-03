@@ -84,6 +84,13 @@ export interface BankrollState {
   totalStaked: number;
   totalWon: number;
   
+  // Günlük limit takibi
+  dailyCoupons: {
+    date: string;             // YYYY-MM-DD formatında
+    count: number;            // O gün verilen kupon sayısı
+    couponIds: string[];      // O gün verilen kupon ID'leri
+  };
+  
   // Aktif kupon
   activeCoupon: BotCoupon | null;
   
@@ -131,6 +138,9 @@ export interface BotConfig {
   twitterEnabled: boolean;
   tweetOnNewCoupon: boolean;
   tweetOnResult: boolean;
+  
+  // Günlük Limitler
+  maxDailyCoupons: number;    // Günde maksimum kupon sayısı
 }
 
 export const DEFAULT_BOT_CONFIG: BotConfig = {
@@ -154,6 +164,8 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
   twitterEnabled: true,
   tweetOnNewCoupon: true,
   tweetOnResult: true,
+  
+  maxDailyCoupons: 3,        // Günde maksimum 3 kupon
 };
 
 // ============ TWEET TİPLERİ ============

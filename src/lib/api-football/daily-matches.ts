@@ -4,6 +4,7 @@
  */
 
 import { apiFootballFetch, formatDateForApi, getTodayForApi } from './client';
+import { formatTurkeyDate, formatTurkeyTime } from '@/lib/utils';
 import { 
   FixtureResponse, 
   DailyMatchFixture,
@@ -163,14 +164,13 @@ async function fetchH2H(homeTeamId: number, awayTeamId: number): Promise<DailyMa
     }
 
     const lastMatch = matches[0];
-    const lastMatchDate = new Date(lastMatch.fixture.date);
 
     return {
       totalMatches: matches.length,
       homeWins,
       awayWins,
       draws,
-      lastMatch: `${lastMatch.goals.home}-${lastMatch.goals.away} (${lastMatchDate.toLocaleDateString('tr-TR')})`,
+      lastMatch: `${lastMatch.goals.home}-${lastMatch.goals.away} (${formatTurkeyDate(lastMatch.fixture.date)})`,
     };
   } catch {
     return undefined;
@@ -256,7 +256,6 @@ async function checkLineups(fixtureId: number): Promise<boolean> {
  * Raw fixture verisini DailyMatchFixture'a dönüştür
  */
 function processDailyFixture(fixture: FixtureResponse): DailyMatchFixture {
-  const date = new Date(fixture.fixture.date);
   const statusCode = fixture.fixture.status.short;
 
   // Hakem bilgisini parse et
@@ -272,8 +271,8 @@ function processDailyFixture(fixture: FixtureResponse): DailyMatchFixture {
 
   return {
     id: fixture.fixture.id,
-    date: date.toLocaleDateString('tr-TR'),
-    time: date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
+    date: formatTurkeyDate(fixture.fixture.date),
+    time: formatTurkeyTime(fixture.fixture.date),
     timestamp: fixture.fixture.timestamp,
     status: {
       code: statusCode,

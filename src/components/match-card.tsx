@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { ProcessedFixture } from '@/types/api-football';
 import { ChevronRight } from 'lucide-react';
 import { FavoriteButton } from '@/components/favorite-button';
+import { formatTurkeyDate } from '@/lib/utils';
 
 interface MatchCardProps {
   fixture: ProcessedFixture;
@@ -201,7 +202,7 @@ export function MatchCardCompact({ fixture, onClick, selected }: MatchCardProps)
           id: fixture.id,
           homeTeam: homeTeam.name,
           awayTeam: awayTeam.name,
-          date: new Date(fixture.timestamp * 1000).toLocaleDateString('tr-TR'),
+          date: formatTurkeyDate(fixture.timestamp * 1000),
           time: time,
           league: fixture.league.name,
         }}

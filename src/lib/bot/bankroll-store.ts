@@ -35,6 +35,13 @@ interface BankrollStore extends BankrollState {
 
 const INITIAL_BALANCE = 500; // TL
 
+/**
+ * Bugünün tarihini YYYY-MM-DD formatında döndür
+ */
+function getTodayDateString(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
 const initialState: BankrollState = {
   balance: INITIAL_BALANCE,
   initialBalance: INITIAL_BALANCE,
@@ -46,6 +53,11 @@ const initialState: BankrollState = {
   activeCoupon: null,
   history: [],
   lastUpdated: new Date(),
+  dailyCoupons: {
+    date: getTodayDateString(),
+    count: 0,
+    couponIds: [],
+  },
 };
 
 // ============ STORE ============
@@ -298,6 +310,11 @@ const INITIAL_SERVER_STATE: BankrollState = {
   lostBets: 0,
   totalStaked: 0,
   totalWon: 0,
+  dailyCoupons: {
+    date: getTodayDateString(),
+    count: 0,
+    couponIds: [],
+  },
   activeCoupon: null,
   history: [],
   lastUpdated: new Date(),
@@ -360,9 +377,71 @@ export async function saveBankrollState(state: BankrollState): Promise<void> {
     totalBets: state.totalBets,
     wonBets: state.wonBets,
     lostBets: state.lostBets,
+    dailyCoupons: state.dailyCoupons,
     activeCoupon: state.activeCoupon?.id || null,
   }));
   
   // TODO: Vercel KV veya Upstash Redis entegrasyonu
   // await kv.set('bot-state', JSON.stringify(state));
 }
+
+// ============ GÜNLÜK LİMİT FONKSİYONLARI ============
+
+/**
+ * Günlük kupon sayısını kontrol et
+ * Yeni gün başladıysa sayaç sıfırlanır
+ */
+export function getDailyCouponCount(state: BankrollState): number {
+  const today = getTodayDateString();
+  
+  // Yeni gün başladıysa 0 döndür
+  if (!state.dailyCoupons || state.dailyCoupons.date !== today) {
+    return 0;
+  }
+  
+  return state.dailyCoupons.count;
+}
+
+/**
+ * Günlük limit doldu mu?
+ */
+export function isDailyLimitReached(state: BankrollState, maxDaily: number = 3): boolean {
+  return getDailyCouponCount(state) >= maxDaily;
+}
+
+/**
+ * Günlük kupon sayısını artır
+ */
+export function incrementDailyCoupon(state: BankrollState, couponId: string): BankrollState {
+  const today = getTodayDateString();
+  
+  // Yeni gün mü?
+  if (!state.dailyCoupons || state.dailyCoupons.date !== today) {
+    return {
+      ...state,
+      dailyCoupons: {
+        date: today,
+        count: 1,
+        couponIds: [couponId],
+      },
+    };
+  }
+  
+  // Mevcut güne ekle
+  return {
+    ...state,
+    dailyCoupons: {
+      ...state.dailyCoupons,
+      count: state.dailyCoupons.count + 1,
+      couponIds: [...state.dailyCoupons.couponIds, couponId],
+    },
+  };
+}
+
+/**
+ * Günlük kalan kupon hakkı
+ */
+export function getRemainingDailyCoupons(state: BankrollState, maxDaily: number = 3): number {
+  return Math.max(0, maxDaily - getDailyCouponCount(state));
+}
+

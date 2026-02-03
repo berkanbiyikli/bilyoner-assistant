@@ -16,13 +16,14 @@ export async function GET(request: NextRequest) {
   }
   
   // Tweet'teki kupon bilgileri (3 Şubat 2026 - 19:10)
+  // GERÇEK fixture ID'ler!
   const tweetCoupon: BotCoupon = {
     id: 'BOT-20260203-1910',
     createdAt: new Date('2026-02-03T19:10:00'),
     tweetId: '1886462814777266323', // Tweet ID (varsa)
     matches: [
       {
-        fixtureId: 1234561, // Bologna vs AC Milan
+        fixtureId: 1378084, // Bologna vs AC Milan - GERÇEK ID
         homeTeam: 'Bologna',
         awayTeam: 'AC Milan',
         homeTeamId: 500,
@@ -43,11 +44,11 @@ export async function GET(request: NextRequest) {
         awayStyle: 'OFFENSIVE',
       },
       {
-        fixtureId: 1234562, // ST Mirren vs Hearts
+        fixtureId: 1382815, // ST Mirren vs Hearts - GERÇEK ID
         homeTeam: 'ST Mirren',
-        awayTeam: 'Hearts',
+        awayTeam: 'Heart Of Midlothian',
         homeTeamId: 251,
-        awayTeamId: 250,
+        awayTeamId: 254,
         league: 'Scottish Premiership',
         leagueId: 179,
         kickoff: new Date('2026-02-03T21:00:00'),
@@ -64,11 +65,11 @@ export async function GET(request: NextRequest) {
         awayStyle: 'OFFENSIVE',
       },
       {
-        fixtureId: 1234563, // Piast Gliwice vs Lech Poznan
+        fixtureId: 1380417, // Piast Gliwice vs Lech Poznan - GERÇEK ID
         homeTeam: 'Piast Gliwice',
         awayTeam: 'Lech Poznan',
-        homeTeamId: 350,
-        awayTeamId: 338,
+        homeTeamId: 349,
+        awayTeamId: 347,
         league: 'Ekstraklasa',
         leagueId: 106,
         kickoff: new Date('2026-02-03T19:30:00'),

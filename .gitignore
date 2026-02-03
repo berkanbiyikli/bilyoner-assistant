@@ -33,6 +33,15 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# test scripts (contain sensitive data)
+test-tweet.mjs
+test-coupon-tweet.mjs
+tweet-with-screenshot.mjs
+coupon-tracker.mjs
+kasa-tweet.mjs
+kasa-quote-tweet.mjs
+bot-test.json
+
 # vercel
 .vercel
 

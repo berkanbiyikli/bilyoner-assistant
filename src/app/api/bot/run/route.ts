@@ -66,7 +66,8 @@ export async function GET(request: NextRequest) {
   };
   
   try {
-    log(`Bot çalışıyor - Action: ${action}`);
+    const force = searchParams.get('force') === '1';
+    log(`Bot çalışıyor - Action: ${action}${force ? ' (FORCE)' : ''}`);
     
     // State'i yükle
     const state = await getBankrollState();
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest) {
     
     switch (action) {
       case 'new-coupon':
-        return await handleNewCoupon(state, log, logs);
+        return await handleNewCoupon(state, log, logs, force);
         
       case 'check-live':
         return await handleCheckLive(state, log, logs);
@@ -111,8 +112,28 @@ export async function GET(request: NextRequest) {
 async function handleNewCoupon(
   state: BankrollState, 
   log: (msg: string) => void,
-  logs: string[]
+  logs: string[],
+  force: boolean = false
 ) {
+  // Force modunda aktif kuponu temizle ve kasayı sıfırla
+  if (force) {
+    log('FORCE mod: Kasa sıfırlanıyor, aktif kupon siliniyor');
+    state.activeCoupon = undefined;
+    state.balance = 500;
+    state.initialBalance = 500;
+    state.totalBets = 0;
+    state.wonBets = 0;
+    state.lostBets = 0;
+    state.totalStaked = 0;
+    state.totalWon = 0;
+    state.dailyCoupons = {
+      date: new Date().toISOString().split('T')[0],
+      count: 0,
+      couponIds: [],
+    };
+    await saveBankrollState(state);
+  }
+
   // Zaten aktif kupon varsa yeni oluşturma
   if (state.activeCoupon) {
     log('Zaten aktif kupon var, yeni kupon oluşturulmadı');

@@ -203,7 +203,8 @@ async function fetchBetSuggestions(matches: DailyMatchFixture[]): Promise<MatchW
           return null;
         }
         
-        const data = await res.json();
+        const json = await res.json();
+        const data = json.data || json; // API { success, data } formatında dönüyor
         
         if (data.betSuggestions && data.betSuggestions.length > 0) {
           console.log(`[Bot] ✓ ${match.homeTeam.name} vs ${match.awayTeam.name}: ${data.betSuggestions.length} öneri`);

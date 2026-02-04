@@ -93,17 +93,32 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  // Body'den text ve quoteTweetId al
+  let body: { text?: string; quoteTweetId?: string } = {};
+  try {
+    body = await request.json();
+  } catch {
+    // Body boşsa default test tweet at
+  }
+  
   // Önce OAuth 1.0a dene
   const oauth1Client = getOAuth1Client();
   if (oauth1Client) {
     try {
-      const testTweet = `🧪 Bilyoner Bot Test Tweet\n⏰ ${new Date().toLocaleString('tr-TR')}\n#test #BilyonerBot`;
-      const tweet = await oauth1Client.v2.tweet({ text: testTweet });
+      const tweetText = body.text || `🧪 Bilyoner Bot Test Tweet\n⏰ ${new Date().toLocaleString('tr-TR')}\n#test #BilyonerBot`;
+      
+      // Quote tweet mi normal tweet mi?
+      const tweetPayload: { text: string; quote_tweet_id?: string } = { text: tweetText };
+      if (body.quoteTweetId) {
+        tweetPayload.quote_tweet_id = body.quoteTweetId;
+      }
+      
+      const tweet = await oauth1Client.v2.tweet(tweetPayload);
       
       return NextResponse.json({
         success: true,
         authMethod: 'OAuth 1.0a',
-        message: 'Test tweet başarıyla atıldı!',
+        message: body.quoteTweetId ? 'Quote tweet başarıyla atıldı!' : 'Tweet başarıyla atıldı!',
         tweetId: tweet.data.id,
         tweetUrl: `https://twitter.com/i/status/${tweet.data.id}`,
       });
@@ -118,13 +133,19 @@ export async function POST(request: NextRequest) {
   const oauth2Client = getOAuth2Client();
   if (oauth2Client) {
     try {
-      const testTweet = `🧪 Bilyoner Bot Test Tweet\n⏰ ${new Date().toLocaleString('tr-TR')}\n#test #BilyonerBot`;
-      const tweet = await oauth2Client.v2.tweet({ text: testTweet });
+      const tweetText = body.text || `🧪 Bilyoner Bot Test Tweet\n⏰ ${new Date().toLocaleString('tr-TR')}\n#test #BilyonerBot`;
+      
+      const tweetPayload: { text: string; quote_tweet_id?: string } = { text: tweetText };
+      if (body.quoteTweetId) {
+        tweetPayload.quote_tweet_id = body.quoteTweetId;
+      }
+      
+      const tweet = await oauth2Client.v2.tweet(tweetPayload);
       
       return NextResponse.json({
         success: true,
         authMethod: 'OAuth 2.0',
-        message: 'Test tweet başarıyla atıldı!',
+        message: body.quoteTweetId ? 'Quote tweet başarıyla atıldı!' : 'Tweet başarıyla atıldı!',
         tweetId: tweet.data.id,
         tweetUrl: `https://twitter.com/i/status/${tweet.data.id}`,
       });

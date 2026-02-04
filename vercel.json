@@ -18,6 +18,10 @@
       "schedule": "*/5 14-23 * * *"
     },
     {
+      "path": "/api/bot/cron",
+      "schedule": "*/5 0-1 * * *"
+    },
+    {
       "path": "/api/bot/run?action=check-result",
       "schedule": "0 2 * * *"
     },

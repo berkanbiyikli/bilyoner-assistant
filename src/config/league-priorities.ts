@@ -15,6 +15,7 @@ export const LEAGUE_PRIORITIES: Record<number, number> = {
   // 🇹🇷 Türkiye
   203: 95,   // Süper Lig
   204: 70,   // 1. Lig (TFF 1. Lig)
+  206: 85,   // Türkiye Kupası
   
   // 🏆 UEFA Turnuvaları
   2: 94,     // UEFA Champions League
@@ -101,7 +102,7 @@ export function compareLeaguesByPriority(leagueIdA: number, leagueIdB: number): 
 // Lig kategorileri (UI için)
 export const LEAGUE_CATEGORIES = {
   TOP_5: [39, 140, 135, 78, 61],
-  TURKEY: [203, 204],
+  TURKEY: [203, 204, 206],
   UEFA: [2, 3, 848],
   CUPS: [45, 48, 143, 137, 81, 66],  // 🏆 Lig Kupaları
   INTERNATIONAL: [1, 4, 9, 6],
@@ -122,6 +123,7 @@ export const TOP_20_LEAGUES = [
   // 🇹🇷 Türkiye
   { id: 203, name: 'Süper Lig', country: 'Turkey', flag: '🇹🇷' },
   { id: 204, name: 'TFF 1. Lig', country: 'Turkey', flag: '🇹🇷' },
+  { id: 206, name: 'Türkiye Kupası', country: 'Turkey', flag: '🇹🇷' },
   
   // 🌍 Diğer Önemli Avrupa Ligleri
   { id: 94, name: 'Primeira Liga', country: 'Portugal', flag: '🇵🇹' },
@@ -174,6 +176,7 @@ export const BILYONER_LEAGUES: number[] = [
   // Türkiye
   203,  // Süper Lig
   204,  // TFF 1. Lig
+  206,  // Türkiye Kupası
   
   // UEFA Turnuvaları
   2,    // UEFA Champions League

@@ -135,6 +135,7 @@ export const LEAGUE_DNA: Record<number, LeagueDNA> = {
   // Turkey
   203: { avgGoals: 2.65, homeWinRate: 0.48, drawRate: 0.24, bttsRate: 0.52, over25Rate: 0.51 }, // Süper Lig
   204: { avgGoals: 2.45, homeWinRate: 0.45, drawRate: 0.26, bttsRate: 0.48, over25Rate: 0.45 }, // 1. Lig
+  206: { avgGoals: 2.75, homeWinRate: 0.46, drawRate: 0.22, bttsRate: 0.54, over25Rate: 0.53 }, // Türkiye Kupası
   
   // England
   39: { avgGoals: 2.85, homeWinRate: 0.44, drawRate: 0.25, bttsRate: 0.55, over25Rate: 0.56 }, // Premier League

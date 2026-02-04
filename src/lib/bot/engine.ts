@@ -165,36 +165,84 @@ interface MatchWithBetSuggestions {
 
 /**
  * Her maç için mor kutu önerilerini (betSuggestions) çeker
+ * PARALEL olarak tüm maçları aynı anda sorgular
  */
 async function fetchBetSuggestions(matches: DailyMatchFixture[]): Promise<MatchWithBetSuggestions[]> {
+  // Tüm maçlar için paralel istek at
+  const BATCH_SIZE = 5; // Her seferde 5 paralel istek (rate limit için)
   const results: MatchWithBetSuggestions[] = [];
   
-  for (const match of matches) {
-    try {
-      // match-detail API'sinden betSuggestions çek
-      const res = await fetch(`${BASE_URL}/api/match-detail?fixtureId=${match.id}`, {
-        headers: { 'Content-Type': 'application/json' },
-      });
-      
-      if (!res.ok) {
-        console.log(`[Bot] Match detail alınamadı: ${match.id}`);
-        continue;
-      }
-      
-      const data = await res.json();
-      
-      if (data.betSuggestions && data.betSuggestions.length > 0) {
-        results.push({
-          match,
-          betSuggestions: data.betSuggestions,
+  console.log(`[Bot] ${matches.length} maç için paralel bet suggestions çekiliyor...`);
+  
+  // Batch'ler halinde işle
+  for (let i = 0; i < matches.length; i += BATCH_SIZE) {
+    const batch = matches.slice(i, i + BATCH_SIZE);
+    
+    const batchPromises = batch.map(async (match) => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 saniye timeout
+        
+        // TÜM GEREKLİ PARAMETRELERİ EKLE (fixtureId, homeTeamId, awayTeamId, leagueId)
+        const params = new URLSearchParams({
+          fixtureId: String(match.id),
+          homeTeamId: String(match.homeTeam.id),
+          awayTeamId: String(match.awayTeam.id),
+          leagueId: String(match.league.id),
         });
-        console.log(`[Bot] ${match.homeTeam.name} vs ${match.awayTeam.name}: ${data.betSuggestions.length} öneri`);
+        
+        const res = await fetch(`${BASE_URL}/api/match-detail?${params}`, {
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) {
+          console.log(`[Bot] Match detail HTTP ${res.status}: ${match.id}`);
+          return null;
+        }
+        
+        const data = await res.json();
+        
+        if (data.betSuggestions && data.betSuggestions.length > 0) {
+          console.log(`[Bot] ✓ ${match.homeTeam.name} vs ${match.awayTeam.name}: ${data.betSuggestions.length} öneri`);
+          return {
+            match,
+            betSuggestions: data.betSuggestions as BetSuggestion[],
+          };
+        }
+        
+        return null;
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : 'Unknown error';
+        // AbortError'ı ayrı logla
+        if (errMsg.includes('abort')) {
+          console.log(`[Bot] Timeout: ${match.id} (${match.homeTeam.name})`);
+        } else {
+          console.log(`[Bot] Hata ${match.id}: ${errMsg.substring(0, 50)}`);
+        }
+        return null;
       }
-    } catch (error) {
-      console.error(`[Bot] BetSuggestions alınamadı: ${match.id}`, error);
+    });
+    
+    // Bu batch'i bekle
+    const batchResults = await Promise.all(batchPromises);
+    
+    // Başarılı sonuçları ekle
+    for (const result of batchResults) {
+      if (result) {
+        results.push(result);
+      }
+    }
+    
+    // Batch'ler arası kısa bekleme (rate limit için)
+    if (i + BATCH_SIZE < matches.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
   
+  console.log(`[Bot] ${results.length}/${matches.length} maç için bet suggestions alındı`);
   return results;
 }
 

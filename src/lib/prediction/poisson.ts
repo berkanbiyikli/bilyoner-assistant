@@ -6,6 +6,108 @@
  * λ = expected goals (beklenen gol)
  */
 
+import type { StandingEntry } from '@/types/api-football';
+import { 
+  LEAGUE_HOME_ADVANTAGE, 
+  DEFAULT_HOME_ADVANTAGE,
+  MIN_WEEKS_FOR_DYNAMIC,
+  EXPERT_WEIGHT_EARLY_SEASON,
+  EXPERT_WEIGHT_NORMAL
+} from '@/config/league-priorities';
+
+// =====================================
+// 🏠 Dinamik Ev Avantajı Hesaplama
+// =====================================
+
+/**
+ * Dinamik ev avantajı hesapla
+ * Standings'ten ev/deplasman galibiyet oranlarını analiz eder
+ * %50 Expert + %50 Dinamik harmanlama (sezon başında %80 Expert)
+ * 
+ * @param standings Lig sıralaması verileri
+ * @param leagueId Lig ID'si
+ * @returns Dinamik ev avantajı katsayısı (1.0 - 1.40 arası)
+ */
+export function calculateDynamicHomeAdvantage(
+  standings: StandingEntry[],
+  leagueId: number
+): number {
+  const expertValue = LEAGUE_HOME_ADVANTAGE[leagueId] || DEFAULT_HOME_ADVANTAGE;
+  
+  // Standings yoksa expert değeri kullan
+  if (!standings || standings.length === 0) {
+    return expertValue;
+  }
+  
+  // Toplam oynanan maç sayısını hesapla
+  const totalHomeMatches = standings.reduce((acc, team) => acc + team.home.played, 0);
+  
+  // Henüz yeterli maç oynanmadıysa expert değeri kullan
+  if (totalHomeMatches === 0) {
+    return expertValue;
+  }
+  
+  // Hafta sayısını tahmin et (her takım 1 ev maçı = 1 hafta varsayımı)
+  const weeksPlayed = Math.floor(totalHomeMatches / (standings.length / 2));
+  
+  // Ev/Deplasman galibiyet sayılarını hesapla
+  const homeWins = standings.reduce((acc, team) => acc + team.home.win, 0);
+  const awayWins = standings.reduce((acc, team) => acc + team.away.win, 0);
+  
+  // Galibiyet oranları
+  const homeWinRate = homeWins / totalHomeMatches;
+  const totalAwayMatches = standings.reduce((acc, team) => acc + team.away.played, 0);
+  const awayWinRate = totalAwayMatches > 0 ? awayWins / totalAwayMatches : 0.3;
+  
+  // Dinamik faktör: 1 + (ev oranı - deplasman oranı)
+  // Örnek: Ev %50, Deplasman %25 → 1 + (0.50 - 0.25) = 1.25
+  const dynamicFactor = 1 + (homeWinRate - awayWinRate);
+  
+  // Sezon başı güvenlik: Az maç varsa expert ağırlığını artır
+  const expertWeight = weeksPlayed < MIN_WEEKS_FOR_DYNAMIC 
+    ? EXPERT_WEIGHT_EARLY_SEASON 
+    : EXPERT_WEIGHT_NORMAL;
+  const dynamicWeight = 1 - expertWeight;
+  
+  // %50 Expert + %50 Dinamik harmanlama (veya sezon başı %80/%20)
+  const blendedAdvantage = (expertValue * expertWeight) + (dynamicFactor * dynamicWeight);
+  
+  // Sınırla: 1.0 - 1.40 arası (aşırı uç değerleri engelle)
+  return Math.max(1.0, Math.min(1.40, blendedAdvantage));
+}
+
+/**
+ * Lig gol ortalamasını standings'ten dinamik hesapla
+ * @param standings Lig sıralaması verileri
+ * @returns { home: number, away: number } - Ev ve deplasman gol ortalamaları
+ */
+export function calculateLeagueAvgGoals(standings: StandingEntry[]): { home: number; away: number } {
+  if (!standings || standings.length === 0) {
+    return { home: 1.5, away: 1.2 }; // Varsayılan değerler
+  }
+  
+  let totalHomeGoals = 0;
+  let totalAwayGoals = 0;
+  let totalHomeMatches = 0;
+  let totalAwayMatches = 0;
+  
+  standings.forEach(team => {
+    totalHomeGoals += team.home.goals.for;
+    totalAwayGoals += team.away.goals.for;
+    totalHomeMatches += team.home.played;
+    totalAwayMatches += team.away.played;
+  });
+  
+  return {
+    home: totalHomeMatches > 0 ? totalHomeGoals / totalHomeMatches : 1.5,
+    away: totalAwayMatches > 0 ? totalAwayGoals / totalAwayMatches : 1.2,
+  };
+}
+
+// =====================================
+// 📊 Poisson Temel Fonksiyonlar
+// =====================================
+
 // Factorial hesaplama (memoized)
 const factorialCache: Map<number, number> = new Map();
 
@@ -192,6 +294,96 @@ export interface XGCalculationInput {
   
   // Ev avantajı faktörü
   homeAdvantage?: number;       // 1.0 = nötr, 1.1 = %10 avantaj
+  
+  // 🆕 xG Entegrasyonu (Faz 2)
+  homeRecentXG?: number[];      // Son 5 maçın xG değerleri
+  awayRecentXG?: number[];      // Son 5 maçın xG değerleri
+  leagueId?: number;            // Dinamik hesaplamalar için lig ID
+}
+
+// =====================================
+// 📊 xG Weighted Average (Ağırlıklı Ortalama)
+// =====================================
+
+/** Son maçlara verilen ağırlıklar (son maç = 1.0, en eski = 0.4) */
+const XG_DECAY_WEIGHTS = [1.0, 0.85, 0.7, 0.55, 0.4];
+
+/** Varsayılan shrinkage oranı (%70 gerçek veri, %30 lig ortalaması) */
+export const DEFAULT_XG_SHRINKAGE = 0.7;
+
+/**
+ * Ağırlıklı xG ortalaması hesapla
+ * Son maçlara daha yüksek ağırlık verir (Recency Decay)
+ * xG yoksa shrinkage ile lig ortalamasına regrese eder
+ * 
+ * Formül:
+ * - xG varsa: Weighted Average with decay [1.0, 0.85, 0.7, 0.55, 0.4]
+ * - xG yoksa: (actualGoals × shrinkage) + (leagueAvg × (1 - shrinkage))
+ * 
+ * @param recentXG Son maçların xG değerleri (veya gerçek goller fallback olarak)
+ * @param leagueAvg Lig gol ortalaması
+ * @param shrinkage Shrinkage oranı (0-1 arası, default 0.7)
+ * @param hasRealXG Verinin gerçek xG mi yoksa gol mi olduğu
+ * @returns Ağırlıklı xG değeri
+ */
+export function calculateWeightedXG(
+  recentXG: number[],
+  leagueAvg: number,
+  shrinkage: number = DEFAULT_XG_SHRINKAGE,
+  hasRealXG: boolean = true
+): number {
+  // Veri yoksa lig ortalamasını döndür
+  if (!recentXG || recentXG.length === 0) {
+    return leagueAvg;
+  }
+  
+  // Ağırlıklı ortalama hesapla
+  let weightedSum = 0;
+  let totalWeight = 0;
+  
+  recentXG.slice(0, 5).forEach((xg, i) => {
+    const weight = XG_DECAY_WEIGHTS[i] ?? 0.3;
+    weightedSum += xg * weight;
+    totalWeight += weight;
+  });
+  
+  const weightedAvg = totalWeight > 0 ? weightedSum / totalWeight : leagueAvg;
+  
+  // Gerçek xG verisi varsa direkt kullan
+  if (hasRealXG) {
+    return weightedAvg;
+  }
+  
+  // Gerçek gol verisi (fallback) ise shrinkage uygula
+  // Uç değerlerden kaçınmak için lig ortalamasına doğru regrese et
+  // Formül: (gerçekGol × 0.7) + (ligOrt × 0.3)
+  return (weightedAvg * shrinkage) + (leagueAvg * (1 - shrinkage));
+}
+
+/**
+ * xG verisi olan maçları gerçek xG olmayan maçlardan ayır
+ * @param recentData Son maçların verileri
+ * @returns { xgValues, hasRealXG } - xG değerleri ve gerçek xG olup olmadığı
+ */
+export function processRecentXGData(
+  recentData: Array<{ xg?: number | null; goals: number }>
+): { xgValues: number[]; hasRealXG: boolean } {
+  const xgValues: number[] = [];
+  let realXGCount = 0;
+  
+  recentData.slice(0, 5).forEach(match => {
+    if (match.xg !== null && match.xg !== undefined) {
+      xgValues.push(match.xg);
+      realXGCount++;
+    } else {
+      xgValues.push(match.goals);
+    }
+  });
+  
+  // En az yarısında gerçek xG varsa "hasRealXG" true
+  const hasRealXG = realXGCount >= Math.ceil(xgValues.length / 2);
+  
+  return { xgValues, hasRealXG };
 }
 
 export interface XGResult {

@@ -112,6 +112,12 @@ interface MatchDetailResponse {
     // Yeni alanlar
     poissonAnalysis?: PoissonAnalysisResponse;
     valueBets?: ValueBetResponse;
+    // API Ensemble Validation (Faz 2)
+    apiValidation?: {
+      label: 'high' | 'medium' | 'risky' | 'avoid';
+      deviation: number;
+      message: string;
+    };
   };
   error?: string;
 }

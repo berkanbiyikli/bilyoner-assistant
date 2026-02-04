@@ -180,3 +180,53 @@ export const DEFAULT_PREDICTION_SETTINGS: PredictionSettings = {
   minConfidenceThreshold: 55,
   minValueThreshold: 5,
 };
+
+// =====================================
+// 🎯 API Ensemble Cross-Check (Faz 2)
+// =====================================
+
+/**
+ * Güven seviyesi etiketi
+ * Model ve API tahminlerinin uyumuna göre belirlenir
+ */
+export type ConfidenceLabel = 'high' | 'medium' | 'risky' | 'avoid';
+
+/**
+ * API Tahmin karşılaştırma sonucu
+ */
+export interface APIValidationResult {
+  /** Güven etiketi */
+  confidenceLabel: ConfidenceLabel;
+  
+  /** Model tahmini (0-100) */
+  modelProbability: number;
+  
+  /** API tahmini (0-100) */
+  apiProbability: number;
+  
+  /** Sapma yüzdesi (mutlak fark) */
+  deviation: number;
+  
+  /** Tahminler aynı yönde mi (aynı sonucu mu öngörüyor) */
+  isSameDirection: boolean;
+  
+  /** Açıklama mesajı */
+  message: string;
+  
+  /** Brier Score döngüsüne dahil edilsin mi */
+  includeInCalibration: boolean;
+  
+  /** Kalibrasyon ağırlığı (0-1) */
+  calibrationWeight: number;
+}
+
+/**
+ * API Tahmin verisi (API-Football'dan gelen)
+ */
+export interface APIPrediction {
+  homeWinPercent: number;
+  drawPercent: number;
+  awayWinPercent: number;
+  advice?: string | null;
+  underOver?: string | null;
+}

@@ -180,3 +180,159 @@ export function ConfidenceBadge({ confidence, className }: ConfidenceBadgeProps)
     </span>
   );
 }
+
+// =====================================
+// 🎯 API Ensemble Validation Badge
+// =====================================
+
+import { ShieldCheck, ShieldAlert, ShieldX, ShieldQuestion } from 'lucide-react';
+import type { ConfidenceLabel } from '@/lib/prediction/types';
+
+interface APIValidationBadgeProps {
+  label: ConfidenceLabel;
+  deviation?: number;
+  message?: string;
+  className?: string;
+}
+
+/**
+ * API Ensemble Validation Badge
+ * Model ve API tahminlerinin uyumunu gösteren badge
+ */
+export function APIValidationBadge({ 
+  label, 
+  deviation, 
+  message,
+  className 
+}: APIValidationBadgeProps) {
+  const config = {
+    high: {
+      icon: ShieldCheck,
+      color: 'bg-green-500/10 text-green-600 border-green-500/30',
+      label: 'Yüksek Güven',
+    },
+    medium: {
+      icon: ShieldCheck,
+      color: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30',
+      label: 'Orta Güven',
+    },
+    risky: {
+      icon: ShieldAlert,
+      color: 'bg-orange-500/10 text-orange-600 border-orange-500/30',
+      label: 'Riskli',
+    },
+    avoid: {
+      icon: ShieldX,
+      color: 'bg-red-500/10 text-red-600 border-red-500/30',
+      label: 'Kaçın',
+    },
+  };
+
+  const { icon: Icon, color, label: displayLabel } = config[label];
+
+  const badge = (
+    <span className={cn(
+      'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border',
+      color,
+      className
+    )}>
+      <Icon className="h-3 w-3" />
+      <span>{displayLabel}</span>
+      {deviation !== undefined && (
+        <span className="text-[10px] opacity-75">({deviation.toFixed(0)}%)</span>
+      )}
+    </span>
+  );
+
+  // Mesaj varsa tooltip göster
+  if (message) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help">{badge}</span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-[250px]">
+            <p className="text-sm">{message}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  return badge;
+}
+
+/**
+ * Combined Confidence + API Validation Badge
+ * Hem model güvenini hem API uyumunu tek badge'de gösterir
+ */
+interface CombinedConfidenceBadgeProps {
+  confidence: number;
+  apiValidation?: {
+    label: ConfidenceLabel;
+    deviation: number;
+    message: string;
+  };
+  className?: string;
+}
+
+export function CombinedConfidenceBadge({ 
+  confidence, 
+  apiValidation,
+  className 
+}: CombinedConfidenceBadgeProps) {
+  const getConfidenceColor = (value: number) => {
+    if (value >= 76) return 'text-green-600';
+    if (value >= 51) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
+  const getValidationIcon = (label?: ConfidenceLabel) => {
+    if (!label) return null;
+    switch (label) {
+      case 'high': return <ShieldCheck className="h-3 w-3 text-green-500" />;
+      case 'medium': return <ShieldCheck className="h-3 w-3 text-yellow-500" />;
+      case 'risky': return <ShieldAlert className="h-3 w-3 text-orange-500" />;
+      case 'avoid': return <ShieldX className="h-3 w-3 text-red-500" />;
+    }
+  };
+
+  const badge = (
+    <span className={cn(
+      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium border bg-muted/50 border-border',
+      className
+    )}>
+      <span className={cn('font-bold', getConfidenceColor(confidence))}>
+        %{confidence}
+      </span>
+      {apiValidation && (
+        <>
+          <span className="text-muted-foreground">|</span>
+          {getValidationIcon(apiValidation.label)}
+        </>
+      )}
+    </span>
+  );
+
+  if (apiValidation?.message) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help">{badge}</span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-[280px]">
+            <div className="space-y-1">
+              <p className="font-medium">Model: %{confidence}</p>
+              <p className="text-sm text-muted-foreground">{apiValidation.message}</p>
+              <p className="text-xs">Sapma: {apiValidation.deviation.toFixed(1)}%</p>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  return badge;
+}

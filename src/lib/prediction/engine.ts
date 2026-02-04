@@ -15,8 +15,144 @@ import {
   FormMatch,
   PredictionSettings,
   DEFAULT_PREDICTION_SETTINGS,
+  ConfidenceLabel,
+  APIValidationResult,
+  APIPrediction,
 } from './types';
-import { analyzePoissonPrediction } from './poisson';
+import { analyzePoissonPrediction, calculateDynamicHomeAdvantage } from './poisson';
+import type { StandingEntry } from '@/types/api-football';
+import { LEAGUE_HOME_ADVANTAGE, DEFAULT_HOME_ADVANTAGE } from '@/config/league-priorities';
+
+// =====================================
+// 🏠 Ortak Ev Avantajı Helper
+// =====================================
+
+/**
+ * Ev avantajı katsayısını al (Poisson & Monte Carlo için ortak)
+ * Standings varsa dinamik hesapla, yoksa expert değeri kullan
+ * 
+ * @param leagueId Lig ID'si
+ * @param standings Opsiyonel lig sıralaması verileri
+ * @returns Ev avantajı katsayısı (1.0 - 1.40 arası)
+ */
+export function getHomeAdvantage(leagueId: number, standings?: StandingEntry[]): number {
+  if (standings && standings.length > 0) {
+    return calculateDynamicHomeAdvantage(standings, leagueId);
+  }
+  return LEAGUE_HOME_ADVANTAGE[leagueId] || DEFAULT_HOME_ADVANTAGE;
+}
+
+// =====================================
+// 🎯 API Ensemble Cross-Check
+// =====================================
+
+/** Sapma eşikleri */
+const DEVIATION_THRESHOLDS = {
+  HIGH_CONFIDENCE: 10,    // <%10 sapma = Yüksek Güven
+  MEDIUM_CONFIDENCE: 15,  // %10-15 sapma = Orta Güven
+  RISKY: 25,              // %15-25 sapma = Riskli
+  // >%25 sapma = Avoid
+};
+
+/**
+ * Model tahminini API tahminiyle karşılaştır
+ * Uyumlu ise "Yüksek Güven", çakışıyorsa "Riskli" etiketi ata
+ * 
+ * @param modelPrediction Model tahmini (homeWin, draw, awayWin - 0-100)
+ * @param apiPrediction API-Football tahmini
+ * @returns Doğrulama sonucu
+ */
+export function validateWithAPIpredictions(
+  modelPrediction: { homeWin: number; draw: number; awayWin: number },
+  apiPrediction: APIPrediction
+): APIValidationResult {
+  // Model ve API'nin öngördüğü sonucu bul
+  const modelMax = Math.max(modelPrediction.homeWin, modelPrediction.draw, modelPrediction.awayWin);
+  const apiMax = Math.max(apiPrediction.homeWinPercent, apiPrediction.drawPercent, apiPrediction.awayWinPercent);
+  
+  const modelResult = modelPrediction.homeWin === modelMax ? 'home' : 
+                      modelPrediction.awayWin === modelMax ? 'away' : 'draw';
+  const apiResult = apiPrediction.homeWinPercent === apiMax ? 'home' : 
+                    apiPrediction.awayWinPercent === apiMax ? 'away' : 'draw';
+  
+  // Aynı sonucu mu öngörüyorlar?
+  const isSameDirection = modelResult === apiResult;
+  
+  // Sapma hesapla (aynı sonuç için olasılık farkı)
+  let deviation: number;
+  let modelProb: number;
+  let apiProb: number;
+  
+  if (modelResult === 'home') {
+    modelProb = modelPrediction.homeWin;
+    apiProb = apiPrediction.homeWinPercent;
+  } else if (modelResult === 'away') {
+    modelProb = modelPrediction.awayWin;
+    apiProb = apiPrediction.awayWinPercent;
+  } else {
+    modelProb = modelPrediction.draw;
+    apiProb = apiPrediction.drawPercent;
+  }
+  
+  deviation = Math.abs(modelProb - apiProb);
+  
+  // Eğer farklı sonuçları öngörüyorlarsa, sapma daha yüksek
+  if (!isSameDirection) {
+    // Model ev diyor, API deplasman diyor gibi durumlarda
+    deviation = Math.abs(modelProb + apiProb) / 2 + 20; // Ek ceza
+  }
+  
+  // Güven seviyesi belirle
+  let confidenceLabel: ConfidenceLabel;
+  let message: string;
+  let includeInCalibration: boolean;
+  let calibrationWeight: number;
+  
+  if (isSameDirection && deviation <= DEVIATION_THRESHOLDS.HIGH_CONFIDENCE) {
+    confidenceLabel = 'high';
+    message = `✅ Yüksek Güven: Model ve API aynı fikirde (${modelResult.toUpperCase()}, fark: ${deviation.toFixed(1)}%)`;
+    includeInCalibration = true;
+    calibrationWeight = 1.0;
+  } else if (isSameDirection && deviation <= DEVIATION_THRESHOLDS.MEDIUM_CONFIDENCE) {
+    confidenceLabel = 'medium';
+    message = `🟡 Orta Güven: Model ve API benzer görüşte (fark: ${deviation.toFixed(1)}%)`;
+    includeInCalibration = true;
+    calibrationWeight = 0.8;
+  } else if (deviation <= DEVIATION_THRESHOLDS.RISKY) {
+    confidenceLabel = 'risky';
+    message = `⚠️ Riskli: Model ${modelResult.toUpperCase()}, API ${apiResult.toUpperCase()} - dikkatli ol`;
+    includeInCalibration = true;
+    calibrationWeight = 0.5; // Düşük ağırlıkla dahil et (öğrenme için)
+  } else {
+    confidenceLabel = 'avoid';
+    message = `🔴 Kaçın: Model ve API tamamen zıt görüşte (sapma: ${deviation.toFixed(1)}%)`;
+    includeInCalibration = true;
+    calibrationWeight = 0.3; // Çok düşük ağırlık ama yine de öğren
+  }
+  
+  return {
+    confidenceLabel,
+    modelProbability: modelProb,
+    apiProbability: apiProb,
+    deviation,
+    isSameDirection,
+    message,
+    includeInCalibration,
+    calibrationWeight,
+  };
+}
+
+/**
+ * Confidence label için emoji döndür
+ */
+export function getConfidenceLabelEmoji(label: ConfidenceLabel): string {
+  switch (label) {
+    case 'high': return '🛡️✅';
+    case 'medium': return '🛡️';
+    case 'risky': return '⚠️';
+    case 'avoid': return '🔴';
+  }
+}
 
 // =====================================
 // GPP - Opponent Strength Weighted Form

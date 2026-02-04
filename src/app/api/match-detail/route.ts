@@ -9,6 +9,8 @@ import { getMatchDetail } from '@/lib/api-football/daily-matches';
 import type { Referee, BetSuggestion, BetSuggestionInput } from '@/types/api-football';
 import { analyzePoissonPrediction, type PoissonAnalysis } from '@/lib/prediction/poisson';
 import { analyzeValueBet, type ValueBetAnalysis } from '@/lib/prediction/value-bet';
+import { validateWithAPIpredictions } from '@/lib/prediction/engine';
+import type { APIValidationResult } from '@/lib/prediction/types';
 import {
   teamStatsCache,
   seasonStatsCache,
@@ -562,6 +564,58 @@ export async function GET(request: Request) {
       });
     }
 
+    // API Ensemble Validation (Faz 2)
+    // Poisson modelimiz ile API-Football prediction'ını karşılaştır
+    let apiValidation: APIValidationResult | null = null;
+    if (poissonAnalysis && matchDetail.prediction) {
+      const apiPrediction = matchDetail.prediction;
+      
+      // Model tahmini
+      const modelPrediction = {
+        homeWin: poissonAnalysis.probabilities.homeWin,
+        draw: poissonAnalysis.probabilities.draw,
+        awayWin: poissonAnalysis.probabilities.awayWin,
+      };
+      
+      // API prediction'dan olasılık hesapla (winner + confidence)
+      const conf = apiPrediction.confidence || 50;
+      let apiProbs = { 
+        homeWinPercent: 33.3, 
+        drawPercent: 33.3, 
+        awayWinPercent: 33.3 
+      };
+      
+      // API winner'a göre olasılıkları hesapla
+      if (apiPrediction.winner) {
+        const winnerLower = apiPrediction.winner.toLowerCase();
+        const isHomeWinner = winnerLower.includes('home') || winnerLower.includes('ev');
+        const isAwayWinner = winnerLower.includes('away') || winnerLower.includes('deplasman');
+        const isDraw = winnerLower.includes('draw') || winnerLower.includes('berabere');
+        
+        if (isHomeWinner) {
+          apiProbs = { 
+            homeWinPercent: conf, 
+            drawPercent: (100 - conf) / 2, 
+            awayWinPercent: (100 - conf) / 2 
+          };
+        } else if (isAwayWinner) {
+          apiProbs = { 
+            homeWinPercent: (100 - conf) / 2, 
+            drawPercent: (100 - conf) / 2, 
+            awayWinPercent: conf 
+          };
+        } else if (isDraw) {
+          apiProbs = { 
+            homeWinPercent: (100 - conf) / 2, 
+            drawPercent: conf, 
+            awayWinPercent: (100 - conf) / 2 
+          };
+        }
+      }
+      
+      apiValidation = validateWithAPIpredictions(modelPrediction, apiProbs);
+    }
+
     // Value Bet Analizi (en iyi 3 öneri için)
     const valueBetAnalyses: ValueBetAnalysis[] = betSuggestions
       .slice(0, 5)
@@ -644,6 +698,12 @@ export async function GET(request: Request) {
           pick: valueBetAnalyses[0].pick,
           value: valueBetAnalyses[0].value,
         } : null,
+      } : null,
+      // Faz 2: API Ensemble Validation
+      apiValidation: apiValidation ? {
+        label: apiValidation.confidenceLabel,
+        deviation: apiValidation.deviation,
+        message: apiValidation.message,
       } : null,
     };
 

@@ -3,6 +3,66 @@
  * Büyük ve popüler ligler önce gösterilir
  */
 
+// =====================================
+// 🏠 Dinamik Ev Avantajı Katsayıları
+// =====================================
+
+/**
+ * Lig bazlı ev avantajı çarpanları (Expert Values)
+ * Değer aralığı: 1.0 (nötr) - 1.40 (çok yüksek ev avantajı)
+ * 
+ * Kaynaklar:
+ * - Türkiye: Yüksek taraftar baskısı, seyahat zorlukları
+ * - Bundesliga: Düşük (away takımlar dirençli)
+ * - Champions League: Nötre yakın (kaliteli takımlar)
+ */
+export const LEAGUE_HOME_ADVANTAGE: Record<number, number> = {
+  // 🇹🇷 Türkiye (Yüksek ev avantajı)
+  203: 1.28,  // Süper Lig
+  204: 1.25,  // TFF 1. Lig
+  206: 1.22,  // Türkiye Kupası
+  
+  // 🏆 Avrupa Büyük 5
+  39: 1.15,   // Premier League
+  140: 1.18,  // La Liga
+  135: 1.20,  // Serie A
+  78: 1.12,   // Bundesliga (en düşük)
+  61: 1.14,   // Ligue 1
+  
+  // 🇪🇺 UEFA Turnuvaları (Nötre yakın)
+  2: 1.08,    // Champions League
+  3: 1.10,    // Europa League
+  848: 1.10,  // Conference League
+  
+  // 🌍 Diğer Avrupa Ligleri
+  94: 1.16,   // Primeira Liga (Portekiz)
+  88: 1.14,   // Eredivisie (Hollanda)
+  144: 1.15,  // Jupiler Pro League (Belçika)
+  179: 1.18,  // Scottish Premiership
+  197: 1.22,  // Super League (Yunanistan)
+  
+  // 🌎 Güney Amerika (Yüksek ev avantajı)
+  71: 1.30,   // Serie A (Brezilya)
+  128: 1.32,  // Liga Profesional (Arjantin)
+  
+  // 🇸🇦 Suudi Arabistan
+  307: 1.20,  // Saudi Pro League
+};
+
+/** Varsayılan ev avantajı (listeye dahil olmayanlar için) */
+export const DEFAULT_HOME_ADVANTAGE = 1.15;
+
+/** Sezon başı güvenlik eşiği - minimum hafta sayısı */
+export const MIN_WEEKS_FOR_DYNAMIC = 5;
+
+/** Expert ağırlığı - sezon başında %80, sonra %50 */
+export const EXPERT_WEIGHT_EARLY_SEASON = 0.8;
+export const EXPERT_WEIGHT_NORMAL = 0.5;
+
+// =====================================
+// 📊 Lig Öncelik Puanları
+// =====================================
+
 // Lig ID'leri ve öncelik puanları (yüksek = daha önemli)
 export const LEAGUE_PRIORITIES: Record<number, number> = {
   // 🏆 Avrupa Büyük 5

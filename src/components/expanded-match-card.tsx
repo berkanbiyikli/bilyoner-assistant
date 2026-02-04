@@ -12,7 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ConfidenceBadge, ConfidenceBar } from '@/components/confidence-bar';
+import { ConfidenceBadge, ConfidenceBar, CombinedConfidenceBadge, APIValidationBadge } from '@/components/confidence-bar';
 import { RefereeStatsCard, RefereeStatsSkeleton } from '@/components/referee-stats-card';
 import { LineupBadge } from '@/components/lineup-badge';
 import { FavoriteButton } from '@/components/favorite-button';
@@ -220,9 +220,12 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
         {/* Quick Info Badges */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Tahmin Confidence (varsa) */}
+          {/* Tahmin Confidence + API Validation (varsa) */}
           {fixture.prediction?.confidence && (
-            <ConfidenceBadge confidence={fixture.prediction.confidence} />
+            <CombinedConfidenceBadge 
+              confidence={fixture.prediction.confidence}
+              apiValidation={fixture.prediction.apiValidation}
+            />
           )}
           
           {/* Expand/Collapse Icon */}
@@ -356,9 +359,19 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
               {/* 📊 POISSON TAHMİNİ - YENİ */}
               {detail.data.poissonAnalysis && (
                 <div className="p-3 rounded-lg bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20">
-                  <div className="flex items-center gap-2 mb-3">
-                    <BarChart3 className="h-4 w-4 text-indigo-500" />
-                    <span className="font-semibold text-sm">Poisson Analizi (Bilimsel Tahmin)</span>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4 text-indigo-500" />
+                      <span className="font-semibold text-sm">Poisson Analizi (Bilimsel Tahmin)</span>
+                    </div>
+                    {/* API Validation Badge */}
+                    {detail.data.apiValidation && (
+                      <APIValidationBadge 
+                        label={detail.data.apiValidation.label}
+                        deviation={detail.data.apiValidation.deviation}
+                        message={detail.data.apiValidation.message}
+                      />
+                    )}
                   </div>
                   
                   {/* xG ve En Olası Skor */}

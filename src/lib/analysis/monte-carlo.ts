@@ -8,11 +8,14 @@
  * - Beklenmedik sonuç olasılığını gösterir
  */
 
+import { getHomeAdvantage } from '../prediction/engine';
+import type { StandingEntry } from '@/types/api-football';
+
 export interface TeamSimStats {
   expectedGoals: number; // xG
   goalVariance: number; // Gol tutarsızlığı (0.3-1.5)
   formFactor: number; // Form çarpanı (0.7-1.3)
-  homeAdvantage?: number; // Ev sahibi avantajı (1.1-1.4)
+  homeAdvantage?: number; // Ev sahibi avantajı (1.1-1.4) - artık dinamik
 }
 
 export interface SimulationResult {
@@ -93,14 +96,22 @@ function createSeededRandom(seed: number): () => number {
 
 /**
  * Tek bir maç simüle et
+ * @param homeStats Ev sahibi takım istatistikleri
+ * @param awayStats Deplasman takım istatistikleri
+ * @param random Rastgele sayı üreteci
+ * @param dynamicHomeAdvantage Dinamik ev avantajı (opsiyonel, varsa homeStats.homeAdvantage yerine kullanılır)
  */
 function simulateMatch(
   homeStats: TeamSimStats,
   awayStats: TeamSimStats,
-  random: () => number = Math.random
+  random: () => number = Math.random,
+  dynamicHomeAdvantage?: number
 ): { homeGoals: number; awayGoals: number } {
+  // Dinamik ev avantajı varsa onu kullan, yoksa homeStats.homeAdvantage veya varsayılan 1.2
+  const homeAdvantage = dynamicHomeAdvantage ?? homeStats.homeAdvantage ?? 1.2;
+  
   // Beklenen golleri hesapla
-  let homeExpected = homeStats.expectedGoals * homeStats.formFactor * (homeStats.homeAdvantage || 1.2);
+  let homeExpected = homeStats.expectedGoals * homeStats.formFactor * homeAdvantage;
   let awayExpected = awayStats.expectedGoals * awayStats.formFactor;
   
   // Varyans ekle
@@ -116,16 +127,26 @@ function simulateMatch(
 
 /**
  * Monte Carlo simülasyonu çalıştır
+ * @param homeStats Ev sahibi takım istatistikleri
+ * @param awayStats Deplasman takım istatistikleri
+ * @param config Simülasyon konfigürasyonu
+ * @param leagueId Lig ID'si (dinamik ev avantajı için)
+ * @param standings Lig sıralaması (dinamik ev avantajı için)
  */
 export function runMonteCarloSimulation(
   homeStats: TeamSimStats,
   awayStats: TeamSimStats,
-  config: Partial<SimulationConfig> = {}
+  config: Partial<SimulationConfig> = {},
+  leagueId?: number,
+  standings?: StandingEntry[]
 ): SimulationResult {
   const startTime = performance.now();
   const cfg = { ...DEFAULT_CONFIG, ...config };
   
   const random = cfg.seed ? createSeededRandom(cfg.seed) : Math.random;
+  
+  // Dinamik ev avantajı hesapla (leagueId varsa)
+  const dynamicHomeAdvantage = leagueId ? getHomeAdvantage(leagueId, standings) : undefined;
   
   // Sonuç sayaçları
   let homeWins = 0;
@@ -148,7 +169,7 @@ export function runMonteCarloSimulation(
   
   // Simülasyonları çalıştır
   for (let i = 0; i < cfg.iterations; i++) {
-    const { homeGoals, awayGoals } = simulateMatch(homeStats, awayStats, random);
+    const { homeGoals, awayGoals } = simulateMatch(homeStats, awayStats, random, dynamicHomeAdvantage);
     
     // Sonuç kaydet
     if (homeGoals > awayGoals) homeWins++;
@@ -245,6 +266,7 @@ export function runMonteCarloSimulation(
 
 /**
  * Takım istatistiklerinden simülasyon girdisi oluştur
+ * @param leagueId Lig ID'si (dinamik ev avantajı için - opsiyonel, artık runMonteCarloSimulation'da kullanılıyor)
  */
 export function createSimStats(
   goalsScored: number,
@@ -254,6 +276,7 @@ export function createSimStats(
     formMultiplier?: number;
     isHome?: boolean;
     recentGoals?: number[]; // Son 5 maçtaki goller
+    leagueId?: number; // Dinamik ev avantajı için (deprecated - runMonteCarloSimulation'a taşındı)
   } = {}
 ): TeamSimStats {
   const avgGoals = goalsScored / Math.max(1, matchesPlayed);
@@ -267,11 +290,13 @@ export function createSimStats(
     goalVariance = Math.max(0.3, Math.min(1.5, goalVariance));
   }
   
+  // Dinamik ev avantajı artık runMonteCarloSimulation'da hesaplanıyor
+  // Bu fonksiyon backward compatibility için homeAdvantage'ı undefined bırakıyor
   return {
     expectedGoals: avgGoals,
     goalVariance,
     formFactor: options.formMultiplier ?? 1.0,
-    homeAdvantage: options.isHome ? 1.2 : undefined
+    homeAdvantage: options.isHome ? undefined : undefined // Artık dinamik hesaplanıyor
   };
 }
 

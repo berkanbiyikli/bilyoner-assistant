@@ -340,3 +340,267 @@ export function getCalibrationEmoji(calibration: BrierAnalysis['calibration']): 
     case 'poor': return '❌';
   }
 }
+
+// =====================================
+// 🔄 Otomatik Feedback Döngüsü (Faz 2)
+// =====================================
+
+/**
+ * Pending (bekleyen) tahmin kaydı
+ * Maç bitmeden önce kaydedilir, sonra actualOutcome güncellenir
+ */
+export interface PendingPrediction {
+  fixtureId: number;
+  date: string;
+  timestamp: number;
+  homeTeam: string;
+  awayTeam: string;
+  predictions: {
+    homeWin: number;
+    draw: number;
+    awayWin: number;
+    over25: number;
+    btts: number;
+  };
+  confidence: number;
+  apiValidationLabel?: 'high' | 'medium' | 'risky' | 'avoid';
+  calibrationWeight: number;
+}
+
+/**
+ * Biten maç sonucu
+ */
+export interface MatchResult {
+  fixtureId: number;
+  homeGoals: number;
+  awayGoals: number;
+  timestamp: number;
+}
+
+/**
+ * Pending tahminleri LocalStorage'dan yükle
+ */
+export function loadPendingPredictions(): PendingPrediction[] {
+  if (typeof window === 'undefined') return [];
+  
+  try {
+    const stored = localStorage.getItem('pending-predictions');
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Pending tahmini kaydet (maç başlamadan önce)
+ */
+export function savePendingPrediction(prediction: PendingPrediction): void {
+  if (typeof window === 'undefined') return;
+  
+  try {
+    const pending = loadPendingPredictions();
+    
+    // Aynı fixture varsa güncelle
+    const existingIndex = pending.findIndex(p => p.fixtureId === prediction.fixtureId);
+    
+    if (existingIndex >= 0) {
+      pending[existingIndex] = prediction;
+    } else {
+      pending.push(prediction);
+    }
+    
+    // Son 100 pending kaydı tut
+    const trimmed = pending.slice(-100);
+    localStorage.setItem('pending-predictions', JSON.stringify(trimmed));
+  } catch {
+    console.error('Failed to save pending prediction');
+  }
+}
+
+/**
+ * Maç sonucu geldiğinde pending tahmini işle ve history'e taşı
+ * @returns İşlenen kayıt sayısı
+ */
+export function processMatchResult(result: MatchResult): number {
+  if (typeof window === 'undefined') return 0;
+  
+  const pending = loadPendingPredictions();
+  const prediction = pending.find(p => p.fixtureId === result.fixtureId);
+  
+  if (!prediction) return 0;
+  
+  // Sonuçları belirle
+  const homeWon = result.homeGoals > result.awayGoals ? 1 : 0;
+  const isDraw = result.homeGoals === result.awayGoals ? 1 : 0;
+  const awayWon = result.homeGoals < result.awayGoals ? 1 : 0;
+  const totalGoals = result.homeGoals + result.awayGoals;
+  const over25 = totalGoals > 2.5 ? 1 : 0;
+  const btts = (result.homeGoals > 0 && result.awayGoals > 0) ? 1 : 0;
+  
+  // Her market için kayıt oluştur
+  const records: PredictionRecord[] = [
+    createPredictionRecord(
+      result.fixtureId,
+      prediction.date,
+      'home',
+      prediction.predictions.homeWin / 100,
+      prediction.confidence,
+      homeWon as 0 | 1
+    ),
+    createPredictionRecord(
+      result.fixtureId,
+      prediction.date,
+      'draw',
+      prediction.predictions.draw / 100,
+      prediction.confidence,
+      isDraw as 0 | 1
+    ),
+    createPredictionRecord(
+      result.fixtureId,
+      prediction.date,
+      'away',
+      prediction.predictions.awayWin / 100,
+      prediction.confidence,
+      awayWon as 0 | 1
+    ),
+    createPredictionRecord(
+      result.fixtureId,
+      prediction.date,
+      'over25',
+      prediction.predictions.over25 / 100,
+      prediction.confidence,
+      over25 as 0 | 1
+    ),
+    createPredictionRecord(
+      result.fixtureId,
+      prediction.date,
+      'btts',
+      prediction.predictions.btts / 100,
+      prediction.confidence,
+      btts as 0 | 1
+    ),
+  ];
+  
+  // Tüm kayıtları history'e ekle
+  records.forEach(record => savePredictionRecord(record));
+  
+  // Pending'den sil
+  const updatedPending = pending.filter(p => p.fixtureId !== result.fixtureId);
+  localStorage.setItem('pending-predictions', JSON.stringify(updatedPending));
+  
+  return records.length;
+}
+
+/**
+ * Kalibrasyon önerilerini yükle veya hesapla
+ */
+export function getCalibrationAdjustments(): BrierAnalysis['suggestedAdjustments'] {
+  if (typeof window === 'undefined') return [];
+  
+  try {
+    // Önce cache'e bak
+    const cached = localStorage.getItem('calibration-adjustments');
+    if (cached) {
+      const { adjustments, timestamp } = JSON.parse(cached);
+      // 24 saatten eskiyse yeniden hesapla
+      if (Date.now() - timestamp < 24 * 60 * 60 * 1000) {
+        return adjustments;
+      }
+    }
+    
+    // Yeniden hesapla
+    const history = loadPredictionHistory();
+    if (history.length < 50) return []; // Yeterli veri yok
+    
+    const analysis = analyzeBrierScore(history);
+    
+    // Cache'e kaydet
+    localStorage.setItem('calibration-adjustments', JSON.stringify({
+      adjustments: analysis.suggestedAdjustments,
+      timestamp: Date.now()
+    }));
+    
+    return analysis.suggestedAdjustments;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Tahmin olasılığını otomatik kalibre et
+ * Geçmiş performansa göre bias düzeltmesi yapar
+ */
+export function autoCalibrateProbability(
+  rawProbability: number,
+  market: PredictionRecord['market']
+): number {
+  const adjustments = getCalibrationAdjustments();
+  return calibrateProbability(rawProbability, market, adjustments);
+}
+
+/**
+ * Günlük kalibrasyon raporu oluştur
+ */
+export function generateDailyCalibrationReport(): {
+  totalPredictions: number;
+  brierScore: number;
+  calibration: BrierAnalysis['calibration'];
+  recommendations: string[];
+  marketPerformance: { market: string; accuracy: number; count: number }[];
+} {
+  const history = loadPredictionHistory();
+  
+  // Son 7 günün kayıtlarını al
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const recentHistory = history.filter(r => {
+    const recordTime = new Date(r.date).getTime();
+    return recordTime >= sevenDaysAgo;
+  });
+  
+  if (recentHistory.length < 10) {
+    return {
+      totalPredictions: recentHistory.length,
+      brierScore: 0.5,
+      calibration: 'poor',
+      recommendations: ['Yeterli veri yok. En az 10 maç sonucu gerekli.'],
+      marketPerformance: []
+    };
+  }
+  
+  const analysis = analyzeBrierScore(recentHistory);
+  
+  // Market bazlı performans
+  const marketGroups = groupByMarketExternal(recentHistory);
+  const marketPerformance = Object.entries(marketGroups).map(([market, records]) => {
+    const correct = records.filter(r => {
+      // %50 üstü tahmin doğru mu?
+      return (r.predictedProbability >= 0.5 && r.actualOutcome === 1) ||
+             (r.predictedProbability < 0.5 && r.actualOutcome === 0);
+    }).length;
+    
+    return {
+      market,
+      accuracy: Number((correct / records.length * 100).toFixed(1)),
+      count: records.length
+    };
+  });
+  
+  return {
+    totalPredictions: recentHistory.length,
+    brierScore: analysis.brierScore,
+    calibration: analysis.calibration,
+    recommendations: analysis.recommendations,
+    marketPerformance
+  };
+}
+
+// Helper - export için
+function groupByMarketExternal(records: PredictionRecord[]): Record<string, PredictionRecord[]> {
+  return records.reduce((groups, record) => {
+    if (!groups[record.market]) {
+      groups[record.market] = [];
+    }
+    groups[record.market].push(record);
+    return groups;
+  }, {} as Record<string, PredictionRecord[]>);
+}

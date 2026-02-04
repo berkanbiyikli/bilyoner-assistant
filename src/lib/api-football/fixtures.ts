@@ -175,6 +175,98 @@ function getStatValue(statistics: StatisticItem[], type: string): number {
   return stat.value;
 }
 
+// =====================================
+// 📊 xG Extraction Utilities (Faz 2)
+// =====================================
+
+/**
+ * Son maçlardan xG verisi çıkar
+ * API-Football'dan gelen son maçları analiz ederek takım bazlı xG değerlerini döndürür
+ * xG yoksa gerçek gol sayısını fallback olarak kullanır
+ * 
+ * @param lastMatches Son oynanan maçlar (ProcessedFixture[])
+ * @param teamId Takım ID'si
+ * @param maxMatches Maksimum maç sayısı (default: 5)
+ * @returns { xgValues, goals, hasRealXG } - xG değerleri, gerçek goller ve xG varlığı
+ */
+export async function extractRecentXG(
+  lastMatches: ProcessedFixture[],
+  teamId: number,
+  maxMatches: number = 5
+): Promise<{ xgValues: number[]; goals: number[]; hasRealXG: boolean }> {
+  const xgValues: number[] = [];
+  const goals: number[] = [];
+  let realXGCount = 0;
+  
+  // Son maçları sınırla
+  const matches = lastMatches.slice(0, maxMatches);
+  
+  for (const match of matches) {
+    // Maç bitmiş mi kontrol et
+    if (!match.status.isFinished) continue;
+    
+    // Takımın ev sahibi mi deplasman mı olduğunu bul
+    const isHome = match.homeTeam.id === teamId;
+    const teamGoals = isHome ? match.score.home : match.score.away;
+    
+    // Gol değerini kaydet (null ise 0)
+    goals.push(teamGoals ?? 0);
+    
+    // xG verisi için maç istatistiklerini çekmeye çalış
+    try {
+      const stats = await getFixtureStatistics(match.id);
+      if (stats) {
+        const teamXG = isHome ? stats.home.expectedGoals : stats.away.expectedGoals;
+        if (teamXG !== null && teamXG !== undefined) {
+          xgValues.push(teamXG);
+          realXGCount++;
+        } else {
+          // xG yoksa gerçek golü kullan
+          xgValues.push(teamGoals ?? 0);
+        }
+      } else {
+        // İstatistik yoksa gerçek golü kullan
+        xgValues.push(teamGoals ?? 0);
+      }
+    } catch {
+      // Hata durumunda gerçek golü kullan
+      xgValues.push(teamGoals ?? 0);
+    }
+  }
+  
+  // En az yarısında gerçek xG varsa "hasRealXG" true
+  const hasRealXG = realXGCount >= Math.ceil(xgValues.length / 2);
+  
+  return { xgValues, goals, hasRealXG };
+}
+
+/**
+ * Basit xG çıkarma (API çağrısı yapmadan)
+ * Sadece mevcut verilerdeki gol sayılarını döndürür
+ * 
+ * @param lastMatches Son oynanan maçlar
+ * @param teamId Takım ID'si
+ * @param maxMatches Maksimum maç sayısı
+ * @returns Gol dizisi (xG yoksa fallback olarak kullanılır)
+ */
+export function extractRecentGoals(
+  lastMatches: ProcessedFixture[],
+  teamId: number,
+  maxMatches: number = 5
+): number[] {
+  const goals: number[] = [];
+  
+  lastMatches.slice(0, maxMatches).forEach(match => {
+    if (!match.status.isFinished) return;
+    
+    const isHome = match.homeTeam.id === teamId;
+    const teamGoals = isHome ? match.score.home : match.score.away;
+    goals.push(teamGoals ?? 0);
+  });
+  
+  return goals;
+}
+
 /**
  * Raw istatistik verisini işle
  */

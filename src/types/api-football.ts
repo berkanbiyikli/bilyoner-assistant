@@ -364,6 +364,12 @@ export interface DailyMatchFixture extends ProcessedFixture {
     confidence: number;
     advice: string | null;
     goalsAdvice?: string;
+    // Faz 2: API Ensemble Validation
+    apiValidation?: {
+      label: 'high' | 'medium' | 'risky' | 'avoid';
+      deviation: number;
+      message: string;
+    };
   };
   formComparison?: {
     home: string;

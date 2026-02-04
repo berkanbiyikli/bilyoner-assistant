@@ -81,8 +81,8 @@ async function fetchLiveMatch(fixtureId: number): Promise<LiveMatchData | null> 
 function analyzePrediction(match: BotMatch, live: LiveMatchData): CouponMatchStatus {
   const { homeScore, awayScore, minute, status } = live;
   const totalGoals = homeScore + awayScore;
-  const predType = match.prediction.type;
-  const predLabel = match.prediction.label;
+  const predType = match.prediction.type?.toLowerCase() || '';
+  const predLabel = match.prediction.label?.toLowerCase() || '';
   
   // Maç bitti mi?
   const finishedStatuses = ['FT', 'AET', 'PEN', 'AWD', 'WO'];
@@ -95,8 +95,14 @@ function analyzePrediction(match: BotMatch, live: LiveMatchData): CouponMatchSta
   let predictionStatus: 'winning' | 'losing' | 'pending' | 'won' | 'lost' = 'pending';
   let neededMessage = '';
   
+  // Prediction type belirleme (label'dan da kontrol et)
+  const isOver25 = predType === 'over25' || predLabel.includes('üst');
+  const isBtts = predType === 'btts' || predLabel.includes('kg var') || predLabel.includes('var (');
+  const isHome = predType === 'home' && !isBtts; // BTTS değilse home
+  const isAway = predType === 'away';
+  
   // Üst 2.5 analizi
-  if (predType === 'over25') {
+  if (isOver25) {
     if (totalGoals >= 3) {
       predictionStatus = isFinished ? 'won' : 'winning';
       neededMessage = `✅ ${totalGoals} gol var, TUTTU!`;
@@ -114,7 +120,7 @@ function analyzePrediction(match: BotMatch, live: LiveMatchData): CouponMatchSta
   }
   
   // KG Var analizi
-  else if (predType === 'btts') {
+  else if (isBtts) {
     if (homeScore > 0 && awayScore > 0) {
       predictionStatus = isFinished ? 'won' : 'winning';
       neededMessage = `✅ ${homeScore}-${awayScore} KG OLDU!`;
@@ -136,7 +142,7 @@ function analyzePrediction(match: BotMatch, live: LiveMatchData): CouponMatchSta
   }
   
   // MS 1 (Ev Sahibi) analizi
-  else if (predType === 'home') {
+  else if (isHome) {
     if (homeScore > awayScore) {
       predictionStatus = isFinished ? 'won' : 'winning';
       neededMessage = `✅ ${homeScore}-${awayScore} Ev sahibi önde!`;
@@ -161,7 +167,7 @@ function analyzePrediction(match: BotMatch, live: LiveMatchData): CouponMatchSta
   }
   
   // MS 2 (Deplasman) analizi
-  else if (predType === 'away') {
+  else if (isAway) {
     if (awayScore > homeScore) {
       predictionStatus = isFinished ? 'won' : 'winning';
       neededMessage = `✅ ${homeScore}-${awayScore} Deplasman önde!`;

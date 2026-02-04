@@ -215,7 +215,7 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
   maxChaosLevel: 0.5,
   minValue: 15,
   minKickoffMinutes: 30,
-  maxKickoffHours: 6,
+  maxKickoffHours: 14,       // 14 saat - günün tüm maçlarını kapsasın
   
   minMatchOdds: 1.30,
   maxMatchOdds: 3.00,

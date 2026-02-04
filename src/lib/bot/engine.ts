@@ -284,9 +284,10 @@ export async function generateBotCoupon(
   const matchesWithSuggestions = await fetchBetSuggestions(upcomingMatches);
   
   if (matchesWithSuggestions.length === 0) {
-    console.log('[Bot] BetSuggestions bulunamadı, fallback to scanner...');
-    // Fallback: Eski Poisson sistemini kullan
-    return await generateBotCouponFallback(config, currentBankroll);
+    console.log('[Bot] BetSuggestions bulunamadı - kupon oluşturulamadı');
+    // Fallback DEVRE DIŞI - sadece mor kutu önerileri kullanılsın
+    // Mor kutu önerileri sitedeki analizlerle uyumlu olmalı
+    return null;
   }
   
   console.log(`[Bot] ${matchesWithSuggestions.length} maçta mor kutu önerileri bulundu`);

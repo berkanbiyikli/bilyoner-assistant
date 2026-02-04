@@ -217,8 +217,8 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
   minKickoffMinutes: 30,
   maxKickoffHours: 14,       // 14 saat - günün tüm maçlarını kapsasın
   
-  minMatchOdds: 1.30,
-  maxMatchOdds: 3.00,
+  minMatchOdds: 1.10,        // Düşük odds'ları da kabul et
+  maxMatchOdds: 3.50,
   minTotalOdds: 3.00,
   maxTotalOdds: 10.00,
   

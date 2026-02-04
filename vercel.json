@@ -19,7 +19,7 @@
     },
     {
       "path": "/api/bot/run?action=check-result",
-      "schedule": "0 23 * * *"
+      "schedule": "0 2 * * *"
     },
     {
       "path": "/api/bot/weekly-summary",

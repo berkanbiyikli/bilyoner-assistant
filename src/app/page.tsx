@@ -71,7 +71,7 @@ export default function HomePage() {
     });
   }, [pinnedLeagues]);
 
-  // Maçları lige göre grupla
+  // Maçları lige göre grupla ve her lig içinde saate göre sırala
   const matchesByLeague = useMemo(() => {
     if (!data?.data) return new Map<number, DailyMatchFixture[]>();
     const grouped = new Map<number, DailyMatchFixture[]>();
@@ -80,7 +80,29 @@ export default function HomePage() {
       if (!grouped.has(leagueId)) grouped.set(leagueId, []);
       grouped.get(leagueId)!.push(match);
     }
+    // Her lig içinde maçları saate göre sırala (canlı olanlar üstte)
+    for (const [, matches] of grouped) {
+      matches.sort((a, b) => {
+        // Canlı maçlar en üstte
+        if (a.status.isLive && !b.status.isLive) return -1;
+        if (!a.status.isLive && b.status.isLive) return 1;
+        // Sonra saate göre
+        return a.timestamp - b.timestamp;
+      });
+    }
     return grouped;
+  }, [data?.data]);
+
+  // Tüm maçları saate göre sıralı düz liste
+  const sortedMatches = useMemo(() => {
+    if (!data?.data) return [];
+    return [...data.data].sort((a, b) => {
+      // Canlı maçlar en üstte
+      if (a.status.isLive && !b.status.isLive) return -1;
+      if (!a.status.isLive && b.status.isLive) return 1;
+      // Sonra saate göre
+      return a.timestamp - b.timestamp;
+    });
   }, [data?.data]);
 
   // Enrich fixtures with batch details
@@ -337,67 +359,21 @@ export default function HomePage() {
               <ValueDashboard />
             )}
 
-            {/* Matches View */}
+            {/* Matches View - Saate göre sıralı */}
             {!isLoading && !error && activeTab === 'matches' && data?.data && (
-              <div className="space-y-4">
-                {data.data.length === 0 ? (
+              <div className="space-y-2">
+                {sortedMatches.length === 0 ? (
                   <Card className="p-8 text-center">
                     <p className="text-muted-foreground">Bu tarihte maç bulunamadı</p>
                   </Card>
                 ) : (
-                  Array.from(matchesByLeague.entries())
-                    .sort(([a], [b]) => {
-                      const aPinned = pinnedLeagues.includes(a);
-                      const bPinned = pinnedLeagues.includes(b);
-                      if (aPinned && !bPinned) return -1;
-                      if (!aPinned && bPinned) return 1;
-                      return getLeaguePriority(b) - getLeaguePriority(a);
-                    })
-                    .map(([leagueId, matches]) => {
-                      const league = TOP_20_LEAGUES.find(l => l.id === leagueId);
-                      const isPinned = pinnedLeagues.includes(leagueId);
-                      
-                      return (
-                        <div key={leagueId} className="space-y-2">
-                          {/* League Header */}
-                          <div className="flex items-center justify-between py-2 px-1">
-                            <div className="flex items-center gap-2">
-                              {league?.flag && (
-                                <span className="text-lg">{league.flag}</span>
-                              )}
-                              <span className="font-semibold text-sm">
-                                {league?.name || matches[0].league.name}
-                              </span>
-                              <Badge variant="secondary" className="text-xs">
-                                {matches.length}
-                              </Badge>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => togglePin(leagueId)}
-                            >
-                              <Star className={cn(
-                                "h-4 w-4",
-                                isPinned && "fill-yellow-500 text-yellow-500"
-                              )} />
-                            </Button>
-                          </div>
-                          
-                          {/* Matches */}
-                          <div className="space-y-2">
-                            {matches.map((match) => (
-                              <ExpandedMatchCard 
-                                key={match.id} 
-                                fixture={match}
-                                defaultExpanded={match.status.isLive}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })
+                  sortedMatches.map((match) => (
+                    <ExpandedMatchCard 
+                      key={match.id} 
+                      fixture={match}
+                      defaultExpanded={match.status.isLive}
+                    />
+                  ))
                 )}
               </div>
             )}

@@ -350,13 +350,20 @@ function filterAndScoreBetSuggestions(
   const minKickoff = new Date(now.getTime() + config.minKickoffMinutes * 60 * 1000);
   const maxKickoff = new Date(now.getTime() + config.maxKickoffHours * 60 * 60 * 1000);
   
+  console.log(`[Bot] Filtre kriterleri: minConf=${config.minConfidence}%, odds=${config.minMatchOdds}-${config.maxMatchOdds}, kickoff=${config.minKickoffMinutes}dk-${config.maxKickoffHours}sa`);
+  
   const candidates: CandidateMatch[] = [];
+  let timeFiltered = 0;
+  let noValidSuggestions = 0;
   
   for (const { match, betSuggestions } of matchesWithSuggestions) {
     const kickoff = new Date(match.timestamp * 1000);
     
     // Zaman filtresi
-    if (kickoff < minKickoff || kickoff > maxKickoff) continue;
+    if (kickoff < minKickoff || kickoff > maxKickoff) {
+      timeFiltered++;
+      continue;
+    }
     
     // En iyi mor kutu önerisini bul (confidence'a göre)
     // SIKI FİLTRELER - Sadece kaliteli tahminler
@@ -367,9 +374,18 @@ function filterAndScoreBetSuggestions(
       .filter(s => s.value === 'high' || s.value === 'medium') // Sadece değerli tahminler
       .sort((a, b) => b.confidence - a.confidence);
     
-    if (validSuggestions.length === 0) continue;
+    if (validSuggestions.length === 0) {
+      // Debug: Neden geçmedi?
+      const bestSugg = betSuggestions[0];
+      if (bestSugg) {
+        console.log(`[Bot] ❌ ${match.homeTeam.name} vs ${match.awayTeam.name}: conf=${bestSugg.confidence}%, odds=${bestSugg.odds}, type=${bestSugg.type}, value=${bestSugg.value}`);
+      }
+      noValidSuggestions++;
+      continue;
+    }
     
     const bestSuggestion = validSuggestions[0];
+    console.log(`[Bot] ✓ Aday: ${match.homeTeam.name} vs ${match.awayTeam.name} - ${bestSuggestion.pick} @${bestSuggestion.odds} (${bestSuggestion.confidence}%)`);
     
     // Prediction oluştur
     const prediction: BotMatch['prediction'] = {
@@ -389,6 +405,8 @@ function filterAndScoreBetSuggestions(
       prediction,
     });
   }
+  
+  console.log(`[Bot] Filtre sonucu: ${candidates.length} aday, ${timeFiltered} zaman dışı, ${noValidSuggestions} kriter dışı`);
   
   // Puana göre sırala
   return candidates.sort((a, b) => b.score - a.score);

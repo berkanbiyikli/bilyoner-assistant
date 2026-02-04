@@ -286,8 +286,8 @@ async function handleCheckLive(
         let hit = false;
         // Over 2.5 kontrolü
         if ((predType === 'over25' || predLabel.includes('üst')) && totalGoals >= 3) hit = true;
-        // BTTS / KG Var kontrolü
-        if ((predType === 'btts' || predLabel.includes('kg var')) && homeScore > 0 && awayScore > 0) hit = true;
+        // BTTS / KG Var kontrolü - "var" kelimesi yeterli
+        if ((predType === 'btts' || predLabel.includes('kg var') || predLabel.includes('var (')) && homeScore > 0 && awayScore > 0) hit = true;
         // Home win kontrolü
         if ((predType === 'home' || predLabel.includes('ms 1') || predLabel.includes('ev sahibi')) && homeScore > awayScore) hit = true;
         // Away win kontrolü

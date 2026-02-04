@@ -280,6 +280,8 @@ async function handleCheckLive(
         const predLabel = match.prediction.label?.toLowerCase() || '';
         const totalGoals = homeScore + awayScore;
         
+        log(`DEBUG: ${match.homeTeam} - type="${predType}" label="${predLabel}" score=${homeScore}-${awayScore}`);
+        
         // Tahmin tuttu mu?
         let hit = false;
         // Over 2.5 kontrolü

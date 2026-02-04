@@ -75,13 +75,13 @@ export async function GET(request: NextRequest) {
     
     switch (action) {
       case 'new-coupon':
-        return await handleNewCoupon(state, log, logs, force);
+        return await handleNewCoupon(state, log, logs, force, isTestMode);
         
       case 'check-live':
-        return await handleCheckLive(state, log, logs);
+        return await handleCheckLive(state, log, logs, isTestMode);
         
       case 'check-result':
-        return await handleCheckResult(state, log, logs);
+        return await handleCheckResult(state, log, logs, isTestMode);
         
       case 'reminder':
         return await handleMatchReminder(state, log, logs);
@@ -113,7 +113,8 @@ async function handleNewCoupon(
   state: BankrollState, 
   log: (msg: string) => void,
   logs: string[],
-  force: boolean = false
+  force: boolean = false,
+  isTestMode: boolean = false
 ) {
   // Force modunda aktif kuponu temizle ve kasayı sıfırla
   if (force) {
@@ -181,7 +182,9 @@ async function handleNewCoupon(
   const useMock = process.env.TWITTER_MOCK === 'true';
   let tweetId: string | undefined;
   
-  if (useMock) {
+  if (isTestMode) {
+    log('Test modu - tweet atılmadı');
+  } else if (useMock) {
     await mockTweet(formatNewCouponTweet(newCoupon, state.balance));
   } else {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://bilyoner-assistant.vercel.app';
@@ -237,7 +240,8 @@ async function handleNewCoupon(
 async function handleCheckLive(
   state: BankrollState, 
   log: (msg: string) => void,
-  logs: string[]
+  logs: string[],
+  isTestMode: boolean = false
 ) {
   if (!state.activeCoupon) {
     log('Aktif kupon yok');
@@ -304,9 +308,11 @@ ${liveUpdates.join('\n')}
     const useMock = process.env.TWITTER_MOCK === 'true';
     const quoteTweetId = state.activeCoupon.tweetId || REFERENCE_TWEET_ID;
     
-    if (!useMock && quoteTweetId) {
+    if (!useMock && quoteTweetId && !isTestMode) {
       await sendQuoteTweet(tweetText, quoteTweetId);
       log('Canlı güncelleme tweeti atıldı');
+    } else if (isTestMode) {
+      log('Test modu - tweet atılmadı');
     }
   }
   
@@ -324,7 +330,8 @@ ${liveUpdates.join('\n')}
 async function handleCheckResult(
   state: BankrollState, 
   log: (msg: string) => void,
-  logs: string[]
+  logs: string[],
+  isTestMode: boolean = false
 ) {
   if (!state.activeCoupon) {
     log('Aktif kupon yok');
@@ -449,7 +456,9 @@ async function handleCheckResult(
   const useMock = process.env.TWITTER_MOCK === 'true';
   const quoteTweetId = updatedCoupon.tweetId || REFERENCE_TWEET_ID;
   
-  if (!useMock) {
+  if (isTestMode) {
+    log('Test modu - tweetler atılmadı');
+  } else if (!useMock) {
     const { formatDailyReportTweet } = await import('@/lib/bot/twitter');
     const { sendTweet } = await import('@/lib/bot/twitter');
     

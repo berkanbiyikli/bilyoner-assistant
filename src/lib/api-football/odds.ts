@@ -28,11 +28,7 @@ const BET_TYPE_MAP: Record<string, { betId: number; betName: string; valueName: 
 
 // Tercih edilen bahis siteleri (sırasıyla)
 const PREFERRED_BOOKMAKERS = [
-  'Betano',      // Türkiye'de popüler
-  '1xBet',       // Yüksek oranlar
-  'Pinnacle',    // Profesyonel oranlar
-  'bet365',      // Güvenilir
-  'Betfair',     // Exchange
+  '1xBet',       // Sadece 1xBet oranları
 ];
 
 interface OddsValue {

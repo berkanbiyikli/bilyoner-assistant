@@ -717,22 +717,34 @@ function generateBetSuggestions(
 
   const refereeMultiplier = getRefereeMultiplier();
 
-  // Helper: Güvenden oran hesapla (yüksek güven = düşük oran)
+  // Helper: Güvenden oran hesapla - GERÇEKÇİ ORANLAR
+  // Bahis siteleri tipik olarak %10-15 margin koyar
+  // Ayrıca düşük olasılıklı bahislere daha yüksek margin uygulanır
   const calculateOdds = (confidence: number, market: string): number => {
-    // Temel oran: 100 / confidence
-    let baseOdds = 100 / confidence;
+    // Bahis sitesi margin'i (%12 ortalama)
+    const margin = 0.12;
     
-    // Market tipine göre ayarlama
+    // Temel oran: 1 / (probability * (1 - margin))
+    // Ama siteler düşük güvene daha çok margin koyar
+    const probability = confidence / 100;
+    const adjustedMargin = margin + (1 - probability) * 0.05; // Düşük olasılık = daha fazla margin
+    
+    let baseOdds = 1 / (probability * (1 - adjustedMargin));
+    
+    // Market tipine göre ek margin (bazı marketler daha karlı)
     if (market.includes('Kart') || market.includes('kart')) {
-      baseOdds = baseOdds * 1.1; // Kart bahisleri genelde biraz daha yüksek
+      baseOdds = baseOdds * 1.15; // Kart bahisleri yüksek margin
     } else if (market.includes('İY/MS')) {
-      baseOdds = baseOdds * 1.5; // İY/MS daha yüksek oranlı
+      baseOdds = baseOdds * 1.25; // İY/MS çok yüksek margin
     } else if (market.includes('Oyuncu')) {
-      baseOdds = baseOdds * 1.3; // Oyuncu bahisleri
+      baseOdds = baseOdds * 1.20; // Oyuncu bahisleri
+    } else if (market.includes('KG') || market.includes('Gol')) {
+      baseOdds = baseOdds * 1.08; // Gol marketleri standart
     }
     
-    // 1.10 - 10.00 arasında tut
-    return Math.max(1.10, Math.min(10.00, Number(baseOdds.toFixed(2))));
+    // Gerçekçi aralık: 1.25 - 15.00
+    // %90 güven bile 1.25'ten düşük olamaz (siteler o kadar düşük vermez)
+    return Math.max(1.25, Math.min(15.00, Number(baseOdds.toFixed(2))));
   };
 
   const suggestions: BetSuggestionInput[] = [];

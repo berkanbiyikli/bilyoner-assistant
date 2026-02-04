@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     lostBets: 0,
     totalStaked: 0,
     totalWon: 0,
-    activeCoupon: undefined, // Aktif kupon yok - yeni kupon oluşturulabilir
+    activeCoupon: null, // Aktif kupon yok - yeni kupon oluşturulabilir
     history: [],
     dailyCoupons: {
       date: new Date().toISOString().split('T')[0],

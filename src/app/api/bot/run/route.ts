@@ -118,7 +118,7 @@ async function handleNewCoupon(
   // Force modunda aktif kuponu temizle ve kasayı sıfırla
   if (force) {
     log('FORCE mod: Kasa sıfırlanıyor, aktif kupon siliniyor');
-    state.activeCoupon = undefined;
+    state.activeCoupon = null;
     state.balance = 500;
     state.initialBalance = 500;
     state.totalBets = 0;

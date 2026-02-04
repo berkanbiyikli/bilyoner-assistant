@@ -276,15 +276,20 @@ async function handleCheckLive(
       // Canlı maç mı? (1H, 2H, HT, ET, P, LIVE, BT)
       const liveStatuses = ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'];
       if (liveStatuses.includes(status)) {
-        const predType = match.prediction.type;
+        const predType = match.prediction.type?.toLowerCase() || '';
+        const predLabel = match.prediction.label?.toLowerCase() || '';
         const totalGoals = homeScore + awayScore;
         
         // Tahmin tuttu mu?
         let hit = false;
-        if (predType === 'over25' && totalGoals >= 3) hit = true;
-        if (predType === 'btts' && homeScore > 0 && awayScore > 0) hit = true;
-        if (predType === 'home' && homeScore > awayScore) hit = true;
-        if (predType === 'away' && awayScore > homeScore) hit = true;
+        // Over 2.5 kontrolü
+        if ((predType === 'over25' || predLabel.includes('üst')) && totalGoals >= 3) hit = true;
+        // BTTS / KG Var kontrolü
+        if ((predType === 'btts' || predLabel.includes('kg var')) && homeScore > 0 && awayScore > 0) hit = true;
+        // Home win kontrolü
+        if ((predType === 'home' || predLabel.includes('ms 1') || predLabel.includes('ev sahibi')) && homeScore > awayScore) hit = true;
+        // Away win kontrolü
+        if ((predType === 'away' || predLabel.includes('ms 2') || predLabel.includes('deplasman')) && awayScore > homeScore) hit = true;
         
         if (hit) {
           liveUpdates.push(`✅ ${match.homeTeam} ${homeScore}-${awayScore} ${match.awayTeam} - ${match.prediction.label} TUTTU!`);

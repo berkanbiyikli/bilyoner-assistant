@@ -3,6 +3,7 @@
  * 
  * UI'daki mor kutu önerilerini (betSuggestions) kullanarak
  * en iyi 3'lü kupon kombinasyonunu seçer.
+ * Gerçek bahis oranlarını API-Football'dan çeker.
  */
 
 import { 
@@ -22,6 +23,7 @@ import {
 } from '../analysis';
 import { calculateKellyStake } from '../prediction/value-bet';
 import { getDailyMatches } from '../api-football/daily-matches';
+import { getRealOddsForPrediction } from '../api-football/odds';
 import type { DailyMatchFixture, BetSuggestion } from '@/types/api-football';
 import { 
   DEFAULT_BOT_CONFIG,
@@ -309,14 +311,36 @@ export async function generateBotCoupon(
     return null;
   }
   
-  // 5. Stake hesapla
+  // 5. GERÇEK ORANLARI ÇEK (API-Football)
+  console.log('[Bot] Gerçek oranlar çekiliyor...');
+  for (const match of selectedMatches) {
+    try {
+      const realOdds = await getRealOddsForPrediction(
+        match.match.id,
+        match.bestSuggestion.pick
+      );
+      
+      if (realOdds) {
+        const oldOdds = match.prediction.odds;
+        match.prediction.odds = realOdds.odds;
+        match.bestSuggestion.odds = realOdds.odds;
+        console.log(`[Bot] ✓ ${match.match.homeTeam.name}: ${oldOdds} → ${realOdds.odds} (${realOdds.bookmaker})`);
+      } else {
+        console.log(`[Bot] ⚠ ${match.match.homeTeam.name}: Gerçek oran bulunamadı, hesaplanan kullanılıyor`);
+      }
+    } catch (error) {
+      console.log(`[Bot] ⚠ ${match.match.homeTeam.name}: Oran çekilemedi`);
+    }
+  }
+  
+  // 6. Stake hesapla
   const totalOdds = selectedMatches.reduce((acc, m) => acc * m.prediction.odds, 1);
   
   // Sabit stake 
   let stake = Math.min(currentBankroll, config.maxStake);
   stake = Math.round(stake * 100) / 100;
   
-  // 6. Kupon oluştur
+  // 7. Kupon oluştur
   const coupon: BotCoupon = {
     id: generateCouponId(),
     createdAt: new Date(),

@@ -2,6 +2,162 @@
  * Live Bot Types - Canlı Maç Takip Botu Tipleri
  */
 
+// ============ CANLI AVCI MODU TİPLERİ ============
+
+/**
+ * Momentum Verileri - Baskı ölçümü
+ */
+export interface MomentumData {
+  /** Ev sahibi momentum (0-100) */
+  homeMomentum: number;
+  /** Deplasman momentum (0-100) */
+  awayMomentum: number;
+  /** Trend yönü */
+  trend: 'home_rising' | 'away_rising' | 'stable' | 'chaotic';
+  /** Dominant takım */
+  dominant: 'home' | 'away' | 'balanced';
+  /** Momentum deltası (son 5 dk değişim) */
+  delta: number;
+  /** "Gol Geliyor" sinyali */
+  goalImminent: boolean;
+  /** Tahmini dakika (gol için) */
+  estimatedGoalMinute?: number;
+}
+
+/**
+ * Canlı xG Verileri
+ */
+export interface LiveXGData {
+  /** Ev sahibi canlı xG */
+  homeXG: number;
+  /** Deplasman canlı xG */
+  awayXG: number;
+  /** Toplam canlı xG */
+  totalXG: number;
+  /** xG vs Gerçek Skor farkı */
+  xgDifferential: number;
+  /** Value fırsatı var mı? */
+  hasValueOpportunity: boolean;
+  /** Fırsat mesajı */
+  opportunityMessage?: string;
+  /** Güven skoru */
+  confidence?: number;
+}
+
+/**
+ * Kırmızı Kart Olayı
+ */
+export interface RedCardEvent {
+  /** Dakika */
+  minute: number;
+  /** Hangi takım */
+  team: 'home' | 'away';
+  /** Oyuncu adı */
+  playerName?: string;
+  /** Olay zamanı */
+  timestamp: Date;
+  /** Etkilenen tahminler */
+  impactedMarkets: string[];
+}
+
+/**
+ * Canlı Avcı Ana Interface
+ */
+export interface LiveMatchHunter {
+  /** Maç ID */
+  matchId: number;
+  /** Takımlar */
+  homeTeam: string;
+  awayTeam: string;
+  /** Canlı skor */
+  score: { home: number; away: number };
+  /** Dakika */
+  minute: number;
+  /** Canlı istatistikler */
+  liveStats: {
+    possession: { home: number; away: number };
+    dangerousAttacks: { home: number; away: number };
+    shotsOnTarget: { home: number; away: number };
+    shotsTotal: { home: number; away: number };
+    corners: { home: number; away: number };
+    fouls: { home: number; away: number };
+    yellowCards: { home: number; away: number };
+    redCards: { home: number; away: number };
+  };
+  /** Momentum analizi */
+  momentum: MomentumData;
+  /** Canlı xG analizi */
+  liveXG: LiveXGData;
+  /** Kırmızı kart olayları */
+  redCardEvents: RedCardEvent[];
+  /** Maç öncesi model tahmini */
+  preMatchPrediction?: {
+    homeWin: number;
+    draw: number;
+    awayWin: number;
+    over25: number;
+  };
+  /** Avcı durumu */
+  hunterStatus: 'watching' | 'alert' | 'golden_chance' | 'cooling_down';
+  /** Aktif fırsatlar */
+  activeOpportunities: HunterOpportunity[];
+}
+
+/**
+ * Avcı Fırsat Tipi
+ */
+export type HunterOpportunityType = 
+  | 'goal_imminent'       // Gol kapıda
+  | 'xg_value'           // xG value fırsatı
+  | 'momentum_surge'     // Momentum patlaması
+  | 'red_card_advantage' // Kırmızı kart avantajı
+  | 'pressure_peak'      // Baskı zirvesi
+  | 'comeback_potential' // Geri dönüş potansiyeli
+  | 'golden_chance';     // Altın fırsat (çoklu sinyal)
+
+/**
+ * Avcı Fırsatı
+ */
+export interface HunterOpportunity {
+  id: string;
+  type: HunterOpportunityType;
+  /** Fırsat başlığı */
+  title: string;
+  /** Önerilen bahis */
+  market: string;
+  pick: string;
+  /** Güven (0-100) */
+  confidence: number;
+  /** Value yüzdesi */
+  value: number;
+  /** Aciliyet */
+  urgency: 'low' | 'medium' | 'high' | 'critical';
+  /** Açıklama */
+  reasoning: string;
+  /** Tespit zamanı */
+  detectedAt: Date;
+  /** Son geçerlilik */
+  expiresIn: number; // saniye
+  /** Ses çalsın mı? */
+  playSound: boolean;
+}
+
+/**
+ * Dinamik Polling Ayarları
+ */
+export interface DynamicPollingConfig {
+  /** Normal polling (ms) */
+  normalInterval: number;
+  /** Hızlı polling (kritik durumda) */
+  fastInterval: number;
+  /** Yavaş polling (sakin maç) */
+  slowInterval: number;
+  /** Mevcut interval */
+  currentInterval: number;
+  /** Polling nedeni */
+  reason: string;
+}
+
 // ============ CANLI MAÇ TİPLERİ ============
 
 export interface LiveMatch {
@@ -81,7 +237,11 @@ export type OpportunityType =
   | 'high_tempo'          // Yüksek tempo (gol gelir)
   | 'low_scoring'         // Düşük tempolu maç
   | 'card_risk'           // Kart riski yüksek
-  | 'corner_fest';        // Korner festivali
+  | 'corner_fest'         // Korner festivali
+  | 'red_card_advantage'  // Kırmızı kart avantajı
+  | 'xg_value'            // xG value fırsatı
+  | 'momentum_surge'      // Momentum patlaması
+  | 'golden_chance';      // Altın fırsat (çoklu sinyal)
 
 export interface LiveOpportunity {
   id: string;

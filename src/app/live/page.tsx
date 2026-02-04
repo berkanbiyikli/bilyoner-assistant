@@ -1,11 +1,12 @@
 /**
  * Canlı Maçlar Sayfası
  * Top 20 liglerden canlı maçları ve istatistiklerini gösterir
+ * + Avcı Modu ile canlı fırsat tespiti
  */
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,9 +14,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useLiveFixtures, useLiveStatistics } from '@/hooks/useFixtures';
 import { isTop20League } from '@/config/league-priorities';
 import type { ProcessedFixture, ProcessedStatistics } from '@/types/api-football';
+import { HunterDashboard } from '@/components/hunter-dashboard';
+import { createHunterMatchSummary } from '@/lib/bot/live-engine';
+import type { LiveMatch, LiveMatchHunter } from '@/lib/bot/live-types';
 import { 
   Radio, 
   RefreshCw, 
@@ -25,7 +30,9 @@ import {
   Users,
   AlertTriangle,
   ArrowLeft,
-  Zap
+  Zap,
+  Activity,
+  Trophy
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -324,9 +331,49 @@ function LiveMatchSkeleton() {
 
 // ============ ANA SAYFA ============
 
+/**
+ * ProcessedFixture'dan LiveMatch'e dönüşüm
+ */
+function fixtureToLiveMatch(fixture: ProcessedFixture): LiveMatch {
+  return {
+    fixtureId: fixture.id,
+    homeTeam: fixture.homeTeam.name,
+    awayTeam: fixture.awayTeam.name,
+    homeTeamId: fixture.homeTeam.id,
+    awayTeamId: fixture.awayTeam.id,
+    homeScore: fixture.score.home ?? 0,
+    awayScore: fixture.score.away ?? 0,
+    minute: fixture.status.elapsed ?? 0,
+    status: fixture.status.code === 'live' ? 'LIVE' : fixture.status.code as 'HT' | '1H' | '2H' | 'ET' | 'P' | 'LIVE',
+    league: fixture.league.name,
+    leagueId: fixture.league.id,
+    leagueLogo: fixture.league.logo,
+    stats: {
+      homeShotsOnTarget: 0,
+      awayShotsOnTarget: 0,
+      homeShotsTotal: 0,
+      awayShotsTotal: 0,
+      homePossession: 50,
+      awayPossession: 50,
+      homeCorners: 0,
+      awayCorners: 0,
+      homeFouls: 0,
+      awayFouls: 0,
+      homeYellowCards: 0,
+      awayYellowCards: 0,
+      homeRedCards: 0,
+      awayRedCards: 0,
+      homeDangerousAttacks: 0,
+      awayDangerousAttacks: 0
+    },
+    lastUpdated: new Date()
+  };
+}
+
 export default function LiveMatchesPage() {
   const { data, isLoading, refetch, isFetching } = useLiveFixtures();
   const [selectedFixtureId, setSelectedFixtureId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<'matches' | 'hunter'>('hunter');
 
   // Top 20 lig maçlarını filtrele
   const liveMatches = (data?.fixtures || []).filter(f => isTop20League(f.league.id));
@@ -336,6 +383,17 @@ export default function LiveMatchesPage() {
   if (!selectedFixtureId && liveMatches.length > 0) {
     setSelectedFixtureId(liveMatches[0].id);
   }
+
+  // Hunter matches hesaplama (mock stats ile)
+  const hunterMatches: LiveMatchHunter[] = useMemo(() => {
+    return liveMatches.map(fixture => {
+      const liveMatch = fixtureToLiveMatch(fixture);
+      return createHunterMatchSummary(liveMatch);
+    });
+  }, [liveMatches]);
+
+  // Altın fırsat sayısı
+  const goldenChanceCount = hunterMatches.filter(m => m.hunterStatus === 'golden_chance').length;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
@@ -355,6 +413,12 @@ export default function LiveMatchesPage() {
                 <Badge variant="secondary" className="ml-2">
                   {liveMatches.length} maç
                 </Badge>
+                {goldenChanceCount > 0 && (
+                  <Badge className="bg-amber-500 animate-pulse">
+                    <Trophy className="w-3 h-3 mr-1" />
+                    {goldenChanceCount}
+                  </Badge>
+                )}
               </div>
             </div>
             
@@ -402,41 +466,69 @@ export default function LiveMatchesPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid md:grid-cols-2 gap-6">
-            {/* Sol: Maç Listesi */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Zap className="h-4 w-4 text-yellow-500" />
-                <span className="text-sm font-medium">Canlı Maçlar</span>
-                <span className="text-xs text-muted-foreground">(Her 60 sn güncellenir)</span>
-              </div>
-              
-              {liveMatches.map(fixture => (
-                <LiveMatchCard
-                  key={fixture.id}
-                  fixture={fixture}
-                  isSelected={selectedFixtureId === fixture.id}
-                  onSelect={() => setSelectedFixtureId(fixture.id)}
-                />
-              ))}
-            </div>
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'matches' | 'hunter')}>
+            <TabsList className="mb-6">
+              <TabsTrigger value="hunter" className="gap-2">
+                <Target className="w-4 h-4" />
+                Avcı Modu
+                {goldenChanceCount > 0 && (
+                  <Badge className="bg-amber-500 text-white ml-1">{goldenChanceCount}</Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="matches" className="gap-2">
+                <Activity className="w-4 h-4" />
+                Maçlar
+              </TabsTrigger>
+            </TabsList>
 
-            {/* Sağ: İstatistik Paneli */}
-            <div className="sticky top-20">
-              {selectedFixture ? (
-                <StatsPanel fixture={selectedFixture} />
-              ) : (
-                <Card className="py-8 text-center">
-                  <CardContent>
-                    <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
-                    <p className="text-muted-foreground">
-                      İstatistiklerini görmek için bir maç seçin
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </div>
+            {/* Avcı Modu */}
+            <TabsContent value="hunter">
+              <HunterDashboard 
+                hunterMatches={hunterMatches}
+                onRefresh={() => refetch()}
+                isLoading={isFetching}
+              />
+            </TabsContent>
+
+            {/* Maç Listesi */}
+            <TabsContent value="matches">
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Sol: Maç Listesi */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="h-4 w-4 text-yellow-500" />
+                    <span className="text-sm font-medium">Canlı Maçlar</span>
+                    <span className="text-xs text-muted-foreground">(Her 60 sn güncellenir)</span>
+                  </div>
+                  
+                  {liveMatches.map(fixture => (
+                    <LiveMatchCard
+                      key={fixture.id}
+                      fixture={fixture}
+                      isSelected={selectedFixtureId === fixture.id}
+                      onSelect={() => setSelectedFixtureId(fixture.id)}
+                    />
+                  ))}
+                </div>
+
+                {/* Sağ: İstatistik Paneli */}
+                <div className="sticky top-20">
+                  {selectedFixture ? (
+                    <StatsPanel fixture={selectedFixture} />
+                  ) : (
+                    <Card className="py-8 text-center">
+                      <CardContent>
+                        <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
+                        <p className="text-muted-foreground">
+                          İstatistiklerini görmek için bir maç seçin
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         )}
       </main>
     </div>

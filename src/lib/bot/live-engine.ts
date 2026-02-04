@@ -597,6 +597,10 @@ export function formatOpportunityForTweet(opp: LiveOpportunity): string {
     'low_scoring': '📉',
     'corner_fest': '🚩',
     'card_risk': '🟨',
+    'red_card_advantage': '🟥',
+    'xg_value': '💎',
+    'momentum_surge': '⚡',
+    'golden_chance': '🏆',
   };
   
   return `${urgencyEmoji[opp.urgency]} ${typeEmoji[opp.type]} CANLI FIRSAT!
@@ -635,4 +639,445 @@ export function filterBestOpportunities(
   return Array.from(byMatch.values())
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, maxTotal);
+}
+
+
+// ============================================================
+// CANLI AVCI MODU - HUNTER MODE
+// ============================================================
+
+import type { 
+  MomentumData, 
+  LiveXGData, 
+  RedCardEvent, 
+  LiveMatchHunter, 
+  HunterOpportunity, 
+  HunterOpportunityType,
+  DynamicPollingConfig 
+} from './live-types';
+
+/**
+ * Momentum İndeksi Hesaplama
+ * Formül: (DangerousAttacks / minute) * ShotsOnTarget * 10
+ * Fallback: ((Corners * 3) + (ShotsOnTarget * 2)) / minute * 10
+ */
+export function calculateMomentumIndex(
+  dangerousAttacks: number,
+  shotsOnTarget: number,
+  corners: number,
+  minute: number,
+  possession: number
+): number {
+  if (minute <= 0) return 0;
+  
+  // Ana formül veya fallback
+  const attackPower = dangerousAttacks > 0 
+    ? dangerousAttacks 
+    : (corners * 3) + (shotsOnTarget * 2);
+  
+  // Dakika bazlı normalize
+  const rawMomentum = (attackPower / minute) * 10;
+  
+  // Top kontrolü bonusu (possession > 60% ise)
+  const possessionBonus = possession > 60 ? (possession - 50) * 0.3 : 0;
+  
+  // Son momentum (0-100 arası)
+  const momentum = Math.min(Math.round(rawMomentum + possessionBonus), 100);
+  
+  return momentum;
+}
+
+/**
+ * Full Momentum Analizi - Her iki takım için
+ */
+export function analyzeMomentum(stats: LiveMatchStats, minute: number): MomentumData {
+  const homeMomentum = calculateMomentumIndex(
+    stats.homeDangerousAttacks,
+    stats.homeShotsOnTarget,
+    stats.homeCorners,
+    minute,
+    stats.homePossession
+  );
+  
+  const awayMomentum = calculateMomentumIndex(
+    stats.awayDangerousAttacks,
+    stats.awayShotsOnTarget,
+    stats.awayCorners,
+    minute,
+    stats.awayPossession
+  );
+  
+  // Dominant takım belirleme
+  const diff = homeMomentum - awayMomentum;
+  let dominant: 'home' | 'away' | 'balanced' = 'balanced';
+  if (diff > 15) dominant = 'home';
+  else if (diff < -15) dominant = 'away';
+  
+  // Trend belirleme
+  let trend: MomentumData['trend'] = 'stable';
+  const totalMomentum = homeMomentum + awayMomentum;
+  if (totalMomentum > 120) trend = 'chaotic';
+  else if (diff > 20) trend = 'home_rising';
+  else if (diff < -20) trend = 'away_rising';
+  
+  // Gol kapıda mı? (momentum > 80 ve 0-0)
+  const goalImminent = Math.max(homeMomentum, awayMomentum) > 80;
+  
+  return {
+    homeMomentum,
+    awayMomentum,
+    trend,
+    dominant,
+    delta: diff,
+    goalImminent,
+    estimatedGoalMinute: goalImminent ? minute + Math.floor(Math.random() * 10) + 3 : undefined
+  };
+}
+
+/**
+ * Canlı xG Hesaplama
+ * Formül: (ShotsOnTarget * 0.35) + (TotalShots * 0.08) + (DangerousAttacks * 0.02)
+ */
+export function calculateLiveXG(
+  shotsOnTarget: number,
+  totalShots: number,
+  dangerousAttacks: number
+): number {
+  const xg = (shotsOnTarget * 0.35) + (totalShots * 0.08) + (dangerousAttacks * 0.02);
+  return Math.round(xg * 100) / 100;
+}
+
+/**
+ * Full xG Analizi - Her iki takım için
+ */
+export function analyzeLiveXG(
+  stats: LiveMatchStats, 
+  homeGoals: number, 
+  awayGoals: number
+): LiveXGData {
+  const homeXG = calculateLiveXG(
+    stats.homeShotsOnTarget,
+    stats.homeShotsTotal,
+    stats.homeDangerousAttacks
+  );
+  
+  const awayXG = calculateLiveXG(
+    stats.awayShotsOnTarget,
+    stats.awayShotsTotal,
+    stats.awayDangerousAttacks
+  );
+  
+  const totalXG = homeXG + awayXG;
+  const actualGoals = homeGoals + awayGoals;
+  const xgDifferential = totalXG - actualGoals;
+  
+  // Value fırsatı kontrolü
+  // xG >= 1.5 ve skor 0-0 ise GOLDEN_CHANCE
+  // xG >= 1.2 ve skor < 1 ise value var
+  let hasValueOpportunity = false;
+  let opportunityMessage: string | undefined;
+  let confidence: number | undefined;
+  
+  if (totalXG >= 1.5 && actualGoals === 0) {
+    hasValueOpportunity = true;
+    opportunityMessage = "🏆 ALTIN FIRSAT: xG 1.5+ ama hala 0-0! Gol Kapıda!";
+    confidence = 88;
+  } else if (xgDifferential >= 1.2) {
+    hasValueOpportunity = true;
+    opportunityMessage = "💎 xG BASKISI: Gol gelişi gecikiyor, fırsat!";
+    confidence = 75;
+  } else if (xgDifferential >= 0.8 && actualGoals === 0) {
+    hasValueOpportunity = true;
+    opportunityMessage = "⚡ xG Değeri: Skor xG'yi yansıtmıyor";
+    confidence = 65;
+  }
+  
+  return {
+    homeXG,
+    awayXG,
+    totalXG,
+    xgDifferential,
+    hasValueOpportunity,
+    opportunityMessage,
+    confidence
+  };
+}
+
+/**
+ * Kırmızı Kart Olayı İşleme
+ * 10 kişi kalan takıma karşı +0.75 totalGoals beklentisi
+ */
+export function handleRedCardEvent(
+  stats: LiveMatchStats,
+  minute: number,
+  homeGoals: number,
+  awayGoals: number
+): { hasAdvantage: boolean; advantageTeam: 'home' | 'away' | null; adjustedOverExpectation: number; opportunity: HunterOpportunity | null } {
+  
+  const homeReds = stats.homeRedCards;
+  const awayReds = stats.awayRedCards;
+  
+  // Kırmızı kart yoksa çık
+  if (homeReds === 0 && awayReds === 0) {
+    return { hasAdvantage: false, advantageTeam: null, adjustedOverExpectation: 0, opportunity: null };
+  }
+  
+  // Hangi takım avantajlı?
+  let advantageTeam: 'home' | 'away' | null = null;
+  if (awayReds > homeReds) {
+    advantageTeam = 'home';
+  } else if (homeReds > awayReds) {
+    advantageTeam = 'away';
+  }
+  
+  // 10 kişiye karşı oynuyorsa +0.75 gol beklentisi
+  const redCardDiff = Math.abs(homeReds - awayReds);
+  const adjustedOverExpectation = redCardDiff * 0.75;
+  
+  // Fırsat oluştur
+  let opportunity: HunterOpportunity | null = null;
+  
+  if (advantageTeam && minute < 80) {
+    const remainingMinutes = 90 - minute;
+    const expectedGoals = (adjustedOverExpectation / 45) * remainingMinutes;
+    
+    if (expectedGoals >= 0.5) {
+      opportunity = {
+        id: `red-card-${Date.now()}`,
+        type: 'red_card_advantage',
+        title: `🟥 Kırmızı Kart Avantajı: ${advantageTeam === 'home' ? 'Ev Sahibi' : 'Deplasman'}`,
+        market: homeGoals + awayGoals < 2 ? '2.5 Üst' : 'Sonraki Gol',
+        pick: advantageTeam === 'home' ? 'Ev Sahibi Golü' : 'Deplasman Golü',
+        confidence: Math.min(85, 60 + (redCardDiff * 15)),
+        value: Math.round(adjustedOverExpectation * 20),
+        urgency: redCardDiff >= 2 ? 'critical' : 'high',
+        reasoning: `Rakip ${redCardDiff} kırmızı kart gördü. ${remainingMinutes} dk kaldı, gol beklentisi +${adjustedOverExpectation.toFixed(2)}`,
+        detectedAt: new Date(),
+        expiresIn: 300, // 5 dk
+        playSound: true
+      };
+    }
+  }
+  
+  return {
+    hasAdvantage: !!advantageTeam,
+    advantageTeam,
+    adjustedOverExpectation,
+    opportunity
+  };
+}
+
+/**
+ * xG Value Fırsatı Tespiti
+ */
+export function detectXGValueOpportunity(
+  liveXG: LiveXGData,
+  homeGoals: number,
+  awayGoals: number,
+  minute: number
+): HunterOpportunity | null {
+  if (!liveXG.hasValueOpportunity) return null;
+  
+  const isGoldenChance = liveXG.totalXG >= 1.5 && (homeGoals + awayGoals) === 0;
+  
+  return {
+    id: `xg-value-${Date.now()}`,
+    type: isGoldenChance ? 'golden_chance' : 'xg_value',
+    title: liveXG.opportunityMessage || 'xG Value Fırsatı',
+    market: '2.5 Üst',
+    pick: 'Over 0.5 / 1.5',
+    confidence: liveXG.confidence || 70,
+    value: Math.round(liveXG.xgDifferential * 25),
+    urgency: isGoldenChance ? 'critical' : (liveXG.xgDifferential >= 1.2 ? 'high' : 'medium'),
+    reasoning: `xG: ${liveXG.totalXG.toFixed(2)} vs Skor: ${homeGoals + awayGoals}. xG farkı: ${liveXG.xgDifferential.toFixed(2)}`,
+    detectedAt: new Date(),
+    expiresIn: isGoldenChance ? 180 : 300,
+    playSound: isGoldenChance
+  };
+}
+
+/**
+ * Momentum Surge Fırsatı (Momentum > 80)
+ */
+export function detectMomentumSurge(
+  momentum: MomentumData,
+  minute: number,
+  homeTeam: string,
+  awayTeam: string
+): HunterOpportunity | null {
+  if (!momentum.goalImminent) return null;
+  
+  const surgeTeam = momentum.homeMomentum > momentum.awayMomentum ? 'home' : 'away';
+  const teamName = surgeTeam === 'home' ? homeTeam : awayTeam;
+  const peakMomentum = Math.max(momentum.homeMomentum, momentum.awayMomentum);
+  
+  return {
+    id: `momentum-surge-${Date.now()}`,
+    type: 'momentum_surge',
+    title: `⚡ ${teamName} Baskısı Zirve!`,
+    market: 'Sonraki Gol',
+    pick: `${teamName} Atacak`,
+    confidence: Math.min(85, 55 + Math.floor(peakMomentum / 3)),
+    value: peakMomentum - 50,
+    urgency: peakMomentum >= 90 ? 'critical' : 'high',
+    reasoning: `${teamName} momentum: ${peakMomentum}%. Trend: ${momentum.trend}. Gol yaklaşıyor!`,
+    detectedAt: new Date(),
+    expiresIn: 120,
+    playSound: peakMomentum >= 90
+  };
+}
+
+/**
+ * Dinamik Polling Interval Hesaplama
+ */
+export function getDynamicPollingInterval(
+  momentum: MomentumData,
+  minute: number,
+  homeGoals: number,
+  awayGoals: number,
+  hasRedCard: boolean
+): DynamicPollingConfig {
+  const totalGoals = homeGoals + awayGoals;
+  const maxMomentum = Math.max(momentum.homeMomentum, momentum.awayMomentum);
+  
+  // HIZLI (15s): Kritik durumlar
+  if (
+    maxMomentum >= 80 ||
+    (totalGoals === 0 && minute >= 70) ||
+    hasRedCard ||
+    momentum.goalImminent
+  ) {
+    return {
+      normalInterval: 60000,
+      fastInterval: 15000,
+      slowInterval: 90000,
+      currentInterval: 15000,
+      reason: maxMomentum >= 80 ? 'Yüksek momentum' : 
+              (totalGoals === 0 && minute >= 70) ? 'Geç dakika 0-0' :
+              hasRedCard ? 'Kırmızı kart' : 'Gol kapıda'
+    };
+  }
+  
+  // YAVAŞ (90s): Sakin maçlar
+  if (
+    maxMomentum < 30 &&
+    minute < 60 &&
+    totalGoals >= 2
+  ) {
+    return {
+      normalInterval: 60000,
+      fastInterval: 15000,
+      slowInterval: 90000,
+      currentInterval: 90000,
+      reason: 'Sakin tempo, gol gelmiş'
+    };
+  }
+  
+  // NORMAL (60s): Standart
+  return {
+    normalInterval: 60000,
+    fastInterval: 15000,
+    slowInterval: 90000,
+    currentInterval: 60000,
+    reason: 'Standart izleme'
+  };
+}
+
+/**
+ * Tüm Hunter Fırsatlarını Tespit Et
+ */
+export function detectHunterOpportunities(match: LiveMatch): HunterOpportunity[] {
+  const opportunities: HunterOpportunity[] = [];
+  const { stats, minute, homeScore, awayScore, homeTeam, awayTeam } = match;
+  
+  // Momentum analizi
+  const momentum = analyzeMomentum(stats, minute);
+  
+  // xG analizi
+  const liveXG = analyzeLiveXG(stats, homeScore, awayScore);
+  
+  // Kırmızı kart kontrolü
+  const redCardResult = handleRedCardEvent(stats, minute, homeScore, awayScore);
+  
+  // 1. Momentum Surge fırsatı
+  const momentumOpp = detectMomentumSurge(momentum, minute, homeTeam, awayTeam);
+  if (momentumOpp) opportunities.push(momentumOpp);
+  
+  // 2. xG Value fırsatı
+  const xgOpp = detectXGValueOpportunity(liveXG, homeScore, awayScore, minute);
+  if (xgOpp) opportunities.push(xgOpp);
+  
+  // 3. Kırmızı kart fırsatı
+  if (redCardResult.opportunity) {
+    opportunities.push(redCardResult.opportunity);
+  }
+  
+  // 4. GOLDEN CHANCE kontrolü (çoklu sinyal)
+  const goldenChanceSignals = [
+    momentum.goalImminent,
+    liveXG.hasValueOpportunity && liveXG.totalXG >= 1.5,
+    homeScore + awayScore === 0 && minute >= 60,
+    redCardResult.hasAdvantage
+  ].filter(Boolean).length;
+  
+  if (goldenChanceSignals >= 3) {
+    opportunities.push({
+      id: `golden-${Date.now()}`,
+      type: 'golden_chance',
+      title: '🏆 ALTIN FIRSAT - ÇOKLU SİNYAL!',
+      market: '2.5 Üst veya Sonraki Gol',
+      pick: momentum.dominant !== 'balanced' 
+        ? `${momentum.dominant === 'home' ? homeTeam : awayTeam} Gol Atacak`
+        : 'Gol Var',
+      confidence: 90,
+      value: 40,
+      urgency: 'critical',
+      reasoning: `${goldenChanceSignals} kritik sinyal aktif! Momentum: ${Math.max(momentum.homeMomentum, momentum.awayMomentum)}%, xG: ${liveXG.totalXG.toFixed(2)}`,
+      detectedAt: new Date(),
+      expiresIn: 120,
+      playSound: true
+    });
+  }
+  
+  return opportunities;
+}
+
+/**
+ * Hunter Dashboard için Maç Özeti
+ */
+export function createHunterMatchSummary(match: LiveMatch): LiveMatchHunter {
+  const momentum = analyzeMomentum(match.stats, match.minute);
+  const liveXG = analyzeLiveXG(match.stats, match.homeScore, match.awayScore);
+  const opportunities = detectHunterOpportunities(match);
+  
+  // Hunter durumu belirleme
+  let hunterStatus: LiveMatchHunter['hunterStatus'] = 'watching';
+  if (opportunities.some(o => o.type === 'golden_chance')) {
+    hunterStatus = 'golden_chance';
+  } else if (opportunities.length > 0) {
+    hunterStatus = 'alert';
+  }
+  
+  return {
+    matchId: match.fixtureId,
+    homeTeam: match.homeTeam,
+    awayTeam: match.awayTeam,
+    score: { home: match.homeScore, away: match.awayScore },
+    minute: match.minute,
+    liveStats: {
+      possession: { home: match.stats.homePossession, away: match.stats.awayPossession },
+      dangerousAttacks: { home: match.stats.homeDangerousAttacks, away: match.stats.awayDangerousAttacks },
+      shotsOnTarget: { home: match.stats.homeShotsOnTarget, away: match.stats.awayShotsOnTarget },
+      shotsTotal: { home: match.stats.homeShotsTotal, away: match.stats.awayShotsTotal },
+      corners: { home: match.stats.homeCorners, away: match.stats.awayCorners },
+      fouls: { home: match.stats.homeFouls, away: match.stats.awayFouls },
+      yellowCards: { home: match.stats.homeYellowCards, away: match.stats.awayYellowCards },
+      redCards: { home: match.stats.homeRedCards, away: match.stats.awayRedCards }
+    },
+    momentum,
+    liveXG,
+    redCardEvents: [],
+    hunterStatus,
+    activeOpportunities: opportunities
+  };
 }

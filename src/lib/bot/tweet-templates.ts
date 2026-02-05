@@ -601,3 +601,206 @@ export function truncateTweet(text: string, maxLength: number = 280): string {
   if (text.length <= maxLength) return text;
   return text.substring(0, maxLength - 3) + '...';
 }
+
+// ============ 1. CANLI MAÇ KEŞFİ (RADAR) ============
+
+export interface LiveRadarData {
+  homeTeam: string;
+  awayTeam: string;
+  minute: number;
+  deviation: string;  // "ani sapma", "momentum değişimi" vs
+  parameter: string;  // "Son 10 dakikada baskıyı %30 artırdı"
+  xgNote: string;     // "xG (Gol Beklentisi) eşiği aşıldı"
+  suggestion: string; // "Sıradaki Gol" / "0.5 Üst" / "Korner"
+  confidencePercent: number;
+  matchTag?: string;
+}
+
+export function formatLiveRadarTweet(data: LiveRadarData): string {
+  const matchTag = data.matchTag || `${data.homeTeam}vs${data.awayTeam}`.replace(/\s/g, '');
+  
+  return `📡 [SİSTEM RADARI: CANLI ANALİZ]
+
+🏟 Maç: ${data.homeTeam} vs ${data.awayTeam}
+⏱ Dakika: ${data.minute}'
+📉 Durum: Veri setinde ${data.deviation} tespit edildi.
+📊 Parametre: ${data.parameter}. ${data.xgNote}
+
+🎯 Öneri: ${data.suggestion}
+🛠 Güven Skoru: %${data.confidencePercent}
+
+#CanlıAnaliz #${matchTag}`;
+}
+
+// ============ 2. KUPON DURUMU (ARA RAPOR) ============
+
+export interface CouponStatusData {
+  batchNumber: string;  // "01", "02" vs
+  matches: {
+    name: string;
+    status: 'validated' | 'in_progress' | 'pending' | 'failed';
+    progressPercent?: number;  // Sadece in_progress için
+    note?: string;
+  }[];
+  instantSuccessRate: number;
+  modelStatus: string;  // "stabil", "güncelleniyor", "analiz ediliyor"
+}
+
+export function formatCouponStatusReport(data: CouponStatusData): string {
+  const statusIcons = {
+    validated: '🟢',
+    in_progress: '🟡',
+    pending: '🔵',
+    failed: '🔴'
+  };
+  
+  const statusLabels = {
+    validated: 'Sistem Doğrulandı',
+    in_progress: 'Süreç devam ediyor',
+    pending: 'Beklemede',
+    failed: 'Veri Sapması'
+  };
+  
+  let matchLines = '';
+  for (const match of data.matches) {
+    const icon = statusIcons[match.status];
+    let statusText = statusLabels[match.status];
+    
+    if (match.status === 'in_progress' && match.progressPercent) {
+      statusText = `Momentumun %${match.progressPercent}'i tamamlandı. ${statusText}`;
+    }
+    if (match.note) {
+      statusText += ` (${match.note})`;
+    }
+    
+    matchLines += `${icon} ${match.name}: ${statusText}\n`;
+  }
+  
+  return `🔄 [KUPON DURUM RAPORU - BATCH #${data.batchNumber}]
+
+${matchLines.trim()}
+
+💹 Anlık Başarı Oranı: %${data.instantSuccessRate}
+💻 Model ${data.modelStatus}, veri akışını takip ediyoruz.`;
+}
+
+// ============ 3. GÜNÜN KUPONU (LANSMAN) ============
+
+export interface DailyCouponLaunchData {
+  date: string;  // "05.02.2026"
+  filteredCount: number;  // Kaç maçtan filtrelendi
+  matches: {
+    homeTeam: string;
+    awayTeam: string;
+    prediction: string;
+    odds: number;
+  }[];
+  totalOdds: number;
+  units: number;
+  bankrollPercent: number;
+  analysisNote: string;  // Ana çıkış noktası
+}
+
+export function formatDailyCouponLaunch(data: DailyCouponLaunchData): string {
+  let matchLines = '';
+  data.matches.forEach((match, index) => {
+    const emoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣'][index] || `${index + 1}.`;
+    matchLines += `${emoji} ${match.homeTeam} - ${match.awayTeam}: ${match.prediction} (Odds: ${match.odds.toFixed(2)})\n`;
+  });
+  
+  return `🚀 [GÜNLÜK VERİ SETİ: #${data.date}]
+
+Toplam bültenden filtrelenen ${data.filteredCount} yüksek olasılıklı çıktı:
+
+${matchLines.trim()}
+
+📊 Toplam Oran: ${data.totalOdds.toFixed(2)}
+🛡 Kasa Yönetimi: ${data.units.toFixed(1)} Birim (Kasa %${data.bankrollPercent})
+🔑 Analiz Notu: ${data.analysisNote}
+
+#GününKuponu #KuponMühendisi`;
+}
+
+// ============ 4. GECE SEANSI (GLOBAL VERİ) ============
+
+export interface NightSessionData {
+  sportType: 'football' | 'basketball';  // ⚽ veya 🏀
+  matchName: string;
+  prediction: string;
+  algorithmNote: string;  // "Deplasman takımının 'yorgunluk indeksi' yüksek"
+  region: string;  // "SouthAmerica", "NBA", "MLS" vs
+}
+
+export function formatNightSessionTweet(data: NightSessionData): string {
+  const sportIcon = data.sportType === 'basketball' ? '🏀' : '⚽';
+  
+  return `🌑 [NIGHT SHIFT: GECE ANALİZİ]
+
+Yerel bülten kapandı, modelimiz okyanus ötesi verilere odaklandı.
+
+${sportIcon} Maç: ${data.matchName}
+🎯 Tahmin: ${data.prediction}
+🔬 Algoritma Notu: ${data.algorithmNote}
+
+#${data.region} #GeceSeansi #BahisAnaliz`;
+}
+
+// ============ 5. HAFTALIK VERİMLİLİK RAPORU ============
+
+export interface WeeklyPerformanceData {
+  dateRange: { start: string; end: string };  // "29.01.2026" - "05.02.2026"
+  successfulPredictions: number;
+  failedPredictions: number;
+  roiPercent: number;
+  bankrollChange: number;  // Birim cinsinden (+2.5, -1.0 gibi)
+  nextWeekFocus: string;  // Algoritma güncellemesi notu
+}
+
+export function formatWeeklyPerformanceReport(data: WeeklyPerformanceData): string {
+  const changeSign = data.bankrollChange >= 0 ? '+' : '';
+  const totalPredictions = data.successfulPredictions + data.failedPredictions;
+  const hitRate = totalPredictions > 0 
+    ? ((data.successfulPredictions / totalPredictions) * 100).toFixed(1)
+    : '0.0';
+  
+  return `📈 [HAFTALIK SİSTEM PERFORMANSI]
+
+Tarih Aralığı: ${data.dateRange.start} - ${data.dateRange.end}
+
+✅ Başarılı Tahmin: ${data.successfulPredictions}
+❌ Hatalı Tahmin: ${data.failedPredictions}
+🎯 İsabet Oranı: %${hitRate}
+📊 ROI (Yatırım Getirisi): %${data.roiPercent.toFixed(1)}
+💰 Kasa Değişimi: ${changeSign}${data.bankrollChange.toFixed(1)} Birim
+
+🛠 Gelecek Hafta Odağı: ${data.nextWeekFocus}
+
+Şeffaflık, mühendisliğin temelidir. 💻📉`;
+}
+
+// ============ YARDIMCI: BATCH NUMARASI HESAPLA ============
+
+export function getBatchNumber(hour: number): string {
+  // Günde kaç batch olduğunu takip et
+  // 17:00-02:00 arası her saat bir batch
+  if (hour >= 17) return String(hour - 16).padStart(2, '0');
+  if (hour <= 2) return String(hour + 8).padStart(2, '0');
+  return '01';
+}
+
+// ============ EXPORT: TÜM ŞABLONLAR ============
+
+export const TWEET_TEMPLATES = {
+  liveRadar: formatLiveRadarTweet,
+  couponStatus: formatCouponStatusReport,
+  dailyCouponLaunch: formatDailyCouponLaunch,
+  nightSession: formatNightSessionTweet,
+  weeklyPerformance: formatWeeklyPerformanceReport,
+  preMatchAnalysis: formatPreMatchAnalysisTweet,
+  liveTracking: formatLiveTrackingTweet,
+  projectValidated: formatProjectValidatedTweet,
+  errorAnalysis: formatErrorAnalysisTweet,
+  deepStats: formatDeepStatsTweet,
+  morningBulletin: formatMorningBulletinThread,
+  mainCoupon: formatMainCouponThread,
+};

@@ -147,62 +147,84 @@ function formatPredictionShort(label: string): string {
 }
 
 /**
- * Yeni kupon tweet metni oluşturur (Thread için ana tweet)
+ * Yeni proje tweet metni oluşturur - Mühendislik dili
  */
 export function formatNewCouponTweet(coupon: BotCoupon, bankroll: number): string {
   const lines: string[] = [];
   
-  // Header
-  lines.push('🎯 GÜNÜN KUPONU');
+  // Header - Proje formatı
+  const projectId = coupon.id.slice(-6).toUpperCase();
+  lines.push(`🔍 YENİ PROJE #${projectId}`);
   lines.push('');
   
-  // Maçlar - her biri bir satırda
+  // Güven endeksi hesapla
+  const avgConfidence = coupon.matches.reduce((sum, m) => sum + m.confidenceScore, 0) / coupon.matches.length;
+  lines.push(`📊 Güven Endeksi: %${avgConfidence.toFixed(0)}`);
+  lines.push('');
+  
+  // Maçlar - Model çıktısı formatı
   coupon.matches.forEach((match, i) => {
     const time = formatTurkeyTime(match.kickoff);
     const pred = formatPredictionShort(match.prediction.label);
-    lines.push(`${i + 1}. ${match.homeTeam} - ${match.awayTeam}`);
-    lines.push(`   ⏰ ${time} | ${pred} @${match.prediction.odds.toFixed(2)}`);
+    lines.push(`${i + 1}. ${match.homeTeam} vs ${match.awayTeam}`);
+    lines.push(`   ⏰ ${time} | Model: ${pred} @${match.prediction.odds.toFixed(2)}`);
   });
   
   lines.push('');
-  lines.push(`📊 Oran: ${coupon.totalOdds.toFixed(2)} | 💰 ${coupon.stake.toFixed(0)}₺ → ${coupon.potentialWin.toFixed(0)}₺`);
+  lines.push(`💻 Toplam Oran: ${coupon.totalOdds.toFixed(2)}`);
+  lines.push(`🛠️ Risk: ${coupon.stake.toFixed(0)} Birim`);
   lines.push('');
-  lines.push('#Bahis #Kupon #BilyonerBot');
+  lines.push('Veri disiplinine sadık kalıyoruz. 📈');
+  lines.push('#VeriAnalizi #Algoritma');
   
   return lines.join('\n');
 }
 
 /**
- * Sonuç tweet metni oluşturur
+ * Sonuç tweet metni - Doğrulama/Sapma formatı
  */
 export function formatResultTweet(coupon: BotCoupon, newBankroll: number): string {
   const lines: string[] = [];
   
   const isWon = coupon.status === 'won';
   const profit = coupon.result?.profit || -coupon.stake;
+  const projectId = coupon.id.slice(-6).toUpperCase();
   
-  // Header
-  lines.push(isWon ? '✅ KUPON KAZANDI!' : '❌ KUPON KAYBETTİ');
+  // Header - Doğrulama veya Sapma Analizi
+  if (isWon) {
+    lines.push(`✅ Proje Doğrulandı: #${projectId}`);
+  } else {
+    lines.push(`⚠️ Veri Sapması: #${projectId}`);
+  }
   lines.push('');
   
-  // Maç sonuçları
+  // Maç sonuçları - OK/FAIL formatı
   coupon.matches.forEach((match) => {
     const result = coupon.result?.matchResults.find(r => r.fixtureId === match.fixtureId);
     const won = result?.predictionWon;
-    const emoji = won ? '✅' : '❌';
+    const status = won ? '✓' : '✗';
     const score = result ? `${result.homeScore}-${result.awayScore}` : '?-?';
     const pred = formatPredictionShort(match.prediction.label);
     
-    lines.push(`${emoji} ${match.homeTeam} ${score} ${match.awayTeam} (${pred})`);
+    lines.push(`${match.homeTeam} ${score} ${match.awayTeam} - ${status}`);
+    lines.push(`   Model: ${pred}`);
   });
   
   lines.push('');
-  lines.push(isWon 
-    ? `🎉 Kar: +${profit.toFixed(0)}₺`
-    : `💸 Kayıp: ${Math.abs(profit).toFixed(0)}₺`
-  );
-  lines.push('');
-  lines.push('#Bahis #Kupon #BilyonerBot');
+  
+  if (isWon) {
+    lines.push(`🚀 Net Kar: +${profit.toFixed(1)} Birim`);
+    lines.push(`📈 Güncel Kasa: ${newBankroll.toFixed(1)} Birim`);
+    lines.push('');
+    lines.push('Varyansı ekarte ettiğimiz sürece kasa büyür.');
+    lines.push('Bize mühendislik yeter. 💻📊');
+  } else {
+    lines.push(`📉 Kayıp: ${Math.abs(profit).toFixed(1)} Birim`);
+    lines.push(`💼 Güncel Kasa: ${newBankroll.toFixed(1)} Birim`);
+    lines.push('');
+    lines.push('Stop-Loss aktif, disiplin korunuyor. 🛡️');
+    lines.push('Hata analizi gelecek.');
+  }
   
   return lines.join('\n');
 }

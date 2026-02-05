@@ -20,7 +20,10 @@ const API_BASE = process.env.API_FOOTBALL_BASE_URL || 'https://v3.football.api-s
 let lastCouponSnapshot = '';
 let lastOpportunitySnapshot = '';
 let lastCouponTweetTime = 0;
-let lastOpportunityTweetTime = 0; // Fırsat tweetleri için de cooldown
+let lastOpportunityTweetTime = 0;
+// Gol bazlı tweet için son skorları takip et
+let lastScoreSnapshot = '';
+let lastHalftimeSnapshot = '';
 
 interface LiveMatchData {
   fixtureId: number;
@@ -201,30 +204,32 @@ function analyzePrediction(match: BotMatch, live: LiveMatchData): CouponMatchSta
 }
 
 /**
- * Kupon durumu tweet metni oluştur
+ * Canlı proje durumu tweet metni oluştur - Mühendislik dili
  */
 function formatCouponStatusTweet(statuses: CouponMatchStatus[]): string {
   const lines: string[] = [];
   
-  lines.push('🎯 KUPON DURUMU');
+  lines.push('📡 CANLI PROJE TAKİBİ');
   lines.push('');
   
-  let winningCount = 0;
-  let losingCount = 0;
+  let validatedCount = 0;
+  let pendingCount = 0;
+  let deviationCount = 0;
   
   statuses.forEach((s, i) => {
     const { match, live, predictionStatus, neededMessage } = s;
     const score = live ? `${live.homeScore}-${live.awayScore}` : '?-?';
     const minute = live?.minute || 0;
-    const statusEmoji = predictionStatus === 'winning' || predictionStatus === 'won' ? '✅' : 
+    const statusEmoji = predictionStatus === 'winning' || predictionStatus === 'won' ? '✓' : 
                        predictionStatus === 'losing' ? '⚠️' : 
-                       predictionStatus === 'lost' ? '❌' : '⏰';
+                       predictionStatus === 'lost' ? '✗' : '⏳';
     
-    if (predictionStatus === 'winning' || predictionStatus === 'won') winningCount++;
-    if (predictionStatus === 'losing' || predictionStatus === 'lost') losingCount++;
+    if (predictionStatus === 'winning' || predictionStatus === 'won') validatedCount++;
+    if (predictionStatus === 'pending') pendingCount++;
+    if (predictionStatus === 'losing' || predictionStatus === 'lost') deviationCount++;
     
     lines.push(`${statusEmoji} ${match.homeTeam} ${score} ${match.awayTeam}`);
-    lines.push(`   ${match.prediction.label} @${match.prediction.odds.toFixed(2)}`);
+    lines.push(`   Model: ${match.prediction.label} @${match.prediction.odds.toFixed(2)}`);
     
     if (live && minute > 0) {
       lines.push(`   ${neededMessage} (${minute}')`);
@@ -237,11 +242,13 @@ function formatCouponStatusTweet(statuses: CouponMatchStatus[]): string {
   
   lines.push('');
   
-  // Özet
-  if (winningCount === statuses.length) {
-    lines.push('🔥 Tüm tahminler tutuyor!');
-  } else if (losingCount > 0) {
-    lines.push(`⚡ ${losingCount} tahmin riskli, takipteyiz!`);
+  // Özet - Mühendislik dili
+  if (validatedCount === statuses.length) {
+    lines.push('🔥 Tüm model çıktıları doğrulanıyor!');
+  } else if (deviationCount > 0) {
+    lines.push(`📊 ${deviationCount} çıktıda sapma, sistem takipte.`);
+  } else if (pendingCount > 0) {
+    lines.push(`⏳ ${pendingCount} maç henüz başlamadı.`);
   }
   
   lines.push('');
@@ -520,7 +527,7 @@ async function scanLiveOpportunities(): Promise<Array<{
 }
 
 /**
- * Fırsat tweet metni oluştur - Sıradaki Gol odaklı
+ * Canlı analiz fırsatı tweet metni - Mühendislik dili
  */
 function formatOpportunityTweet(opportunities: Array<{
   match: LiveMatchData;
@@ -531,13 +538,13 @@ function formatOpportunityTweet(opportunities: Array<{
 }>): string {
   const lines: string[] = [];
   
-  // Başlık - fırsat tipine göre
+  // Başlık - veri odaklı
   const hasNextGoal = opportunities.some(o => o.opportunity.includes('Sıradaki'));
   
   if (hasNextGoal) {
-    lines.push('⚽ SIRADAKİ GOL TAHMİNİ');
+    lines.push('📊 CANLI VERİ ANALİZİ');
   } else {
-    lines.push('🔥 CANLI FIRSAT!');
+    lines.push('🔍 SİSTEM TESPİTİ');
   }
   lines.push('');
   
@@ -550,14 +557,14 @@ function formatOpportunityTweet(opportunities: Array<{
     
     lines.push(`${i + 1}. ${home} ${match.homeScore}-${match.awayScore} ${away}`);
     lines.push(`⏱️ ${match.minute}' | ${match.league}`);
-    lines.push(`🎯 ${opportunity} @${odds.toFixed(2)}`);
-    lines.push(`📊 ${reasoning}`);
+    lines.push(`🎯 Model Çıktısı: ${opportunity} @${odds.toFixed(2)}`);
+    lines.push(`📈 Veri: ${reasoning}`);
     
     if (i < opportunities.length - 1) lines.push('');
   });
   
   lines.push('');
-  lines.push('#CanlıBahis #SıradakiGol');
+  lines.push('#VeriAnalizi #Algoritma');
   
   return lines.join('\n');
 }
@@ -613,33 +620,62 @@ export async function GET(request: NextRequest) {
         `${s.match.fixtureId}:${s.live?.homeScore ?? '?'}-${s.live?.awayScore ?? '?'}:${s.predictionStatus}`
       ).join('|');
       
-      // En az 1 canlı maç varsa ve değişiklik varsa tweet at
+      // SKOR snapshot (sadece gol takibi için)
+      const currentScoreSnapshot = couponStatuses.map(s => 
+        `${s.match.fixtureId}:${s.live?.homeScore ?? 0}-${s.live?.awayScore ?? 0}`
+      ).join('|');
+      
+      // DEVRE ARASI snapshot
+      const currentHalftimeSnapshot = couponStatuses.map(s => 
+        `${s.match.fixtureId}:${s.live?.status === 'HT' ? 'HT' : 'LIVE'}`
+      ).join('|');
+      
+      // En az 1 canlı maç varsa
       const hasLiveMatch = couponStatuses.some(s => 
         s.live && ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'].includes(s.live.status)
       );
       
-      const hasChange = currentSnapshot !== lastCouponSnapshot;
-      const MIN_TWEET_INTERVAL = 10 * 60 * 1000; // Minimum 10 dk arası
+      // GOL OLDU MU? (Skor değişikliği kontrolü)
+      const isGoalScored = currentScoreSnapshot !== lastScoreSnapshot && lastScoreSnapshot !== '';
+      
+      // DEVRE ARASI MI? (HT'ye geçiş kontrolü)
+      const isHalftime = currentHalftimeSnapshot.includes(':HT') && !lastHalftimeSnapshot.includes(':HT');
+      
+      // SADECE GOL VEYA DEVRE ARASINDA TWEET AT (Spam önleme)
+      const MIN_TWEET_INTERVAL = 3 * 60 * 1000; // Gol durumunda minimum 3 dk arası
       const canTweet = Date.now() - lastCouponTweetTime >= MIN_TWEET_INTERVAL;
       
-      if (hasLiveMatch && hasChange && canTweet) {
+      if (hasLiveMatch && (isGoalScored || isHalftime) && canTweet) {
+        // Gol durumunda "Dediğimiz gibi!" veya normal güncelleme
         const tweetText = formatCouponStatusTweet(couponStatuses);
         
         if (!useMock && state.activeCoupon.tweetId) {
           // QUOTE TWEET olarak at - orijinal kuponu alıntıla
           await sendQuoteTweet(tweetText, state.activeCoupon.tweetId);
           lastCouponSnapshot = currentSnapshot;
+          lastScoreSnapshot = currentScoreSnapshot;
+          lastHalftimeSnapshot = currentHalftimeSnapshot;
           lastCouponTweetTime = Date.now();
-          log('Kupon durumu quote tweeti atıldı');
+          log(isGoalScored ? '⚽ GOL! Kupon durumu tweeti atıldı' : '⏸️ Devre arası tweeti atıldı');
         } else if (useMock) {
-          log(`[MOCK] Kupon durumu quote tweeti:\n${tweetText}`);
+          log(`[MOCK] ${isGoalScored ? 'GOL' : 'DEVRE ARASI'} tweeti:\n${tweetText}`);
           lastCouponSnapshot = currentSnapshot;
+          lastScoreSnapshot = currentScoreSnapshot;
+          lastHalftimeSnapshot = currentHalftimeSnapshot;
           lastCouponTweetTime = Date.now();
         }
-      } else if (!hasChange) {
-        log('Kupon durumunda değişiklik yok, tweet atılmadı');
-      } else if (!canTweet) {
-        log('Son tweetten 10 dk geçmedi, bekleniyor');
+      } else {
+        // Snapshot'ları güncelle ama tweet atma
+        lastScoreSnapshot = currentScoreSnapshot;
+        lastHalftimeSnapshot = currentHalftimeSnapshot;
+        
+        if (!hasLiveMatch) {
+          log('Canlı maç yok, tweet atılmadı');
+        } else if (!isGoalScored && !isHalftime) {
+          log('Gol veya devre arası yok, tweet atılmadı');
+        } else if (!canTweet) {
+          log('Son tweetten 3 dk geçmedi, bekleniyor');
+        }
       }
     } else {
       log('Aktif kupon yok');

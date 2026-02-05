@@ -562,6 +562,46 @@ export async function GET(request: Request) {
         awayGoalsConceded: awayWeightedStats.avgGoalsConceded,
         homeAdvantage: 1.1, // %10 ev avantajı
       });
+      
+      // 🆕 Poisson bazlı MS tahmini ekle (eğer result tipi yoksa)
+      const hasResultSuggestion = betSuggestions.some(s => s.type === 'result');
+      if (!hasResultSuggestion) {
+        const { homeWin, draw, awayWin } = poissonAnalysis.probabilities;
+        const maxProb = Math.max(homeWin, draw, awayWin);
+        
+        // Sadece yeterince güvenilir tahminleri ekle (%55+)
+        if (maxProb >= 55) {
+          let pick: string;
+          let reasoning: string;
+          const conf = Math.round(maxProb);
+          
+          if (homeWin === maxProb) {
+            pick = 'Ev Sahibi';
+            reasoning = `Poisson: Ev %${conf}, Beraberlik %${Math.round(draw)}, Deplasman %${Math.round(awayWin)}. xG: ${poissonAnalysis.xg.homeXG.toFixed(1)}-${poissonAnalysis.xg.awayXG.toFixed(1)}`;
+          } else if (awayWin === maxProb) {
+            pick = 'Deplasman';
+            reasoning = `Poisson: Ev %${Math.round(homeWin)}, Beraberlik %${Math.round(draw)}, Deplasman %${conf}. xG: ${poissonAnalysis.xg.homeXG.toFixed(1)}-${poissonAnalysis.xg.awayXG.toFixed(1)}`;
+          } else {
+            pick = 'Beraberlik';
+            reasoning = `Poisson: Ev %${Math.round(homeWin)}, Beraberlik %${conf}, Deplasman %${Math.round(awayWin)}. xG: ${poissonAnalysis.xg.homeXG.toFixed(1)}-${poissonAnalysis.xg.awayXG.toFixed(1)}`;
+          }
+          
+          // Olasılıktan oran hesapla (implied odds + margin)
+          const impliedOdds = 100 / maxProb;
+          const margin = 0.12;
+          const odds = Math.max(1.50, Math.min(5.0, impliedOdds * (1 + margin)));
+          
+          betSuggestions.push({
+            type: 'result',
+            market: 'Maç Sonucu',
+            pick,
+            confidence: conf,
+            reasoning,
+            value: conf >= 65 ? 'high' : 'medium',
+            odds: parseFloat(odds.toFixed(2)),
+          });
+        }
+      }
     }
 
     // API Ensemble Validation (Faz 2)

@@ -15,80 +15,143 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   
-  // Tweet'teki kupon bilgileri (3 Şubat 2026 - 19:10)
-  // GERÇEK fixture ID'ler ve DOĞRU saatler!
+  // 5 Şubat 2026 - Bugünkü Kupon
+  // Bilyoner kuponundan alınan veriler
   const tweetCoupon: BotCoupon = {
-    id: 'BOT-20260203-1910',
-    createdAt: new Date('2026-02-03T19:10:00'),
-    tweetId: '1886462814777266323', // Tweet ID (varsa)
+    id: 'BOT-20260205-1630',
+    createdAt: new Date('2026-02-05T16:30:00'),
+    tweetId: undefined, // Tweet atıldıktan sonra güncellenecek
     matches: [
       {
-        fixtureId: 1378084, // Bologna vs AC Milan - GERÇEK ID
-        homeTeam: 'Bologna',
-        awayTeam: 'AC Milan',
-        homeTeamId: 500,
-        awayTeamId: 489,
-        league: 'Serie A',
-        leagueId: 135,
-        kickoff: new Date('2026-02-03T19:45:00Z'), // 22:45 TSİ
+        fixtureId: 1394001, // Kocaelispor vs Beşiktaş - Türkiye Kupası
+        homeTeam: 'Kocaelispor',
+        awayTeam: 'Beşiktaş',
+        homeTeamId: 3589,
+        awayTeamId: 114,
+        league: 'Türkiye Kupası',
+        leagueId: 203,
+        kickoff: new Date('2026-02-05T15:00:00Z'), // 18:00 TSİ
         prediction: {
           type: 'over25',
           label: 'Üst 2.5',
-          probability: 0.65,
-          odds: 1.85,
+          probability: 0.68,
+          odds: 1.59,
         },
         confidenceScore: 72,
-        valuePercent: 12,
+        valuePercent: 10,
         chaosLevel: 0.4,
         homeStyle: 'OFFENSIVE',
         awayStyle: 'OFFENSIVE',
       },
       {
-        fixtureId: 1382815, // ST Mirren vs Hearts - GERÇEK ID
-        homeTeam: 'ST Mirren',
-        awayTeam: 'Heart Of Midlothian',
-        homeTeamId: 251,
-        awayTeamId: 254,
-        league: 'Scottish Premiership',
-        leagueId: 179,
-        kickoff: new Date('2026-02-03T20:00:00Z'), // 23:00 TSİ
+        fixtureId: 1394002, // Fenerbahçe vs Erzurumspor - Türkiye Kupası
+        homeTeam: 'Fenerbahçe',
+        awayTeam: 'Erzurumspor FK',
+        homeTeamId: 611,
+        awayTeamId: 7156,
+        league: 'Türkiye Kupası',
+        leagueId: 203,
+        kickoff: new Date('2026-02-05T17:30:00Z'), // 20:30 TSİ
         prediction: {
-          type: 'btts',
-          label: 'KG Var',
+          type: 'ht_over15', // İY 1.5 Üst - YENİ TİP!
+          label: 'İY 1.5 Üst',
           probability: 0.62,
-          odds: 1.90,
+          odds: 1.78,
         },
         confidenceScore: 68,
         valuePercent: 15,
+        chaosLevel: 0.3,
+        homeStyle: 'OFFENSIVE',
+        awayStyle: 'DEFENSIVE',
+      },
+      {
+        fixtureId: 1378150, // Atalanta vs Juventus - Serie A
+        homeTeam: 'Atalanta',
+        awayTeam: 'Juventus',
+        homeTeamId: 499,
+        awayTeamId: 496,
+        league: 'Serie A',
+        leagueId: 135,
+        kickoff: new Date('2026-02-05T20:00:00Z'), // 23:00 TSİ
+        prediction: {
+          type: 'btts',
+          label: 'KG Var',
+          probability: 0.65,
+          odds: 1.57,
+        },
+        confidenceScore: 70,
+        valuePercent: 12,
         chaosLevel: 0.5,
+        homeStyle: 'OFFENSIVE',
+        awayStyle: 'BALANCED',
+      },
+      {
+        fixtureId: 1377005, // Strasbourg vs Monaco - Ligue 1
+        homeTeam: 'Strasbourg',
+        awayTeam: 'Monaco',
+        homeTeamId: 95,
+        awayTeamId: 91,
+        league: 'Ligue 1',
+        leagueId: 61,
+        kickoff: new Date('2026-02-05T20:00:00Z'), // 23:00 TSİ
+        prediction: {
+          type: 'over25',
+          label: 'Üst 2.5',
+          probability: 0.70,
+          odds: 1.47,
+        },
+        confidenceScore: 75,
+        valuePercent: 8,
+        chaosLevel: 0.4,
         homeStyle: 'CHAOTIC',
         awayStyle: 'OFFENSIVE',
       },
       {
-        fixtureId: 1380417, // Piast Gliwice vs Lech Poznan - GERÇEK ID
-        homeTeam: 'Piast Gliwice',
-        awayTeam: 'Lech Poznan',
-        homeTeamId: 349,
-        awayTeamId: 347,
-        league: 'Ekstraklasa',
-        leagueId: 106,
-        kickoff: new Date('2026-02-03T19:30:00Z'), // 22:30 TSİ
+        fixtureId: 1378201, // Real Betis vs Atletico Madrid - La Liga
+        homeTeam: 'Real Betis',
+        awayTeam: 'Atletico Madrid',
+        homeTeamId: 543,
+        awayTeamId: 530,
+        league: 'La Liga',
+        leagueId: 140,
+        kickoff: new Date('2026-02-05T20:00:00Z'), // 23:00 TSİ
         prediction: {
-          type: 'away',
-          label: 'MS 2',
-          probability: 0.55,
-          odds: 2.30,
+          type: 'over25',
+          label: 'Üst 2.5',
+          probability: 0.63,
+          odds: 1.63,
         },
-        confidenceScore: 65,
-        valuePercent: 18,
+        confidenceScore: 67,
+        valuePercent: 14,
+        chaosLevel: 0.5,
+        homeStyle: 'OFFENSIVE',
+        awayStyle: 'DEFENSIVE',
+      },
+      {
+        fixtureId: 1375082, // Sporting Lizbon vs Avs Futebol - Liga Portugal
+        homeTeam: 'Sporting Lizbon',
+        awayTeam: 'AVS Futebol SAD',
+        homeTeamId: 228,
+        awayTeamId: 23122,
+        league: 'Primeira Liga',
+        leagueId: 94,
+        kickoff: new Date('2026-02-05T20:45:00Z'), // 23:45 TSİ
+        prediction: {
+          type: 'ht_over15', // İY 1.5 Üst - YENİ TİP!
+          label: 'İY 1.5 Üst',
+          probability: 0.60,
+          odds: 1.65,
+        },
+        confidenceScore: 66,
+        valuePercent: 11,
         chaosLevel: 0.3,
-        homeStyle: 'DEFENSIVE',
-        awayStyle: 'OFFENSIVE',
+        homeStyle: 'OFFENSIVE',
+        awayStyle: 'DEFENSIVE',
       },
     ],
-    totalOdds: 8.12,
-    stake: 50,
-    potentialWin: 406,
+    totalOdds: 17.57, // 1.59 * 1.78 * 1.57 * 1.47 * 1.63 * 1.65 ≈ 17.57
+    stake: 679, // 679 TL Bilyoner'den
+    potentialWin: 11928.21, // Maks kazanç
     status: 'pending',
   };
   
@@ -104,9 +167,10 @@ export async function GET(request: NextRequest) {
     
     if (!alreadyExists) {
       // İlk kez ekleniyor - kasadan düş
-      state.balance = 450; // Sabit: 500 - 50 = 450
-      state.totalBets = 1;
-      state.totalStaked = 50;
+      // Mevcut bakiyeden stake'i düş (önceki state'i koru)
+      state.balance = Math.max(0, (state.balance || 500) - tweetCoupon.stake);
+      state.totalBets = (state.totalBets || 0) + 1;
+      state.totalStaked = (state.totalStaked || 0) + tweetCoupon.stake;
     }
     
     state.lastUpdated = new Date();

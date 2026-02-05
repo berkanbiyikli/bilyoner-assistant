@@ -788,6 +788,8 @@ export interface MatchResult {
   fixtureId: number;
   homeScore: number;
   awayScore: number;
+  htHomeScore: number; // İlk yarı ev sahibi gol
+  htAwayScore: number; // İlk yarı deplasman gol
   status: 'finished' | 'live' | 'upcoming';
 }
 
@@ -816,6 +818,8 @@ export async function checkCouponResults(coupon: BotCoupon): Promise<BotCoupon> 
           fixtureId: match.fixtureId,
           homeScore: fixture.goals?.home ?? 0,
           awayScore: fixture.goals?.away ?? 0,
+          htHomeScore: fixture.score?.halftime?.home ?? 0,
+          htAwayScore: fixture.score?.halftime?.away ?? 0,
           status: 'finished',
         });
       } else if (['1H', '2H', 'HT'].includes(fixture?.fixture?.status?.short)) {
@@ -823,6 +827,8 @@ export async function checkCouponResults(coupon: BotCoupon): Promise<BotCoupon> 
           fixtureId: match.fixtureId,
           homeScore: fixture.goals?.home ?? 0,
           awayScore: fixture.goals?.away ?? 0,
+          htHomeScore: fixture.score?.halftime?.home ?? 0,
+          htAwayScore: fixture.score?.halftime?.away ?? 0,
           status: 'live',
         });
       } else {
@@ -830,6 +836,8 @@ export async function checkCouponResults(coupon: BotCoupon): Promise<BotCoupon> 
           fixtureId: match.fixtureId,
           homeScore: 0,
           awayScore: 0,
+          htHomeScore: 0,
+          htAwayScore: 0,
           status: 'upcoming',
         });
       }
@@ -881,21 +889,55 @@ function checkPredictionWon(
   prediction: BotMatch['prediction'],
   result: MatchResult
 ): boolean {
-  const { homeScore, awayScore } = result;
+  const { homeScore, awayScore, htHomeScore, htAwayScore } = result;
   const totalGoals = homeScore + awayScore;
+  const htTotalGoals = htHomeScore + htAwayScore;
   
   switch (prediction.type) {
+    // Maç Sonucu
     case 'home':
       return homeScore > awayScore;
     case 'draw':
       return homeScore === awayScore;
     case 'away':
       return awayScore > homeScore;
+    
+    // Alt/Üst Tam Maç
     case 'over25':
       return totalGoals > 2.5;
+    case 'under25':
+      return totalGoals < 2.5;
+    case 'over15':
+      return totalGoals > 1.5;
+    case 'under15':
+      return totalGoals < 1.5;
+    case 'over35':
+      return totalGoals > 3.5;
+    case 'under35':
+      return totalGoals < 3.5;
+    
+    // İlk Yarı Alt/Üst (İY)
+    case 'ht_over15':
+    case 'iy_over15':
+      return htTotalGoals > 1.5;
+    case 'ht_under15':
+    case 'iy_under15':
+      return htTotalGoals < 1.5;
+    case 'ht_over05':
+    case 'iy_over05':
+      return htTotalGoals > 0.5;
+    case 'ht_under05':
+    case 'iy_under05':
+      return htTotalGoals < 0.5;
+    
+    // Karşılıklı Gol
     case 'btts':
       return homeScore > 0 && awayScore > 0;
+    case 'btts_no':
+      return homeScore === 0 || awayScore === 0;
+    
     default:
+      console.warn(`[checkPrediction] Bilinmeyen tahmin tipi: ${prediction.type}`);
       return false;
   }
 }

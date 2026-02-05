@@ -1,29 +1,29 @@
 /**
  * Günlük Maç Önizleme API
- * Her sabah 10:00'da bugünün öne çıkan maçlarını tweetler
+ * Tüm günün maçlarını istatistiklerle tweetler (thread olarak)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDailyMatches } from '@/lib/api-football/daily-matches';
-import { sendTweet } from '@/lib/bot/twitter';
+import { sendTweet, sendReplyTweet } from '@/lib/bot/twitter';
 import { isTop20League } from '@/config/league-priorities';
 import { fetchRealOdds } from '@/lib/api-football/odds';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 120; // Tüm maçlar için daha uzun süre
 
 // Lig öncelik sıralaması
 const LEAGUE_PRIORITY: Record<number, number> = {
   203: 1,   // Süper Lig
-  39: 2,    // Premier League
-  140: 3,   // La Liga
-  135: 4,   // Serie A
-  78: 5,    // Bundesliga
-  61: 6,    // Ligue 1
-  2: 7,     // Champions League
-  3: 8,     // Europa League
-  848: 9,   // Conference League
-  206: 10,  // Türkiye Kupası
+  206: 2,   // Türkiye Kupası
+  39: 3,    // Premier League
+  140: 4,   // La Liga
+  135: 5,   // Serie A
+  78: 6,    // Bundesliga
+  61: 7,    // Ligue 1
+  2: 8,     // Champions League
+  3: 9,     // Europa League
+  848: 10,  // Conference League
 };
 
 interface MatchPreview {
@@ -60,9 +60,10 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => {
         const priorityA = LEAGUE_PRIORITY[a.league.id] || 99;
         const priorityB = LEAGUE_PRIORITY[b.league.id] || 99;
-        return priorityA - priorityB;
-      })
-      .slice(0, 5); // En önemli 5 maç
+        if (priorityA !== priorityB) return priorityA - priorityB;
+        // Aynı lig içinde saate göre sırala
+        return a.time.localeCompare(b.time);
+      });
     
     if (topMatches.length === 0) {
       return NextResponse.json({
@@ -71,10 +72,10 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    // Her maç için önizleme oluştur
+    // TÜM maçlar için önizleme oluştur
     const previews: MatchPreview[] = [];
     
-    for (const match of topMatches.slice(0, 3)) { // Tweet'e 3 maç sığar
+    for (const match of topMatches) {
       // Gerçek oranları çek
       const odds = await fetchRealOdds(match.id);
       
@@ -86,8 +87,19 @@ export async function GET(request: NextRequest) {
       // BTTS oranlarına bak
       const bttsOdds = odds.find(o => o.betType === 'btts');
       const over25Odds = odds.find(o => o.betType === 'over25');
+      const homeOdds = odds.find(o => o.betType === 'home');
+      const awayOdds = odds.find(o => o.betType === 'away');
       
-      if (bttsOdds && bttsOdds.odds < 1.90) {
+      // En iyi value'yu seç
+      if (homeOdds && homeOdds.odds <= 1.40) {
+        pick = 'MS 1';
+        oddValue = homeOdds.odds;
+        insight = 'Ev sahibi favori';
+      } else if (awayOdds && awayOdds.odds <= 1.40) {
+        pick = 'MS 2';
+        oddValue = awayOdds.odds;
+        insight = 'Deplasman favori';
+      } else if (bttsOdds && bttsOdds.odds < 1.90) {
         pick = 'KG Var';
         oddValue = bttsOdds.odds;
         insight = 'İki takım da gol atıyor';
@@ -109,24 +121,48 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    // Tweet formatla
-    const tweetText = formatDailyPreviewTweet(previews, matches.length);
+    // Tweet'leri oluştur - her tweet'e 4 maç sığar
+    const tweets = formatDailyPreviewThreads(previews);
     
-    // Tweet at
+    // Tweet at (thread olarak)
+    let mainTweetId: string | undefined;
+    const tweetIds: string[] = [];
+    
     if (!isTestMode) {
       if (useMock) {
-        console.log('[DailyPreview] MOCK Tweet:\n', tweetText);
+        console.log('[DailyPreview] MOCK Thread:');
+        tweets.forEach((t, i) => console.log(`Tweet ${i + 1}:\n${t}\n`));
       } else {
-        await sendTweet(tweetText);
+        // Ana tweet'i at
+        const mainResult = await sendTweet(tweets[0]);
+        mainTweetId = mainResult.tweetId;
+        if (mainTweetId) tweetIds.push(mainTweetId);
+        
+        // Diğer tweet'leri reply olarak at
+        let lastTweetId = mainTweetId;
+        for (let i = 1; i < tweets.length; i++) {
+          if (lastTweetId) {
+            const replyResult = await sendReplyTweet(tweets[i], lastTweetId);
+            if (replyResult.tweetId) {
+              tweetIds.push(replyResult.tweetId);
+              lastTweetId = replyResult.tweetId;
+            }
+          }
+          // Rate limit için kısa bekle
+          await new Promise(r => setTimeout(r, 1000));
+        }
       }
     }
     
     return NextResponse.json({
       success: true,
-      message: isTestMode ? 'Test modu - tweet atılmadı' : 'Günlük önizleme tweeti atıldı',
-      tweet: tweetText,
-      matchCount: matches.length,
+      message: isTestMode ? 'Test modu - tweet atılmadı' : `${tweets.length} tweet atıldı (thread)`,
+      tweets,
+      tweetCount: tweets.length,
+      matchCount: previews.length,
+      totalMatches: matches.length,
       previews,
+      tweetIds,
     });
     
   } catch (error) {
@@ -138,29 +174,51 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function formatDailyPreviewTweet(previews: MatchPreview[], totalMatches: number): string {
-  const lines: string[] = [];
-  
-  // Başlık
+function formatDailyPreviewThreads(previews: MatchPreview[]): string[] {
+  const tweets: string[] = [];
   const today = new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
-  lines.push(`📅 ${today} - GÜNÜN MAÇLARI`);
-  lines.push('');
   
-  // Her maç için
-  previews.forEach((p, i) => {
-    const home = p.homeTeam.length > 12 ? p.homeTeam.substring(0, 11) + '.' : p.homeTeam;
-    const away = p.awayTeam.length > 12 ? p.awayTeam.substring(0, 11) + '.' : p.awayTeam;
+  // Ana tweet - özet
+  const mainTweet = `📅 ${today} - GÜNÜN MAÇLARI
+
+📊 Toplam ${previews.length} maç analiz edildi!
+
+🎯 Her maç için tahminler aşağıda 👇
+
+#bahis #iddaa #futbol #tahmin`;
+  tweets.push(mainTweet);
+  
+  // Liglere göre grupla
+  const byLeague: Record<string, MatchPreview[]> = {};
+  for (const p of previews) {
+    if (!byLeague[p.league]) byLeague[p.league] = [];
+    byLeague[p.league].push(p);
+  }
+  
+  // Her lig için ayrı tweet
+  for (const [league, matches] of Object.entries(byLeague)) {
+    let tweetText = `🏆 ${league}\n\n`;
     
-    lines.push(`${i + 1}. ${home} vs ${away}`);
-    lines.push(`⏰ ${p.time} | ${p.league}`);
-    lines.push(`🎯 ${p.pick} @${p.odds.toFixed(2)}`);
-    if (i < previews.length - 1) lines.push('');
-  });
+    for (const m of matches) {
+      const home = m.homeTeam.length > 12 ? m.homeTeam.substring(0, 11) + '.' : m.homeTeam;
+      const away = m.awayTeam.length > 12 ? m.awayTeam.substring(0, 11) + '.' : m.awayTeam;
+      
+      tweetText += `⚽ ${home} vs ${away}\n`;
+      tweetText += `⏰ ${m.time} | 🎯 ${m.pick} @${m.odds.toFixed(2)}\n`;
+      
+      // Karakter limiti kontrolü (280)
+      if (tweetText.length > 250 && matches.indexOf(m) < matches.length - 1) {
+        tweets.push(tweetText.trim());
+        tweetText = `🏆 ${league} (devam)\n\n`;
+      } else {
+        tweetText += '\n';
+      }
+    }
+    
+    if (tweetText.trim().length > 20) {
+      tweets.push(tweetText.trim());
+    }
+  }
   
-  lines.push('');
-  lines.push(`📊 Toplam ${totalMatches} maç var bugün!`);
-  lines.push('');
-  lines.push('#bahis #iddaa #futbol #tahmin');
-  
-  return lines.join('\n');
+  return tweets;
 }

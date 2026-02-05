@@ -678,6 +678,39 @@ export async function sendTweet(
 }
 
 /**
+ * Reply tweet gönderir (thread için)
+ */
+export async function sendReplyTweet(
+  text: string,
+  replyToTweetId: string
+): Promise<TweetResponse> {
+  const client = getAuthenticatedClient();
+  
+  if (!client) {
+    return { success: false, error: 'Twitter client oluşturulamadı - Access Token eksik' };
+  }
+  
+  try {
+    const tweet = await client.v2.tweet({
+      text,
+      reply: {
+        in_reply_to_tweet_id: replyToTweetId,
+      },
+    });
+    
+    console.log('[Twitter] Reply tweet gönderildi:', tweet.data.id);
+    
+    return { success: true, tweetId: tweet.data.id };
+  } catch (error) {
+    console.error('[Twitter] Reply tweet gönderilemedi:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Bilinmeyen hata' 
+    };
+  }
+}
+
+/**
  * Yeni kupon tweeti gönderir
  */
 export async function tweetNewCoupon(

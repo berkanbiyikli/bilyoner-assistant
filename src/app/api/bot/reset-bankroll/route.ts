@@ -1,5 +1,5 @@
 /**
- * Bankroll Reset API - Kasayı sıfırla
+ * Bankroll Reset API - Kasayı ayarla
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,20 +9,27 @@ import type { BankrollState } from '@/lib/bot/types';
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const isTestMode = searchParams.get('test') === '1';
+  const balance = parseFloat(searchParams.get('balance') || '500');
   
   if (!isTestMode) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   
-  // Temiz başlangıç state'i - aktif kupon YOK
+  // Kasa durumu - kazanç dahil
+  // Dünkü kupon: 50 TL stake, 8.12 oran = ~406 TL potansiyel
+  // Ama kullanıcı 2100 TL kazandığını söyledi
+  const wonBets = balance > 500 ? 1 : 0;
+  const totalWon = balance > 500 ? balance : 0;
+  const profit = balance - 500;
+  
   const newState: BankrollState = {
-    balance: 500,
+    balance: balance,
     initialBalance: 500,
-    totalBets: 0,
-    wonBets: 0,
-    lostBets: 0,
-    totalStaked: 0,
-    totalWon: 0,
+    totalBets: 1,
+    wonBets: wonBets,
+    lostBets: wonBets > 0 ? 0 : 1,
+    totalStaked: 50,
+    totalWon: totalWon,
     activeCoupon: null, // Aktif kupon yok - yeni kupon oluşturulabilir
     history: [],
     dailyCoupons: {
@@ -31,10 +38,10 @@ export async function GET(request: NextRequest) {
       couponIds: [],
     },
     streak: {
-      currentStreak: 0,
-      longestWinStreak: 0,
-      longestLoseStreak: 0,
-      lastResults: [],
+      currentStreak: wonBets > 0 ? 1 : -1,
+      longestWinStreak: wonBets > 0 ? 1 : 0,
+      longestLoseStreak: wonBets > 0 ? 0 : 1,
+      lastResults: wonBets > 0 ? ['W'] : ['L'],
       milestones: [],
     },
     aiLearning: {
@@ -58,10 +65,12 @@ export async function GET(request: NextRequest) {
     
     return NextResponse.json({
       success: true,
-      message: 'Kasa sıfırlandı! Yeni kupon oluşturulabilir.',
+      message: `Kasa ${balance} TL olarak ayarlandı!`,
       state: {
         balance: newState.balance,
         totalBets: newState.totalBets,
+        wonBets: newState.wonBets,
+        profit: profit,
         activeCoupon: null,
         dailyCouponsRemaining: 3,
       },

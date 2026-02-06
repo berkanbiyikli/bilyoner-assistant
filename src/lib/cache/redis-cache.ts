@@ -19,11 +19,13 @@ let redis: Redis | null = null;
 function getRedis(): Redis | null {
   if (redis) return redis;
   
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Vercel KV (Upstash) veya doğrudan Upstash env var'larını kontrol et
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
   
   if (!url || !token) {
     // Redis yoksa sessizce null dön (fallback to memory cache)
+    console.warn('[Redis] UYARI: Redis bağlantı bilgileri bulunamadı! KV_REST_API_URL/KV_REST_API_TOKEN veya UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN tanımlı olmalı.');
     return null;
   }
   

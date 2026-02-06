@@ -1,9 +1,5 @@
 ﻿'use client';
 
-/**
- * Match Card - Clean minimal design
- */
-
 import Image from 'next/image';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,80 +20,114 @@ export function MatchCard({ fixture, onClick, selected }: MatchCardProps) {
   const { status, homeTeam, awayTeam, score, league, time } = fixture;
 
   return (
-    <Card 
+    <div 
       className={cn(
-        'cursor-pointer transition-all duration-200 hover:bg-muted/50 border-border/60',
+        'card-premium rounded-xl cursor-pointer group',
         selected && 'ring-2 ring-primary',
-        status.isLive && 'border-l-2 border-l-red-500'
+        status.isLive && 'match-live'
       )}
       onClick={onClick}
     >
-      <CardContent className="p-3 sm:p-4">
-        {/* League */}
-        <div className="flex items-center gap-1.5 mb-2.5 text-[11px] text-muted-foreground">
-          {league.logo && (
-            <Image 
-              src={league.logo} 
-              alt={league.name}
-              width={14}
-              height={14}
-              className="object-contain"
-            />
-          )}
-          <span className="truncate">{league.country} - {league.name}</span>
-        </div>
-
-        {/* Teams & Score */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              {homeTeam.logo && (
-                <Image src={homeTeam.logo} alt={homeTeam.name} width={20} height={20} className="object-contain shrink-0" />
-              )}
-              <span className="font-medium text-sm truncate">{homeTeam.name}</span>
-            </div>
-            <span className="font-bold text-base w-6 text-center tabular-nums">{score.home ?? '-'}</span>
+      <div className="p-4">
+        {/* League bar */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {league.logo && (
+              <Image src={league.logo} alt={league.name} width={16} height={16} className="object-contain" />
+            )}
+            <span className="font-medium truncate">{league.country} - {league.name}</span>
           </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              {awayTeam.logo && (
-                <Image src={awayTeam.logo} alt={awayTeam.name} width={20} height={20} className="object-contain shrink-0" />
-              )}
-              <span className="font-medium text-sm truncate">{awayTeam.name}</span>
-            </div>
-            <span className="font-bold text-base w-6 text-center tabular-nums">{score.away ?? '-'}</span>
-          </div>
-        </div>
-
-        {/* Status */}
-        <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-border/50">
           <MatchStatusBadge status={status} />
-          {status.isUpcoming && <span className="text-xs font-medium text-muted-foreground">{time}</span>}
-          {status.isLive && status.elapsed && (
-            <span className="text-xs text-red-500 font-semibold animate-pulse-live">{status.elapsed}&apos;</span>
-          )}
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Teams & Score - Centered layout */}
+        <div className="flex items-center justify-between gap-3">
+          {/* Home */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2.5">
+              {homeTeam.logo && (
+                <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors">
+                  <Image src={homeTeam.logo} alt={homeTeam.name} width={28} height={28} className="object-contain" />
+                </div>
+              )}
+              <span className="font-bold text-sm truncate">{homeTeam.name}</span>
+            </div>
+          </div>
+
+          {/* Score */}
+          <div className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-xl shrink-0',
+            status.isLive 
+              ? 'bg-red-500/10 border border-red-500/20' 
+              : status.isFinished 
+                ? 'bg-muted/50' 
+                : 'bg-primary/5 border border-primary/10'
+          )}>
+            <span className={cn(
+              'text-2xl font-black tabular-nums',
+              status.isLive && 'text-red-500 score-glow'
+            )}>
+              {score.home ?? '-'}
+            </span>
+            <span className="text-muted-foreground font-light">:</span>
+            <span className={cn(
+              'text-2xl font-black tabular-nums',
+              status.isLive && 'text-red-500 score-glow'
+            )}>
+              {score.away ?? '-'}
+            </span>
+          </div>
+
+          {/* Away */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2.5 justify-end">
+              <span className="font-bold text-sm truncate text-right">{awayTeam.name}</span>
+              {awayTeam.logo && (
+                <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors">
+                  <Image src={awayTeam.logo} alt={awayTeam.name} width={28} height={28} className="object-contain" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/30">
+          {status.isUpcoming && (
+            <span className="text-xs font-bold text-primary">{time}</span>
+          )}
+          {status.isLive && status.elapsed && (
+            <span className="flex items-center gap-1.5 text-xs font-bold text-red-500">
+              <span className="live-dot" />
+              {status.elapsed}&apos;
+            </span>
+          )}
+          {status.isFinished && (
+            <span className="text-xs font-medium text-muted-foreground">Bitti</span>
+          )}
+          <ChevronRight className="h-4 w-4 text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+        </div>
+      </div>
+    </div>
   );
 }
 
 function MatchStatusBadge({ status }: { status: ProcessedFixture['status'] }) {
   if (status.isLive) {
     return (
-      <Badge className="bg-red-500/10 text-red-500 border-0 text-[10px] font-semibold px-1.5 py-0.5">
-        CANLI
-      </Badge>
+      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/20">
+        <span className="live-dot !w-[6px] !h-[6px]" />
+        <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Canli</span>
+      </span>
     );
   }
   if (status.isFinished) {
-    return <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5">Bitti</Badge>;
+    return <Badge variant="secondary" className="text-[10px] font-semibold rounded-lg">Bitti</Badge>;
   }
   if (status.isUpcoming) {
-    return <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 border-border/50">Baslamadi</Badge>;
+    return <Badge variant="outline" className="text-[10px] font-semibold rounded-lg border-primary/20 text-primary">Baslamadi</Badge>;
   }
-  return <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5">{status.code}</Badge>;
+  return <Badge variant="destructive" className="text-[10px] rounded-lg">{status.code}</Badge>;
 }
 
 export function MatchCardCompact({ fixture, onClick, selected }: MatchCardProps) {
@@ -106,47 +136,47 @@ export function MatchCardCompact({ fixture, onClick, selected }: MatchCardProps)
   const content = (
     <div 
       className={cn(
-        'flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors hover:bg-muted/50',
-        status.isLive && 'bg-red-500/5',
-        selected && 'bg-primary/5'
+        'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all rounded-xl hover:bg-muted/50 group',
+        status.isLive && 'bg-red-500/5 hover:bg-red-500/10',
+        selected && 'bg-primary/5 ring-1 ring-primary/20'
       )}
       onClick={onClick}
     >
       {/* Time / Minute */}
-      <div className="w-12 text-center shrink-0">
+      <div className="w-14 text-center shrink-0">
         {status.isLive ? (
-          <div className="flex items-center justify-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-xs text-red-500 font-bold">{status.elapsed}&apos;</span>
+          <div className="flex items-center justify-center gap-1.5">
+            <span className="live-dot !w-[5px] !h-[5px]" />
+            <span className="text-xs text-red-500 font-black">{status.elapsed}&apos;</span>
           </div>
         ) : status.isFinished ? (
-          <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">MS</span>
+          <span className="text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-md">MS</span>
         ) : (
-          <span className="text-xs font-semibold">{time}</span>
+          <span className="text-xs font-black text-primary">{time}</span>
         )}
       </div>
 
       {/* Home */}
-      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+      <div className="flex items-center gap-2 flex-1 min-w-0">
         {homeTeam.logo && (
-          <Image src={homeTeam.logo} alt={homeTeam.name} width={20} height={20} className="object-contain shrink-0" />
+          <Image src={homeTeam.logo} alt={homeTeam.name} width={22} height={22} className="object-contain shrink-0" />
         )}
-        <span className="truncate text-sm font-medium">{homeTeam.name}</span>
+        <span className="truncate text-sm font-semibold">{homeTeam.name}</span>
       </div>
 
       {/* Score */}
       <div className={cn(
-        'font-bold text-center px-2 py-0.5 rounded-md shrink-0 min-w-[48px] text-sm tabular-nums',
-        status.isLive ? 'bg-red-500 text-white' : status.isFinished ? 'bg-muted' : 'bg-muted/50'
+        'font-black text-center px-3 py-1 rounded-lg shrink-0 min-w-[52px] text-sm tabular-nums',
+        status.isLive ? 'bg-red-500 text-white shadow-lg shadow-red-500/25' : status.isFinished ? 'bg-muted' : 'bg-primary/10 text-primary'
       )}>
         {score.home ?? '-'} : {score.away ?? '-'}
       </div>
 
       {/* Away */}
-      <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
-        <span className="truncate text-sm font-medium text-right">{awayTeam.name}</span>
+      <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+        <span className="truncate text-sm font-semibold text-right">{awayTeam.name}</span>
         {awayTeam.logo && (
-          <Image src={awayTeam.logo} alt={awayTeam.name} width={20} height={20} className="object-contain shrink-0" />
+          <Image src={awayTeam.logo} alt={awayTeam.name} width={22} height={22} className="object-contain shrink-0" />
         )}
       </div>
       
@@ -162,7 +192,7 @@ export function MatchCardCompact({ fixture, onClick, selected }: MatchCardProps)
         }}
         size="sm"
       />
-      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      <ChevronRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
     </div>
   );
 

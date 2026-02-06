@@ -39,45 +39,45 @@ function LiveMatchCard({ fixture, isSelected, onSelect }: LiveMatchCardProps) {
   return (
     <div 
       className={cn(
-        'p-3 rounded-lg cursor-pointer transition-all border',
+        'p-3.5 rounded-xl cursor-pointer transition-all border card-premium',
         isSelected 
-          ? 'border-primary bg-primary/5 shadow-sm' 
-          : 'border-border/50 hover:border-border hover:bg-muted/30',
-        !isHT && !isSelected && 'animate-pulse-subtle'
+          ? 'border-primary/30 bg-primary/5 shadow-md shadow-primary/10' 
+          : 'border-border/30 hover:border-primary/20 hover:bg-primary/5',
+        !isHT && isSelected && 'match-live'
       )}
       onClick={onSelect}
     >
       {/* League + Time */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
           {fixture.league.logo && (
-            <Image src={fixture.league.logo} alt={fixture.league.name} width={14} height={14} className="object-contain" />
+            <Image src={fixture.league.logo} alt={fixture.league.name} width={16} height={16} className="object-contain" />
           )}
-          <span className="truncate">{fixture.league.name}</span>
+          <span className="truncate font-medium">{fixture.league.name}</span>
         </div>
-        <span className="inline-flex items-center gap-1 text-red-500 text-[10px] font-bold">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+        <span className="inline-flex items-center gap-1.5 text-red-500 text-[10px] font-bold bg-red-500/10 px-2 py-0.5 rounded-lg">
+          <span className="live-dot" />
           {isHT ? 'DA' : fixture.status.elapsed + "'"}
         </span>
       </div>
 
       {/* Teams & Score */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
           {fixture.homeTeam.logo && (
-            <Image src={fixture.homeTeam.logo} alt={fixture.homeTeam.name} width={24} height={24} className="object-contain shrink-0" />
+            <Image src={fixture.homeTeam.logo} alt={fixture.homeTeam.name} width={28} height={28} className="object-contain shrink-0" />
           )}
-          <span className="font-medium text-sm truncate">{fixture.homeTeam.name}</span>
+          <span className="font-semibold text-sm truncate">{fixture.homeTeam.name}</span>
         </div>
-        <div className="flex items-center gap-1.5 px-3 shrink-0">
-          <span className="text-xl font-bold tabular-nums">{fixture.score.home ?? 0}</span>
-          <span className="text-muted-foreground text-sm">-</span>
-          <span className="text-xl font-bold tabular-nums">{fixture.score.away ?? 0}</span>
+        <div className="flex items-center gap-2 px-4 shrink-0">
+          <span className="text-2xl font-bold tabular-nums score-glow">{fixture.score.home ?? 0}</span>
+          <span className="text-muted-foreground text-lg font-light">:</span>
+          <span className="text-2xl font-bold tabular-nums score-glow">{fixture.score.away ?? 0}</span>
         </div>
-        <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
-          <span className="font-medium text-sm truncate text-right">{fixture.awayTeam.name}</span>
+        <div className="flex items-center gap-2.5 flex-1 min-w-0 justify-end">
+          <span className="font-semibold text-sm truncate text-right">{fixture.awayTeam.name}</span>
           {fixture.awayTeam.logo && (
-            <Image src={fixture.awayTeam.logo} alt={fixture.awayTeam.name} width={24} height={24} className="object-contain shrink-0" />
+            <Image src={fixture.awayTeam.logo} alt={fixture.awayTeam.name} width={28} height={28} className="object-contain shrink-0" />
           )}
         </div>
       </div>
@@ -113,17 +113,17 @@ function StatsPanel({ fixture }: { fixture: ProcessedFixture }) {
   }
 
   return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
+    <Card className="card-premium overflow-hidden">
+      <CardContent className="p-4 space-y-3.5">
         {/* Team headers */}
-        <div className="flex justify-between text-xs font-medium pb-2 border-b border-border/50">
-          <span className="flex items-center gap-1.5">
-            {fixture.homeTeam.logo && <Image src={fixture.homeTeam.logo} alt="" width={16} height={16} />}
+        <div className="flex justify-between text-xs font-semibold pb-2.5 border-b border-primary/10">
+          <span className="flex items-center gap-2">
+            {fixture.homeTeam.logo && <Image src={fixture.homeTeam.logo} alt="" width={18} height={18} />}
             {fixture.homeTeam.name}
           </span>
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-2">
             {fixture.awayTeam.name}
-            {fixture.awayTeam.logo && <Image src={fixture.awayTeam.logo} alt="" width={16} height={16} />}
+            {fixture.awayTeam.logo && <Image src={fixture.awayTeam.logo} alt="" width={18} height={18} />}
           </span>
         </div>
 
@@ -177,13 +177,13 @@ function StatRow({ label, homeValue, awayValue, suffix = '', isPercentage, highl
           {awayValue}{suffix}
         </span>
       </div>
-      <div className="flex h-1.5 rounded-full overflow-hidden bg-muted/50">
+      <div className="flex h-2 rounded-full overflow-hidden bg-muted/30">
         <div 
-          className={cn('transition-all duration-500 rounded-full', highlight ? 'bg-green-500' : 'bg-primary')}
+          className={cn('transition-all duration-500 rounded-full', highlight ? 'bg-emerald-500' : 'bg-primary')}
           style={{ width: (isPercentage ? homeValue : homePercent) + '%' }}
         />
         <div 
-          className={cn('transition-all', highlight ? 'bg-green-500/40' : 'bg-primary/40')}
+          className={cn('transition-all rounded-full', highlight ? 'bg-emerald-500/30' : 'bg-primary/30')}
           style={{ width: (isPercentage ? awayValue : 100 - homePercent) + '%' }}
         />
       </div>
@@ -261,17 +261,17 @@ export default function LiveMatchesPage() {
   return (
     <div className="min-h-screen pb-20 md:pb-0">
       {/* Header */}
-      <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-md border-b border-border">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between h-12">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 text-red-500">
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="font-semibold text-sm">Canli</span>
-              </span>
-              <span className="text-xs text-muted-foreground">{liveMatches.length} mac</span>
+      <div className="hero-gradient text-white">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div className="live-dot" />
+                <span className="font-bold text-lg">Canli Maclar</span>
+              </div>
+              <span className="text-white/70 text-sm font-medium bg-white/10 px-2.5 py-0.5 rounded-lg">{liveMatches.length} mac</span>
               {goldenChanceCount > 0 && (
-                <span className="text-[10px] font-bold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded animate-pulse">
+                <span className="text-[11px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-lg animate-pulse">
                   {goldenChanceCount} firsat
                 </span>
               )}
@@ -279,9 +279,9 @@ export default function LiveMatchesPage() {
             <button
               onClick={() => refetch()}
               disabled={isFetching}
-              className="p-1.5 rounded-md hover:bg-muted transition-colors disabled:opacity-50"
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={cn('h-3.5 w-3.5 text-muted-foreground', isFetching && 'animate-spin text-primary')} />
+              <RefreshCw className={cn('h-4 w-4 text-white/80', isFetching && 'animate-spin')} />
             </button>
           </div>
         </div>
@@ -294,11 +294,11 @@ export default function LiveMatchesPage() {
           </div>
         ) : liveMatches.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
-              <Clock className="h-6 w-6 text-muted-foreground" />
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-violet-500/20 flex items-center justify-center mb-4">
+              <Clock className="h-7 w-7 text-primary" />
             </div>
-            <h2 className="font-semibold mb-1">Su an canli mac yok</h2>
-            <p className="text-sm text-muted-foreground mb-4">Top 20 liglerden canli mac basladiginda burada gorunecek</p>
+            <h2 className="font-bold text-lg mb-1">Su an canli mac yok</h2>
+            <p className="text-sm text-muted-foreground mb-5">Top 20 liglerden canli mac basladiginda burada gorunecek</p>
             <Link href="/">
               <Button variant="outline" size="sm" className="rounded-lg gap-1.5">
                 <ArrowLeft className="h-3.5 w-3.5" />
@@ -309,20 +309,20 @@ export default function LiveMatchesPage() {
         ) : (
           <div className="space-y-4">
             {/* Tabs */}
-            <div className="flex gap-1">
+            <div className="flex gap-1.5 p-1 rounded-xl bg-muted/30 border border-border/30">
               <button
                 onClick={() => setActiveTab('hunter')}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                  'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all',
                   activeTab === 'hunter'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-muted'
+                    ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+                    : 'text-muted-foreground hover:bg-muted/50'
                 )}
               >
                 <Target className="h-3.5 w-3.5" />
                 Avci Modu
                 {goldenChanceCount > 0 && (
-                  <span className="h-4 min-w-4 flex items-center justify-center rounded-full bg-amber-500 text-white text-[9px] font-bold px-1">
+                  <span className="h-4.5 min-w-4.5 flex items-center justify-center rounded-full bg-amber-500 text-white text-[9px] font-bold px-1">
                     {goldenChanceCount}
                   </span>
                 )}
@@ -330,10 +330,10 @@ export default function LiveMatchesPage() {
               <button
                 onClick={() => setActiveTab('matches')}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                  'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all',
                   activeTab === 'matches'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-muted'
+                    ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+                    : 'text-muted-foreground hover:bg-muted/50'
                 )}
               >
                 <Activity className="h-3.5 w-3.5" />

@@ -30,9 +30,9 @@ const SYSTEM_TYPES: { value: SystemType; label: string; minSelections: number }[
 ];
 
 const CATEGORY_BORDER: Record<string, string> = {
-  banko: 'border-l-green-500',
+  banko: 'border-l-emerald-500',
   value: 'border-l-blue-500',
-  surprise: 'border-l-purple-500',
+  surprise: 'border-l-violet-500',
 };
 
 export function CouponSidebar() {
@@ -59,12 +59,14 @@ export function CouponSidebar() {
 
   if (count === 0) {
     return (
-      <Card className="h-full border-dashed">
+      <Card className="h-full border-dashed border-primary/20">
         <CardContent className="flex flex-col items-center justify-center h-full p-6 text-center">
-          <ShoppingCart className="h-10 w-10 text-muted-foreground/20 mb-3" />
-          <p className="font-medium text-sm text-muted-foreground mb-1">Kuponunuz Bos</p>
-          <p className="text-xs text-muted-foreground/70">
-            Oneri kartlarindan <span className="font-medium">+</span> butonuna tiklayarak bahis ekleyin
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/10 to-violet-500/10 flex items-center justify-center mb-4">
+            <ShoppingCart className="h-6 w-6 text-primary/30" />
+          </div>
+          <p className="font-semibold text-sm text-muted-foreground mb-1">Kuponunuz Bos</p>
+          <p className="text-xs text-muted-foreground/60">
+            Oneri kartlarindan <span className="font-bold text-primary">+</span> butonuna tiklayarak bahis ekleyin
           </p>
         </CardContent>
       </Card>
@@ -72,14 +74,16 @@ export function CouponSidebar() {
   }
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="h-full flex flex-col card-premium">
       {/* Header */}
       <CardHeader className="pb-2 px-3 pt-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Ticket className="h-3.5 w-3.5 text-primary" />
-            <span className="font-semibold text-sm">Kupon</span>
-            <span className="text-xs text-muted-foreground">{count}</span>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg gradient-primary flex items-center justify-center">
+              <Ticket className="h-3 w-3 text-white" />
+            </div>
+            <span className="font-bold text-sm">Kupon</span>
+            <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-lg">{count}</span>
           </div>
           <div className="flex items-center gap-0.5">
             <button onClick={handleCopy} className="p-1.5 rounded-md hover:bg-muted transition-colors">
@@ -101,20 +105,20 @@ export function CouponSidebar() {
             <div
               key={selection.id}
               className={cn(
-                'p-2 rounded-lg border border-l-2 border-border/50 text-xs',
+                'p-2.5 rounded-xl border border-l-2 border-border/30 text-xs hover:bg-primary/5 transition-colors',
                 CATEGORY_BORDER[selection.category]
               )}
             >
               <div className="flex items-start justify-between gap-1">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-0.5">
-                    <span>{selection.time}</span>
-                    <span></span>
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-0.5">
+                    <span className="font-medium">{selection.time}</span>
+                    <span>·</span>
                     <span className="truncate">{selection.league}</span>
                   </div>
-                  <p className="font-medium truncate">{selection.homeTeam} - {selection.awayTeam}</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="font-semibold">{selection.pick}</span>
+                  <p className="font-semibold truncate">{selection.homeTeam} - {selection.awayTeam}</p>
+                  <div className="flex items-center justify-between mt-1.5">
+                    <span className="font-semibold text-primary/80">{selection.pick}</span>
                     <span className="font-mono font-bold text-primary tabular-nums">{selection.odds.toFixed(2)}</span>
                   </div>
                 </div>
@@ -132,16 +136,16 @@ export function CouponSidebar() {
       {/* Footer */}
       <div className="p-3 space-y-2.5">
         {/* System types */}
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1.5">
           {availableSystemTypes.map((sys) => (
             <button
               key={sys.value}
               onClick={() => setSystemType(sys.value)}
               className={cn(
-                'px-2 py-0.5 rounded text-[11px] font-medium transition-colors',
+                'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all',
                 systemType === sys.value 
-                  ? 'bg-primary text-primary-foreground' 
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  ? 'gradient-primary text-white shadow-sm shadow-primary/20' 
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted'
               )}
             >
               {sys.label}
@@ -171,7 +175,7 @@ export function CouponSidebar() {
         </div>
 
         {/* Summary */}
-        <div className="p-2 rounded-lg bg-muted/30 space-y-1 text-xs">
+        <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/8 to-violet-500/5 border border-primary/10 space-y-1.5 text-xs">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Kombinasyon</span>
             <span className="font-medium">{result.totalCombinations}</span>
@@ -189,12 +193,12 @@ export function CouponSidebar() {
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Kazanc</span>
-            <span className="font-bold text-primary">{result.potentialWin.toFixed(2)} TL</span>
+            <span className="font-bold gradient-text text-base">{result.potentialWin.toFixed(2)} TL</span>
           </div>
         </div>
 
         {/* CTA */}
-        <button className="w-full flex items-center justify-center gap-1.5 h-8 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors">
+        <button className="w-full flex items-center justify-center gap-2 h-9 rounded-xl gradient-primary text-white text-xs font-semibold shadow-sm shadow-primary/20 hover:opacity-90 transition-opacity">
           <Sparkles className="h-3.5 w-3.5" />
           Kuponu Onayla
         </button>

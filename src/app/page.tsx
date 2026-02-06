@@ -1,9 +1,4 @@
-﻿/**
- * Anasayfa - Temiz, modern tasarim
- * Tarih secimi + Tab navigasyon + Mac listesi
- */
-
-'use client';
+﻿'use client';
 
 import { useState, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
@@ -21,27 +16,18 @@ import { useLeagueStore, usePinnedLeagues } from '@/lib/favorites/league-store';
 import { TOP_20_LEAGUES, getLeaguePriority } from '@/config/league-priorities';
 import type { DailyMatchFixture, BetSuggestion } from '@/types/api-football';
 import { 
-  Calendar, 
-  Star, 
-  Filter,
-  ChevronLeft,
-  ChevronRight,
-  RefreshCw,
-  Zap,
-  Target,
-  Ticket,
-  TrendingUp,
-  X,
-  SlidersHorizontal
+  Calendar, Star, Filter, ChevronLeft, ChevronRight, RefreshCw,
+  Zap, Target, Ticket, TrendingUp, X, SlidersHorizontal,
+  Trophy, Activity, Flame
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type TabKey = 'opportunities' | 'matches' | 'coupons';
 
-const TABS: { key: TabKey; label: string; icon: typeof Zap }[] = [
-  { key: 'opportunities', label: 'Oneriler', icon: TrendingUp },
-  { key: 'matches', label: 'Maclar', icon: Zap },
-  { key: 'coupons', label: 'Kuponlar', icon: Ticket },
+const TABS: { key: TabKey; label: string; icon: typeof Zap; desc: string }[] = [
+  { key: 'opportunities', label: 'Oneriler', icon: Flame, desc: 'AI tahminleri' },
+  { key: 'matches', label: 'Maclar', icon: Trophy, desc: 'Tum maclar' },
+  { key: 'coupons', label: 'Kuponlar', icon: Ticket, desc: 'Hazir kuponlar' },
 ];
 
 export default function HomePage() {
@@ -167,110 +153,118 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen pb-20 md:pb-0">
-      {/* ===== Sticky Date Bar & Tabs ===== */}
-      <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-md border-b border-border">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          {/* Date Row */}
-          <div className="flex items-center justify-between h-12 gap-3">
-            {/* Date Navigation */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => navigateDate('prev')}
-                className="p-1.5 rounded-md hover:bg-muted transition-colors"
-              >
-                <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+      {/* ===== HERO STATS BAR ===== */}
+      <div className="hero-gradient text-white">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+          <div className="flex items-center justify-between">
+            {/* Date Nav */}
+            <div className="flex items-center gap-2">
+              <button onClick={() => navigateDate('prev')} className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors">
+                <ChevronLeft className="h-4 w-4" />
               </button>
-              
               <button
                 onClick={() => setSelectedDate(new Date())}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-                  isToday 
-                    ? 'bg-primary text-primary-foreground' 
-                    : 'bg-muted hover:bg-muted/80'
+                  'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all',
+                  isToday ? 'bg-white text-indigo-600 shadow-lg' : 'bg-white/15 hover:bg-white/25'
                 )}
               >
-                <Calendar className="h-3.5 w-3.5" />
-                {selectedDate.toLocaleDateString('tr-TR', { 
-                  weekday: 'short', 
-                  day: 'numeric',
-                  month: 'short'
-                })}
+                <Calendar className="h-4 w-4" />
+                {selectedDate.toLocaleDateString('tr-TR', { weekday: 'short', day: 'numeric', month: 'short' })}
               </button>
-              
-              <button
-                onClick={() => navigateDate('next')}
-                className="p-1.5 rounded-md hover:bg-muted transition-colors"
-              >
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              <button onClick={() => navigateDate('next')} className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors">
+                <ChevronRight className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Stats + Actions */}
-            <div className="flex items-center gap-2">
-              {data?.stats && (
-                <span className="text-xs text-muted-foreground hidden sm:block">
-                  <span className="font-semibold text-foreground">{data.stats.total}</span> mac
-                </span>
-              )}
+            {/* Stats */}
+            {data?.stats && (
+              <div className="hidden sm:flex items-center gap-6">
+                <div className="text-center">
+                  <div className="text-2xl font-black">{data.stats.total}</div>
+                  <div className="text-[10px] uppercase tracking-wider opacity-80">Mac</div>
+                </div>
+                {data.stats.live > 0 && (
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-red-300 animate-pulse">{data.stats.live}</div>
+                    <div className="text-[10px] uppercase tracking-wider opacity-80">Canli</div>
+                  </div>
+                )}
+                <div className="text-center">
+                  <div className="text-2xl font-black">{data.stats.leagues}</div>
+                  <div className="text-[10px] uppercase tracking-wider opacity-80">Lig</div>
+                </div>
+              </div>
+            )}
 
+            {/* Actions */}
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowFilters(true)}
                 className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
-                  selectedLeagues.length > 0 
-                    ? 'border-primary/30 bg-primary/5 text-primary' 
-                    : 'border-border hover:bg-muted'
+                  'flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all',
+                  selectedLeagues.length > 0
+                    ? 'bg-white text-indigo-600 shadow-lg'
+                    : 'bg-white/15 hover:bg-white/25'
                 )}
               >
-                <SlidersHorizontal className="h-3 w-3" />
+                <SlidersHorizontal className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Filtre</span>
                 {selectedLeagues.length > 0 && (
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold px-1">
+                  <span className="h-5 min-w-5 flex items-center justify-center rounded-full bg-indigo-600 text-white text-[10px] font-bold px-1">
                     {selectedLeagues.length}
                   </span>
                 )}
               </button>
-
               <button
                 onClick={() => refetch()}
                 disabled={isFetching}
-                className="p-1.5 rounded-md hover:bg-muted transition-colors disabled:opacity-50"
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-all disabled:opacity-50"
               >
-                <RefreshCw className={cn('h-3.5 w-3.5 text-muted-foreground', isFetching && 'animate-spin text-primary')} />
+                <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
               </button>
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Tabs */}
-          <div className="flex gap-1 pb-2 -mx-1 overflow-x-auto scrollbar-none">
+      {/* ===== TAB BAR ===== */}
+      <div className="sticky top-16 z-30 glass border-b border-border/50">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="flex gap-2 py-3 overflow-x-auto scrollbar-none">
             {TABS.map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all',
+                  'flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-all',
                   activeTab === tab.key
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                    ? 'gradient-primary text-white shadow-lg shadow-primary/25'
+                    : 'bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted'
                 )}
               >
-                <tab.icon className="h-3.5 w-3.5" />
+                <tab.icon className="h-4 w-4" />
                 {tab.label}
+                <span className={cn(
+                  'text-[10px] font-normal',
+                  activeTab === tab.key ? 'text-white/70' : 'text-muted-foreground/60'
+                )}>
+                  {tab.desc}
+                </span>
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {/* ===== Main Content ===== */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
+      {/* ===== MAIN CONTENT ===== */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
         <div className="flex gap-6">
           {/* Content */}
           <div className="flex-1 min-w-0">
             {/* Loading */}
             {isLoading && (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {[...Array(5)].map((_, i) => (
                   <ExpandedMatchCardSkeleton key={i} />
                 ))}
@@ -279,12 +273,13 @@ export default function HomePage() {
 
             {/* Error */}
             {error && (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
-                  <X className="h-5 w-5 text-destructive" />
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mb-4 shadow-lg">
+                  <X className="h-6 w-6 text-white" />
                 </div>
-                <p className="text-sm text-muted-foreground mb-4">Maclar yuklenirken bir hata olustu</p>
-                <Button onClick={() => refetch()} variant="outline" size="sm" className="rounded-lg">
+                <h3 className="font-bold text-lg mb-2">Bir seyler ters gitti</h3>
+                <p className="text-sm text-muted-foreground mb-6">Maclar yuklenirken bir hata olustu</p>
+                <Button onClick={() => refetch()} className="rounded-xl px-6 gradient-primary text-white border-0 shadow-lg shadow-primary/25">
                   Tekrar Dene
                 </Button>
               </div>
@@ -297,21 +292,23 @@ export default function HomePage() {
 
             {/* Matches */}
             {!isLoading && !error && activeTab === 'matches' && data?.data && (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {sortedMatches.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-4">
-                      <Calendar className="h-5 w-5 text-muted-foreground" />
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-4">
+                      <Calendar className="h-6 w-6 text-muted-foreground" />
                     </div>
-                    <p className="text-sm text-muted-foreground">Bu tarihte mac bulunamadi</p>
+                    <h3 className="font-bold text-lg mb-2">Mac Bulunamadi</h3>
+                    <p className="text-sm text-muted-foreground">Bu tarihte mac yok. Baska bir gun deneyin.</p>
                   </div>
                 ) : (
-                  sortedMatches.map((match) => (
-                    <ExpandedMatchCard 
-                      key={match.id} 
-                      fixture={match}
-                      defaultExpanded={match.status.isLive}
-                    />
+                  sortedMatches.map((match, i) => (
+                    <div key={match.id} className="animate-fade-in" style={{ animationDelay: i < 10 ? i * 50 + 'ms' : '0ms' }}>
+                      <ExpandedMatchCard 
+                        fixture={match}
+                        defaultExpanded={match.status.isLive}
+                      />
+                    </div>
                   ))
                 )}
               </div>
@@ -320,14 +317,16 @@ export default function HomePage() {
             {/* Coupons */}
             {!isLoading && !error && activeTab === 'coupons' && data?.data && (
               <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <Target className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-semibold">Kupon Kategorileri</h2>
-                  <Badge variant="secondary" className="text-[10px] rounded-md">
-                    {data.stats?.total || 0} mac
-                  </Badge>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="gradient-primary p-2 rounded-xl">
+                    <Target className="h-4 w-4 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold">Kupon Kategorileri</h2>
+                    <p className="text-xs text-muted-foreground">{data.stats?.total || 0} mac analiz edildi</p>
+                  </div>
                   {isBatchLoading && (
-                    <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
+                    <RefreshCw className="h-4 w-4 animate-spin text-primary ml-auto" />
                   )}
                 </div>
                 <CouponCategoryTabs 
@@ -341,7 +340,7 @@ export default function HomePage() {
 
           {/* Desktop Sidebar */}
           <aside className="hidden xl:block w-80 shrink-0">
-            <div className="sticky top-32 h-[calc(100vh-150px)]">
+            <div className="sticky top-36 h-[calc(100vh-160px)]">
               <CouponSidebar />
             </div>
           </aside>
@@ -353,35 +352,37 @@ export default function HomePage() {
         <CouponFAB />
       </div>
 
-      {/* ===== Filter Drawer ===== */}
+      {/* ===== FILTER DRAWER ===== */}
       {showFilters && (
         <div className="fixed inset-0 z-50">
           <div 
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setShowFilters(false)}
           />
-          <div className="absolute inset-y-0 right-0 w-full max-w-sm bg-background shadow-2xl flex flex-col animate-slide-in-right border-l border-border">
+          <div className="absolute inset-y-0 right-0 w-full max-w-sm bg-background shadow-2xl flex flex-col animate-slide-in-right border-l border-border/50">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-primary" />
-                <h2 className="font-semibold text-sm">Lig Filtresi</h2>
+            <div className="flex items-center justify-between p-5 border-b">
+              <div className="flex items-center gap-3">
+                <div className="gradient-primary p-2 rounded-xl">
+                  <Filter className="h-4 w-4 text-white" />
+                </div>
+                <div>
+                  <h2 className="font-bold">Lig Filtresi</h2>
+                  <p className="text-[11px] text-muted-foreground">{selectedLeagues.length || 'Tum'} lig secili</p>
+                </div>
               </div>
-              <button 
-                onClick={() => setShowFilters(false)}
-                className="p-1.5 rounded-md hover:bg-muted transition-colors"
-              >
+              <button onClick={() => setShowFilters(false)} className="p-2 rounded-xl hover:bg-muted transition-colors">
                 <X className="h-4 w-4" />
               </button>
             </div>
             
             {/* Quick Actions */}
-            <div className="flex gap-2 p-4 border-b border-border">
+            <div className="flex gap-2 p-4">
               <Button 
                 variant="outline" 
                 size="sm" 
                 onClick={handleSelectAll}
-                className="flex-1 rounded-lg text-xs"
+                className="flex-1 rounded-xl"
               >
                 {selectedLeagues.length === TOP_20_LEAGUES.length ? 'Temizle' : 'Tumunu Sec'}
               </Button>
@@ -390,9 +391,9 @@ export default function HomePage() {
                   variant="outline" 
                   size="sm" 
                   onClick={() => setSelectedLeagues(pinnedLeagues)}
-                  className="flex-1 gap-1 rounded-lg text-xs"
+                  className="flex-1 gap-1.5 rounded-xl"
                 >
-                  <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
+                  <Star className="h-3.5 w-3.5 fill-yellow-500 text-yellow-500" />
                   Favoriler
                 </Button>
               )}
@@ -400,7 +401,7 @@ export default function HomePage() {
             
             {/* League List */}
             <ScrollArea className="flex-1">
-              <div className="p-3 space-y-0.5">
+              <div className="px-3 pb-3 space-y-1">
                 {sortedLeagues.map((league) => {
                   const isPinned = pinnedLeagues.includes(league.id);
                   const matchCount = matchesByLeague.get(league.id)?.length || 0;
@@ -410,8 +411,8 @@ export default function HomePage() {
                     <div
                       key={league.id}
                       className={cn(
-                        'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer',
-                        isSelected ? 'bg-primary/5' : 'hover:bg-muted'
+                        'flex items-center gap-3 px-3 py-3 rounded-xl transition-all cursor-pointer',
+                        isSelected ? 'bg-primary/5 border border-primary/20' : 'hover:bg-muted border border-transparent'
                       )}
                       onClick={() => handleLeagueToggle(league.id)}
                     >
@@ -420,19 +421,17 @@ export default function HomePage() {
                         onCheckedChange={() => handleLeagueToggle(league.id)}
                         className="pointer-events-none"
                       />
-                      <span className="text-base">{league.flag}</span>
-                      <span className="text-sm font-medium flex-1 truncate">{league.name}</span>
+                      <span className="text-lg">{league.flag}</span>
+                      <span className="text-sm font-semibold flex-1 truncate">{league.name}</span>
                       {matchCount > 0 && (
-                        <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                          {matchCount}
-                        </span>
+                        <Badge variant="secondary" className="text-[10px] rounded-lg">{matchCount}</Badge>
                       )}
                       <button
                         onClick={(e) => { e.stopPropagation(); togglePin(league.id); }}
-                        className="p-1 rounded hover:bg-muted transition-colors"
+                        className="p-1.5 rounded-lg hover:bg-muted transition-colors"
                       >
                         <Star className={cn(
-                          'h-3.5 w-3.5',
+                          'h-3.5 w-3.5 transition-colors',
                           isPinned ? 'fill-yellow-500 text-yellow-500' : 'text-muted-foreground'
                         )} />
                       </button>
@@ -443,9 +442,9 @@ export default function HomePage() {
             </ScrollArea>
             
             {/* Footer */}
-            <div className="p-4 border-t border-border">
+            <div className="p-4 border-t">
               <Button 
-                className="w-full rounded-lg"
+                className="w-full rounded-xl h-11 text-sm font-bold gradient-primary text-white border-0 shadow-lg shadow-primary/25"
                 onClick={() => setShowFilters(false)}
               >
                 Uygula

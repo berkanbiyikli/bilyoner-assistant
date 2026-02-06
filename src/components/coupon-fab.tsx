@@ -36,9 +36,9 @@ const SYSTEM_TYPES: { value: SystemType; label: string; minSelections: number }[
 ];
 
 const CATEGORY_BORDER: Record<string, string> = {
-  banko: 'border-l-green-500',
+  banko: 'border-l-emerald-500',
   value: 'border-l-blue-500',
-  surprise: 'border-l-purple-500',
+  surprise: 'border-l-violet-500',
 };
 
 export function CouponFAB() {
@@ -52,15 +52,15 @@ export function CouponFAB() {
         onClick={toggleOpen}
         className={cn(
           'fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50',
-          'flex items-center gap-1.5 px-4 py-2.5 rounded-full',
-          'bg-primary text-primary-foreground shadow-lg',
-          'hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-200'
+          'flex items-center gap-2 px-5 py-3 rounded-2xl',
+          'gradient-primary text-white shadow-xl shadow-primary/25',
+          'hover:shadow-2xl hover:shadow-primary/30 hover:scale-105 active:scale-95 transition-all duration-200'
         )}
       >
-        <Ticket className="h-4 w-4" />
-        <span className="text-sm font-medium">Kupon</span>
+        <Ticket className="h-4.5 w-4.5" />
+        <span className="text-sm font-semibold">Kupon</span>
         {count > 0 && (
-          <span className="flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-white text-primary text-xs font-bold">
+          <span className="flex items-center justify-center h-5.5 min-w-5.5 px-1.5 rounded-full bg-white text-primary text-xs font-bold shadow-sm">
             {count}
           </span>
         )}
@@ -90,15 +90,17 @@ function CouponPanel() {
       />
 
       {/* Panel */}
-      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-sm bg-background shadow-2xl flex flex-col border-l border-border/50 animate-slide-in-right">
+      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-sm bg-background shadow-2xl flex flex-col border-l border-primary/10 animate-slide-in-right">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 h-14 border-b">
-          <div className="flex items-center gap-2">
-            <Ticket className="h-4 w-4 text-primary" />
-            <span className="font-semibold text-sm">Kupon</span>
-            <span className="text-xs text-muted-foreground">{selections.length} secim</span>
+        <div className="flex items-center justify-between px-4 h-14 border-b border-primary/10 bg-gradient-to-r from-primary/5 to-transparent">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center">
+              <Ticket className="h-3.5 w-3.5 text-white" />
+            </div>
+            <span className="font-bold text-sm">Kupon</span>
+            <span className="text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-lg">{selections.length} secim</span>
           </div>
-          <button onClick={() => setOpen(false)} className="p-1.5 rounded-md hover:bg-muted">
+          <button onClick={() => setOpen(false)} className="p-2 rounded-xl hover:bg-muted transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -108,9 +110,11 @@ function CouponPanel() {
           <div className="p-3 space-y-2">
             {selections.length === 0 ? (
               <div className="py-12 text-center">
-                <ShoppingCart className="h-8 w-8 mx-auto mb-3 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground">Kuponunuz bos</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">Oneri kartlarindan bahis ekleyin</p>
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/10 to-violet-500/10 flex items-center justify-center mx-auto mb-3">
+                  <ShoppingCart className="h-6 w-6 text-primary/40" />
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">Kuponunuz bos</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Oneri kartlarindan bahis ekleyin</p>
               </div>
             ) : (
               selections.map((selection) => {
@@ -120,20 +124,20 @@ function CouponPanel() {
                   <div 
                     key={selection.id} 
                     className={cn(
-                      'p-2.5 rounded-lg border border-l-2 border-border/50',
+                      'p-3 rounded-xl border border-l-2 border-border/30 card-premium',
                       CATEGORY_BORDER[selection.category]
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-0.5">
-                          <span>{selection.league}</span>
-                          <span></span>
+                        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1">
+                          <span className="font-medium">{selection.league}</span>
+                          <span>·</span>
                           <span>{selection.time}</span>
                         </div>
-                        <p className="text-xs font-medium truncate">{selection.homeTeam} - {selection.awayTeam}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted font-medium">{selection.market}: {selection.pick}</span>
+                        <p className="text-xs font-semibold truncate">{selection.homeTeam} - {selection.awayTeam}</p>
+                        <div className="flex items-center gap-2.5 mt-1.5">
+                          <span className="text-[10px] px-2 py-0.5 rounded-lg bg-primary/10 font-semibold text-primary">{selection.market}: {selection.pick}</span>
                           <span className="text-xs font-bold text-primary tabular-nums">{selection.odds.toFixed(2)}</span>
                         </div>
                       </div>
@@ -153,18 +157,18 @@ function CouponPanel() {
 
         {/* Footer */}
         {selections.length > 0 && (
-          <div className="border-t p-3 space-y-3">
+          <div className="border-t border-primary/10 p-3.5 space-y-3">
             {/* System types */}
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {availableSystemTypes.map((type) => (
                 <button
                   key={type.value}
                   onClick={() => setSystemType(type.value)}
                   className={cn(
-                    'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+                    'px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all',
                     systemType === type.value 
-                      ? 'bg-primary text-primary-foreground' 
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                      ? 'gradient-primary text-white shadow-sm shadow-primary/20' 
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted'
                   )}
                 >
                   {type.label}
@@ -228,12 +232,12 @@ function CouponPanel() {
             <div className="flex gap-2 pt-1">
               <button 
                 onClick={clearCoupon}
-                className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg border text-xs font-medium hover:bg-muted transition-colors"
+                className="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-xl border border-border/50 text-xs font-semibold hover:bg-muted transition-colors"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Temizle
               </button>
-              <button className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors">
+              <button className="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-xl gradient-primary text-white text-xs font-semibold shadow-sm shadow-primary/20 hover:opacity-90 transition-opacity">
                 <Calculator className="h-3.5 w-3.5" />
                 Onayla
               </button>
@@ -280,10 +284,10 @@ export function AddToCouponButton({
     <button
       onClick={handleClick}
       className={cn(
-        'h-7 px-2.5 rounded-md text-xs font-medium transition-all',
+        'h-7 px-3 rounded-lg text-xs font-semibold transition-all',
         inCoupon 
-          ? 'bg-primary text-primary-foreground hover:bg-primary/90' 
-          : 'border border-border hover:bg-muted text-muted-foreground hover:text-foreground'
+          ? 'gradient-primary text-white shadow-sm shadow-primary/20 hover:opacity-90' 
+          : 'border border-border/50 hover:bg-primary/10 text-muted-foreground hover:text-primary'
       )}
     >
       {inCoupon ? (

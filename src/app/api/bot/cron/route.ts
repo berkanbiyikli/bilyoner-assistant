@@ -761,11 +761,11 @@ export async function GET(request: NextRequest) {
         const matchesData = uniqueOpportunities.map(o => ({
           home: o.match.homeTeam,
           away: o.match.awayTeam,
-          score: o.match.score,
+          score: `${o.match.homeScore}-${o.match.awayScore}`,
           minute: o.match.minute,
           league: o.match.league || 'Unknown League',
-          pick: o.pick,
-          odds: o.estimatedOdds,
+          pick: o.opportunity,
+          odds: o.odds,
           confidence: o.confidence,
           reasoning: o.reasoning,
         }));

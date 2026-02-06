@@ -165,7 +165,7 @@ export async function GET(request: NextRequest) {
           // Sonuç resmi oluştur
           const resultData = recentWins.map(p => ({
             home: p.homeTeam, away: p.awayTeam, score: p.finalScore || '?-?',
-            minute: 'FT', league: '', pick: p.pick, odds: p.odds || 1.5,
+            minute: 'FT', league: '', pick: p.pick, odds: p.estimatedOdds || 1.5,
             confidence: 80, reasoning: '', result: p.status as string,
           }));
           const resultImageUrl = `${baseUrl}/api/og/live?type=result&matches=${encodeURIComponent(JSON.stringify(resultData))}`;
@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
             // Tek sonuç resmi
             const singleResultData = [{
               home: pick.homeTeam, away: pick.awayTeam, score: pick.finalScore || '?-?',
-              minute: 'FT', league: '', pick: pick.pick, odds: pick.odds || 1.5,
+              minute: 'FT', league: '', pick: pick.pick, odds: pick.estimatedOdds || 1.5,
               confidence: 80, reasoning: '', result: pick.status as string,
             }];
             const singleImageUrl = `${baseUrl}/api/og/live?type=result&matches=${encodeURIComponent(JSON.stringify(singleResultData))}`;
@@ -232,7 +232,7 @@ export async function GET(request: NextRequest) {
     if (settled >= 5 && canTweetPerformance && stats.pending === 0) {
       const perfTweet = formatDailyPerformanceTweet(stats);
       const perfBaseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://bilyoner-assistant.vercel.app';
-      const perfData = { won: stats.won, lost: stats.lost, pending: stats.pending, winRate: stats.winRate, totalOdds: stats.totalOdds || 0, roi: stats.roi || 0 };
+      const perfData = { won: stats.won, lost: stats.lost, pending: stats.pending, winRate: stats.winRate, streak: stats.streak || 0 };
       const perfImageUrl = `${perfBaseUrl}/api/og/live?type=performance&data=${encodeURIComponent(JSON.stringify(perfData))}`;
       
       if (!useMock) {

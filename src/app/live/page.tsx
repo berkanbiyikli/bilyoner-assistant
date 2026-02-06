@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useLiveFixtures, useLiveStatistics } from '@/hooks/useFixtures';
+import { useLiveFixtures, useLiveStatistics, useLiveFixturesEnriched } from '@/hooks/useFixtures';
 import { isTop20League } from '@/config/league-priorities';
 import type { ProcessedFixture, ProcessedStatistics } from '@/types/api-football';
 import { HunterDashboard } from '@/components/hunter-dashboard';
@@ -207,7 +207,7 @@ function LiveMatchSkeleton() {
   );
 }
 
-function fixtureToLiveMatch(fixture: ProcessedFixture): LiveMatch {
+function fixtureToLiveMatch(fixture: ProcessedFixture, stats?: ProcessedStatistics | null): LiveMatch {
   return {
     fixtureId: fixture.id,
     homeTeam: fixture.homeTeam.name,
@@ -222,14 +222,22 @@ function fixtureToLiveMatch(fixture: ProcessedFixture): LiveMatch {
     leagueId: fixture.league.id,
     leagueLogo: fixture.league.logo,
     stats: {
-      homeShotsOnTarget: 0, awayShotsOnTarget: 0,
-      homeShotsTotal: 0, awayShotsTotal: 0,
-      homePossession: 50, awayPossession: 50,
-      homeCorners: 0, awayCorners: 0,
-      homeFouls: 0, awayFouls: 0,
-      homeYellowCards: 0, awayYellowCards: 0,
-      homeRedCards: 0, awayRedCards: 0,
-      homeDangerousAttacks: 0, awayDangerousAttacks: 0,
+      homeShotsOnTarget: stats?.home.shotsOnGoal ?? 0,
+      awayShotsOnTarget: stats?.away.shotsOnGoal ?? 0,
+      homeShotsTotal: stats?.home.totalShots ?? 0,
+      awayShotsTotal: stats?.away.totalShots ?? 0,
+      homePossession: stats?.home.possession ?? 50,
+      awayPossession: stats?.away.possession ?? 50,
+      homeCorners: stats?.home.corners ?? 0,
+      awayCorners: stats?.away.corners ?? 0,
+      homeFouls: stats?.home.fouls ?? 0,
+      awayFouls: stats?.away.fouls ?? 0,
+      homeYellowCards: stats?.home.yellowCards ?? 0,
+      awayYellowCards: stats?.away.yellowCards ?? 0,
+      homeRedCards: stats?.home.redCards ?? 0,
+      awayRedCards: stats?.away.redCards ?? 0,
+      homeDangerousAttacks: 0,
+      awayDangerousAttacks: 0,
     },
     lastUpdated: new Date()
   };
@@ -238,11 +246,21 @@ function fixtureToLiveMatch(fixture: ProcessedFixture): LiveMatch {
 // ============ ANA SAYFA ============
 
 export default function LiveMatchesPage() {
-  const { data, isLoading, refetch, isFetching } = useLiveFixtures();
+  const { data: enrichedData, isLoading, refetch, isFetching } = useLiveFixturesEnriched();
   const [selectedFixtureId, setSelectedFixtureId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'matches' | 'hunter'>('hunter');
 
-  const liveMatches = (data?.fixtures || []).filter(f => isTop20League(f.league.id));
+  // Enriched data'dan fixture'ları ve stats map'i çıkar
+  const enrichedFixtures = enrichedData?.enrichedFixtures || [];
+  const liveMatches = enrichedFixtures.map(ef => ef.fixture);
+  const statsMap = useMemo(() => {
+    const map = new Map<number, ProcessedStatistics | null>();
+    for (const ef of enrichedFixtures) {
+      map.set(ef.fixture.id, ef.statistics);
+    }
+    return map;
+  }, [enrichedFixtures]);
+
   const selectedFixture = liveMatches.find(f => f.id === selectedFixtureId);
 
   if (!selectedFixtureId && liveMatches.length > 0) {
@@ -251,10 +269,11 @@ export default function LiveMatchesPage() {
 
   const hunterMatches: LiveMatchHunter[] = useMemo(() => {
     return liveMatches.map(fixture => {
-      const liveMatch = fixtureToLiveMatch(fixture);
+      const stats = statsMap.get(fixture.id) || null;
+      const liveMatch = fixtureToLiveMatch(fixture, stats);
       return createHunterMatchSummary(liveMatch);
     });
-  }, [liveMatches]);
+  }, [liveMatches, statsMap]);
 
   const goldenChanceCount = hunterMatches.filter(m => m.hunterStatus === 'golden_chance').length;
 

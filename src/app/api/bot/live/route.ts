@@ -20,9 +20,40 @@ import {
 import type { ProcessedFixture, ProcessedStatistics } from '@/types/api-football';
 import { isTop20League } from '@/config/league-priorities';
 import { cacheGet, cacheSet } from '@/lib/cache/redis-cache';
+import { sendTweet } from '@/lib/bot/twitter';
+import { saveLivePick, type LivePick } from '@/lib/bot/live-pick-tracker';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
+
+// Spam önleme
+let lastLiveTweetTime = 0;
+let lastLiveTweetSnapshot = '';
+const LIVE_TWEET_COOLDOWN = 15 * 60 * 1000; // 15 dk arası
+
+/**
+ * Canlı fırsat tweet metni oluştur
+ */
+function formatLiveOpportunityTweet(opportunities: LiveOpportunity[]): string {
+  const lines: string[] = [];
+  
+  lines.push('🔴 CANLI ANALİZ - Fırsat Tespiti');
+  lines.push('');
+  
+  opportunities.slice(0, 3).forEach((opp, i) => {
+    const urgencyEmoji = opp.urgency === 'critical' ? '🔥' : opp.urgency === 'high' ? '⚡' : '📊';
+    lines.push(`${i + 1}. ${opp.match.homeTeam} ${opp.match.score} ${opp.match.awayTeam}`);
+    lines.push(`⏱️ ${opp.match.minute}' | ${urgencyEmoji} ${opp.type === 'goal_pressure' ? 'Gol Baskısı' : opp.market}`);
+    lines.push(`🎯 ${opp.pick} @${opp.estimatedOdds.toFixed(2)} | Güven: %${opp.confidence}`);
+    lines.push(`📈 ${opp.reasoning}`);
+    if (i < Math.min(opportunities.length, 3) - 1) lines.push('');
+  });
+  
+  lines.push('');
+  lines.push('#CanlıAnaliz #VeriAnalizi #Bahis');
+  
+  return lines.join('\n');
+}
 
 // ============ GET - Canlı Fırsatları Getir ============
 
@@ -82,6 +113,70 @@ export async function GET() {
     // En iyi fırsatları filtrele
     const bestOpportunities = filterBestOpportunities(allOpportunities, 1, 5);
     
+    // Yüksek güvenli fırsat varsa tweet at
+    let tweetSent = false;
+    let savedPicks: string[] = [];
+    const tweetableOpportunities = bestOpportunities.filter(o => o.confidence >= 75);
+    
+    if (tweetableOpportunities.length > 0) {
+      const oppSnapshot = tweetableOpportunities.map(o => 
+        `${o.fixtureId}:${o.type}:${o.confidence}`
+      ).join('|');
+      
+      const isNew = oppSnapshot !== lastLiveTweetSnapshot;
+      const canTweet = Date.now() - lastLiveTweetTime >= LIVE_TWEET_COOLDOWN;
+      const useMock = process.env.TWITTER_MOCK === 'true';
+      
+      if (isNew && canTweet) {
+        const tweetText = formatLiveOpportunityTweet(tweetableOpportunities);
+        let tweetId: string | undefined;
+        
+        if (!useMock) {
+          try {
+            const tweetResult = await sendTweet(tweetText);
+            tweetSent = true;
+            tweetId = tweetResult.tweetId;
+            console.log('[Live Bot] Fırsat tweeti atıldı!');
+          } catch (tweetErr) {
+            console.error('[Live Bot] Tweet hatası:', tweetErr);
+          }
+        } else {
+          console.log(`[Live Bot][MOCK] Tweet:\n${tweetText}`);
+          tweetSent = true;
+          tweetId = `mock_${Date.now()}`;
+        }
+        
+        // Pick'leri kaydet (takip için)
+        if (tweetSent) {
+          for (const opp of tweetableOpportunities) {
+            const pick: LivePick = {
+              id: `pick_${opp.fixtureId}_${Date.now()}`,
+              fixtureId: opp.fixtureId,
+              homeTeam: opp.match.homeTeam,
+              awayTeam: opp.match.awayTeam,
+              league: liveMatches.find(m => m.fixtureId === opp.fixtureId)?.league || '',
+              market: opp.market,
+              pick: opp.pick,
+              confidence: opp.confidence,
+              estimatedOdds: opp.estimatedOdds,
+              reasoning: opp.reasoning,
+              tweetId,
+              scoreAtPick: opp.match.score,
+              minuteAtPick: opp.match.minute,
+              status: 'active',
+              createdAt: new Date().toISOString(),
+              source: 'live-bot',
+            };
+            const saved = await saveLivePick(pick);
+            if (saved) savedPicks.push(`${opp.match.homeTeam} vs ${opp.match.awayTeam}: ${opp.pick}`);
+          }
+        }
+        
+        lastLiveTweetSnapshot = oppSnapshot;
+        lastLiveTweetTime = Date.now();
+      }
+    }
+    
     // Canlı maç özetleri
     const matchSummaries = liveMatches.map(m => ({
       fixture: `${m.homeTeam} vs ${m.awayTeam}`,
@@ -103,6 +198,8 @@ export async function GET() {
       allOpportunitiesCount: allOpportunities.length,
       matches: liveMatches.length,
       liveMatches: matchSummaries,
+      tweetSent,
+      savedPicks,
       timestamp: new Date().toISOString(),
       processingTime: Date.now() - startTime,
     };

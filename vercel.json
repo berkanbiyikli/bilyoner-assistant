@@ -38,6 +38,14 @@
       "schedule": "*/10 0-1 * * *"
     },
     {
+      "path": "/api/bot/live-results",
+      "schedule": "*/10 14-23 * * *"
+    },
+    {
+      "path": "/api/bot/live-results",
+      "schedule": "*/10 0-1 * * *"
+    },
+    {
       "path": "/api/bot/run?action=check-results",
       "schedule": "30 23 * * *"
     },

@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getBankrollState, saveBankrollState } from '@/lib/bot/bankroll-store';
 import { sendQuoteTweet, sendTweet } from '@/lib/bot/twitter';
 import type { BotMatch, BankrollState } from '@/lib/bot/types';
+import { isTop20League } from '@/config/league-priorities';
+import { saveLivePick, type LivePick } from '@/lib/bot/live-pick-tracker';
 
 // API Football config
 const API_KEY = process.env.API_FOOTBALL_KEY || '';
@@ -311,6 +313,10 @@ async function scanLiveOpportunities(): Promise<Array<{
       const totalGoals = homeScore + awayScore;
       const status = fixture.fixture?.status?.short || '';
       const leagueName = fixture.league?.name || '';
+      const leagueId = fixture.league?.id || 0;
+      
+      // Sadece Top 20 liglere odaklan (API call sayısını azalt)
+      if (!isTop20League(leagueId)) continue;
       
       // 80+ dk veya devre arası/maç sonu - fırsat yok
       if (minute >= 80 || status === 'HT' || status === 'FT') continue;
@@ -329,8 +335,7 @@ async function scanLiveOpportunities(): Promise<Array<{
         league: leagueName,
       };
       
-      // İstatistikleri çek (varsa)
-      const stats = fixture.statistics;
+      // İstatistikleri ayrı endpoint'ten çek (fixture response'da gelmiyor!)
       let homePossession = 50;
       let awayPossession = 50;
       let homeShotsOn = 0;
@@ -340,22 +345,33 @@ async function scanLiveOpportunities(): Promise<Array<{
       let homeDangerous = 0;
       let awayDangerous = 0;
       
-      if (stats && Array.isArray(stats) && stats.length >= 2) {
-        const homeStats = stats[0]?.statistics || [];
-        const awayStats = stats[1]?.statistics || [];
+      try {
+        const statsRes = await fetch(`${API_BASE}/fixtures/statistics?fixture=${fixtureId}`, {
+          headers: { 'x-apisports-key': API_KEY },
+          next: { revalidate: 0 },
+        });
+        const statsData = await statsRes.json();
+        const statsArray = statsData?.response || [];
         
-        for (const s of homeStats) {
-          if (s.type === 'Ball Possession') homePossession = parseInt(s.value) || 50;
-          if (s.type === 'Shots on Goal') homeShotsOn = parseInt(s.value) || 0;
-          if (s.type === 'Total Shots') homeShots = parseInt(s.value) || 0;
-          if (s.type === 'Dangerous Attacks') homeDangerous = parseInt(s.value) || 0;
+        if (Array.isArray(statsArray) && statsArray.length >= 2) {
+          const homeStats = statsArray[0]?.statistics || [];
+          const awayStats = statsArray[1]?.statistics || [];
+          
+          for (const s of homeStats) {
+            if (s.type === 'Ball Possession') homePossession = parseInt(s.value) || 50;
+            if (s.type === 'Shots on Goal') homeShotsOn = parseInt(s.value) || 0;
+            if (s.type === 'Total Shots') homeShots = parseInt(s.value) || 0;
+            if (s.type === 'Dangerous Attacks') homeDangerous = parseInt(s.value) || 0;
+          }
+          for (const s of awayStats) {
+            if (s.type === 'Ball Possession') awayPossession = parseInt(s.value) || 50;
+            if (s.type === 'Shots on Goal') awayShotsOn = parseInt(s.value) || 0;
+            if (s.type === 'Total Shots') awayShots = parseInt(s.value) || 0;
+            if (s.type === 'Dangerous Attacks') awayDangerous = parseInt(s.value) || 0;
+          }
         }
-        for (const s of awayStats) {
-          if (s.type === 'Ball Possession') awayPossession = parseInt(s.value) || 50;
-          if (s.type === 'Shots on Goal') awayShotsOn = parseInt(s.value) || 0;
-          if (s.type === 'Total Shots') awayShots = parseInt(s.value) || 0;
-          if (s.type === 'Dangerous Attacks') awayDangerous = parseInt(s.value) || 0;
-        }
+      } catch (statsErr) {
+        console.error(`[Cron] Stats fetch failed for fixture ${fixtureId}:`, statsErr);
       }
       
       // ===== SADECE SIRADAKİ GOL BAHİSLERİ =====
@@ -699,17 +715,44 @@ export async function GET(request: NextRequest) {
       
       if (isNewOpportunity && canTweetOpportunity) {
         const tweetText = formatOpportunityTweet(opportunities);
+        let tweetId: string | undefined;
         
         if (!useMock) {
-          await sendTweet(tweetText);
+          const tweetResult = await sendTweet(tweetText);
+          tweetId = tweetResult.tweetId;
           lastOpportunitySnapshot = oppSnapshot;
           lastOpportunityTweetTime = Date.now();
           log('Yeni fırsat tweeti atıldı');
         } else {
           log(`[MOCK] Fırsat tweeti:\n${tweetText}`);
+          tweetId = `mock_${Date.now()}`;
           lastOpportunitySnapshot = oppSnapshot;
           lastOpportunityTweetTime = Date.now();
         }
+        
+        // Pick'leri kaydet (takip için)
+        for (const opp of opportunities) {
+          const pick: LivePick = {
+            id: `pick_cron_${opp.match.fixtureId}_${Date.now()}`,
+            fixtureId: opp.match.fixtureId,
+            homeTeam: opp.match.homeTeam,
+            awayTeam: opp.match.awayTeam,
+            league: opp.match.league,
+            market: opp.opportunity,
+            pick: opp.opportunity,
+            confidence: opp.confidence,
+            estimatedOdds: opp.odds,
+            reasoning: opp.reasoning,
+            tweetId,
+            scoreAtPick: `${opp.match.homeScore}-${opp.match.awayScore}`,
+            minuteAtPick: opp.match.minute,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            source: 'cron-bot',
+          };
+          await saveLivePick(pick);
+        }
+        log(`${opportunities.length} pick kaydedildi (takip için)`);
       } else if (!isNewOpportunity) {
         log('Aynı fırsatlar, tweet atılmadı');
       } else if (!canTweetOpportunity) {

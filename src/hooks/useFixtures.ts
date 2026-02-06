@@ -27,6 +27,19 @@ interface LiveFixturesResponse {
   error?: string;
 }
 
+interface EnrichedLiveFixture {
+  fixture: ProcessedFixture;
+  statistics: ProcessedStatistics | null;
+}
+
+interface EnrichedLiveFixturesResponse {
+  success: boolean;
+  count: number;
+  totalLive: number;
+  enrichedFixtures: EnrichedLiveFixture[];
+  error?: string;
+}
+
 interface FixtureDetailResponse {
   success: boolean;
   fixture: ProcessedFixture;
@@ -70,6 +83,23 @@ export function useLiveFixtures() {
     queryKey: ['fixtures', 'live'],
     queryFn: async () => {
       const res = await fetch('/api/fixtures/live');
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      return data;
+    },
+    refetchInterval: config.polling.liveMatchInterval,
+  });
+}
+
+/**
+ * Canlı maçları İSTATİSTİKLERİYLE BİRLİKTE getir (60 saniye polling)
+ * Hunter dashboard ve canlı analiz için kullanılır
+ */
+export function useLiveFixturesEnriched() {
+  return useQuery<EnrichedLiveFixturesResponse>({
+    queryKey: ['fixtures', 'live-enriched'],
+    queryFn: async () => {
+      const res = await fetch('/api/fixtures/live-enriched');
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       return data;

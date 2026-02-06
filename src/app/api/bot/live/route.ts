@@ -180,17 +180,32 @@ export async function GET(request: NextRequest) {
         const tweetText = formatLiveOpportunityTweet(uniqueOpportunities);
         let tweetId: string | undefined;
         
+        // OG Image URL oluştur
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://bilyoner-assistant.vercel.app';
+        const matchesData = uniqueOpportunities.map(o => ({
+          home: o.match.homeTeam,
+          away: o.match.awayTeam,
+          score: o.match.score,
+          minute: o.match.minute,
+          league: liveMatches.find(m => m.fixtureId === o.fixtureId)?.league || '',
+          pick: o.pick,
+          odds: o.estimatedOdds,
+          confidence: o.confidence,
+          reasoning: o.reasoning,
+        }));
+        const imageUrl = `${baseUrl}/api/og/live?type=opportunity&matches=${encodeURIComponent(JSON.stringify(matchesData))}`;
+        
         if (!useMock) {
           try {
-            const tweetResult = await sendTweet(tweetText);
+            const tweetResult = await sendTweet(tweetText, { imageUrl });
             tweetSent = true;
             tweetId = tweetResult.tweetId;
-            console.log('[Live Bot] Fırsat tweeti atıldı!');
+            console.log('[Live Bot] Fırsat tweeti atıldı (görsel ile)!');
           } catch (tweetErr) {
             console.error('[Live Bot] Tweet hatası:', tweetErr);
           }
         } else {
-          console.log(`[Live Bot][MOCK] Tweet:\n${tweetText}`);
+          console.log(`[Live Bot][MOCK] Tweet (image: ${imageUrl}):\n${tweetText}`);
           tweetSent = true;
           tweetId = `mock_${Date.now()}`;
         }

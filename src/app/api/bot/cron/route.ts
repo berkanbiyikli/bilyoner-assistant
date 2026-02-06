@@ -754,14 +754,29 @@ export async function GET(request: NextRequest) {
         const tweetText = formatOpportunityTweet(uniqueOpportunities);
         let tweetId: string | undefined;
         
+        // OG image URL oluştur
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://bilyoner-assistant.vercel.app';
+        const matchesData = uniqueOpportunities.map(o => ({
+          home: o.match.homeTeam,
+          away: o.match.awayTeam,
+          score: o.match.score,
+          minute: o.match.minute,
+          league: o.match.league || 'Unknown League',
+          pick: o.pick,
+          odds: o.estimatedOdds,
+          confidence: o.confidence,
+          reasoning: o.reasoning,
+        }));
+        const imageUrl = `${baseUrl}/api/og/live?type=opportunity&matches=${encodeURIComponent(JSON.stringify(matchesData))}`;
+        
         if (!useMock) {
-          const tweetResult = await sendTweet(tweetText);
+          const tweetResult = await sendTweet(tweetText, { imageUrl });
           tweetId = tweetResult.tweetId;
           await setCronState(REDIS_KEY_OPP_SNAPSHOT, oppSnapshot);
           await setCronState(REDIS_KEY_OPP_TWEET_TIME, Date.now());
-          log('Yeni fırsat tweeti atıldı');
+          log('Yeni fırsat tweeti atıldı (resimli)');
         } else {
-          log(`[MOCK] Fırsat tweeti:\n${tweetText}`);
+          log(`[MOCK] Fırsat tweeti:\n${tweetText}\n[IMAGE] ${imageUrl}`);
           tweetId = `mock_${Date.now()}`;
           await setCronState(REDIS_KEY_OPP_SNAPSHOT, oppSnapshot);
           await setCronState(REDIS_KEY_OPP_TWEET_TIME, Date.now());

@@ -155,11 +155,20 @@ export async function GET(request: NextRequest) {
     if (settledPicks.length > 0) {
       const lastResultTime = await getLastResultTweetTime();
       const canTweetResult = Date.now() - lastResultTime >= RESULT_TWEET_COOLDOWN;
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://bilyoner-assistant.vercel.app';
       
       if (canTweetResult) {
         // Birden fazla kazanan pick varsa toplu kutlama tweeti
         if (recentWins.length >= 2) {
           const tweetText = formatWinStreakTweet(recentWins, stats);
+          
+          // Sonuç resmi oluştur
+          const resultData = recentWins.map(p => ({
+            home: p.homeTeam, away: p.awayTeam, score: p.finalScore || '?-?',
+            minute: 'FT', league: '', pick: p.pick, odds: p.odds || 1.5,
+            confidence: 80, reasoning: '', result: p.status as string,
+          }));
+          const resultImageUrl = `${baseUrl}/api/og/live?type=result&matches=${encodeURIComponent(JSON.stringify(resultData))}`;
           
           if (!useMock) {
             try {
@@ -168,14 +177,14 @@ export async function GET(request: NextRequest) {
               if (replyToId && !replyToId.startsWith('mock_')) {
                 await sendReplyTweet(tweetText, replyToId);
               } else {
-                await sendTweet(tweetText);
+                await sendTweet(tweetText, { imageUrl: resultImageUrl });
               }
-              log(`🔥 ${recentWins.length} tuttu! Kutlama tweeti atıldı`);
+              log(`🔥 ${recentWins.length} tuttu! Kutlama tweeti atıldı (resimli)`);
             } catch (err) {
               console.error('[LiveResults] Tweet hatası:', err);
             }
           } else {
-            log(`[MOCK] Kutlama tweeti:\n${tweetText}`);
+            log(`[MOCK] Kutlama tweeti:\n${tweetText}\n[IMAGE] ${resultImageUrl}`);
           }
           await setLastResultTweetTime(Date.now());
         }
@@ -184,6 +193,14 @@ export async function GET(request: NextRequest) {
           for (const pick of settledPicks) {
             const tweetText = formatPickResultTweet(pick, stats);
             
+            // Tek sonuç resmi
+            const singleResultData = [{
+              home: pick.homeTeam, away: pick.awayTeam, score: pick.finalScore || '?-?',
+              minute: 'FT', league: '', pick: pick.pick, odds: pick.odds || 1.5,
+              confidence: 80, reasoning: '', result: pick.status as string,
+            }];
+            const singleImageUrl = `${baseUrl}/api/og/live?type=result&matches=${encodeURIComponent(JSON.stringify(singleResultData))}`;
+            
             if (!useMock) {
               try {
                 // Orijinal tweete reply olarak at
@@ -191,14 +208,14 @@ export async function GET(request: NextRequest) {
                 if (replyToId && !replyToId.startsWith('mock_')) {
                   await sendReplyTweet(tweetText, replyToId);
                 } else {
-                  await sendTweet(tweetText);
+                  await sendTweet(tweetText, { imageUrl: singleImageUrl });
                 }
-                log(`${pick.status === 'won' ? '✅' : '❌'} Sonuç tweeti: ${pick.homeTeam} vs ${pick.awayTeam}`);
+                log(`${pick.status === 'won' ? '✅' : '❌'} Sonuç tweeti: ${pick.homeTeam} vs ${pick.awayTeam} (resimli)`);
               } catch (err) {
                 console.error('[LiveResults] Tweet hatası:', err);
               }
             } else {
-              log(`[MOCK] Sonuç tweeti:\n${tweetText}`);
+              log(`[MOCK] Sonuç tweeti:\n${tweetText}\n[IMAGE] ${singleImageUrl}`);
             }
           }
           await setLastResultTweetTime(Date.now());
@@ -214,16 +231,19 @@ export async function GET(request: NextRequest) {
     // 5+ pick settle olmuşsa ve 1 saattir performans tweeti atılmadıysa
     if (settled >= 5 && canTweetPerformance && stats.pending === 0) {
       const perfTweet = formatDailyPerformanceTweet(stats);
+      const perfBaseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://bilyoner-assistant.vercel.app';
+      const perfData = { won: stats.won, lost: stats.lost, pending: stats.pending, winRate: stats.winRate, totalOdds: stats.totalOdds || 0, roi: stats.roi || 0 };
+      const perfImageUrl = `${perfBaseUrl}/api/og/live?type=performance&data=${encodeURIComponent(JSON.stringify(perfData))}`;
       
       if (!useMock) {
         try {
-          await sendTweet(perfTweet);
-          log(`📊 Günlük performans tweeti atıldı (${stats.won}/${settled} - %${stats.winRate})`);
+          await sendTweet(perfTweet, { imageUrl: perfImageUrl });
+          log(`📊 Günlük performans tweeti atıldı (${stats.won}/${settled} - %${stats.winRate}) (resimli)`);
         } catch (err) {
           console.error('[LiveResults] Performance tweet hatası:', err);
         }
       } else {
-        log(`[MOCK] Performans tweeti:\n${perfTweet}`);
+        log(`[MOCK] Performans tweeti:\n${perfTweet}\n[IMAGE] ${perfImageUrl}`);
       }
       await setLastPerformanceTweetTime(Date.now());
     }

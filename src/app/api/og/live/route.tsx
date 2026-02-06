@@ -65,7 +65,7 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
   try {
     const matchesParam = searchParams.get('matches');
     if (matchesParam) {
-      matches = JSON.parse(decodeURIComponent(matchesParam));
+      matches = JSON.parse(matchesParam);
     }
   } catch {
     // Demo data
@@ -267,7 +267,7 @@ function renderPerformance(searchParams: URLSearchParams) {
   try {
     const perfParam = searchParams.get('data');
     if (perfParam) {
-      perf = JSON.parse(decodeURIComponent(perfParam));
+      perf = JSON.parse(perfParam);
     }
   } catch {
     // fallback

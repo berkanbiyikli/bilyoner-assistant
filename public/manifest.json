@@ -1,11 +1,11 @@
 {
-  "name": "Bilyoner Assistant",
-  "short_name": "BilyonerAI",
+  "name": "Kupon Mühendisi",
+  "short_name": "KuponMühendisi",
   "description": "Akıllı İddaa Analiz ve Bahis Asistanı",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#09090b",
-  "theme_color": "#22c55e",
+  "theme_color": "#6366f1",
   "orientation": "portrait-primary",
   "icons": [
     {

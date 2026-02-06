@@ -84,14 +84,14 @@ export async function apiFootballFetch<T>(
 }
 
 /**
- * Tarihi API formatına çevir (YYYY-MM-DD)
+ * Tarihi API formatına çevir (YYYY-MM-DD) - Türkiye saat dilimine göre
  */
 export function formatDateForApi(date: Date): string {
-  return date.toISOString().split('T')[0];
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Istanbul' }).format(date);
 }
 
 /**
- * Bugünün tarihini API formatında al
+ * Bugünün tarihini API formatında al (Türkiye saatine göre)
  */
 export function getTodayForApi(): string {
   return formatDateForApi(new Date());

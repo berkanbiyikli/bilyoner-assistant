@@ -23,13 +23,13 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Bilyoner Assistant - İddaa Analiz",
+  title: "Kupon Mühendisi - İddaa Analiz",
   description: "Canlı maç analizi ve akıllı kupon önerileri",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Bilyoner Assistant",
+    title: "Kupon Mühendisi",
   },
   formatDetection: {
     telephone: false,

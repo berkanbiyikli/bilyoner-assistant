@@ -31,7 +31,8 @@ export async function GET(request: Request) {
       }
       dateStr = dateParam;
     } else {
-      dateStr = new Date().toISOString().split('T')[0];
+      // Türkiye saat dilimine göre bugünün tarihi (Vercel UTC'de çalışır)
+      dateStr = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Istanbul' }).format(new Date());
     }
 
     // Lig filtresi parse

@@ -128,7 +128,10 @@ interface MatchDetailResponse {
  * @param leagueIds Filtrelenecek lig ID'leri (boş = tüm ligler)
  */
 export function useDailyMatches(date?: Date, leagueIds?: number[]) {
-  const dateStr = date ? date.toISOString().split('T')[0] : 'today';
+  // Local timezone kullan (UTC değil) - Türkiye saatine göre doğru tarih
+  const dateStr = date 
+    ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    : 'today';
   
   return useQuery<DailyMatchesResponse>({
     queryKey: ['daily-matches', dateStr, leagueIds?.join(',') || 'all'],

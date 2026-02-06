@@ -47,7 +47,7 @@ export function Navbar() {
               </div>
               <div className="flex flex-col">
                 <span className="font-extrabold text-lg tracking-tight leading-tight">
-                  Bilyoner <span className="gradient-text">AI</span>
+                  Kupon <span className="gradient-text">Mühendisi</span>
                 </span>
                 <span className="text-[10px] text-muted-foreground font-medium tracking-widest uppercase">Akilli Bahis Asistani</span>
               </div>
@@ -84,7 +84,7 @@ export function Navbar() {
             {/* Right */}
             <div className="flex items-center gap-3">
               <a
-                href="https://twitter.com/BilyonerBot"
+                href="https://twitter.com/vbb1905"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50 hover:bg-muted text-sm font-medium transition-colors"
@@ -92,7 +92,7 @@ export function Navbar() {
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                 </svg>
-                <span className="text-xs text-muted-foreground">@BilyonerBot</span>
+                <span className="text-xs text-muted-foreground">@vbb1905</span>
               </a>
               <ThemeToggle />
             </div>

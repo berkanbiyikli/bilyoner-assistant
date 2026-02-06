@@ -657,32 +657,51 @@ import type {
 } from './live-types';
 
 /**
- * Momentum İndeksi Hesaplama
- * Formül: (DangerousAttacks / minute) * ShotsOnTarget * 10
- * Fallback: ((Corners * 3) + (ShotsOnTarget * 2)) / minute * 10
+ * Momentum İndeksi Hesaplama (Geliştirilmiş)
+ * Şut, korner, top kontrolü ve faul verilerinden momentum hesaplar
+ * API-Football dangerousAttacks verisi sağlamadığı için genellikle fallback kullanılır
  */
 export function calculateMomentumIndex(
   dangerousAttacks: number,
   shotsOnTarget: number,
   corners: number,
   minute: number,
-  possession: number
+  possession: number,
+  totalShots?: number,
+  fouls?: number
 ): number {
   if (minute <= 0) return 0;
   
-  // Ana formül veya fallback
-  const attackPower = dangerousAttacks > 0 
-    ? dangerousAttacks 
-    : (corners * 3) + (shotsOnTarget * 2);
+  // Baz skor: Tehlikeli ataklar varsa direkt kullan, yoksa şut/korner'dan hesapla
+  let attackScore: number;
+  if (dangerousAttacks > 0) {
+    attackScore = dangerousAttacks;
+  } else {
+    // Şut baskısı + korner baskısı
+    attackScore = (shotsOnTarget * 5) + ((totalShots || 0) * 2) + (corners * 4);
+  }
   
-  // Dakika bazlı normalize
-  const rawMomentum = (attackPower / minute) * 10;
+  // Dakika bazlı tempo (dakika başına ne kadar atak)
+  const tempoScore = (attackScore / minute) * 15;
   
-  // Top kontrolü bonusu (possession > 60% ise)
-  const possessionBonus = possession > 60 ? (possession - 50) * 0.3 : 0;
+  // Top kontrolü bonusu (50% = nötr, 65%+ = yüksek bonus)
+  let possessionBonus = 0;
+  if (possession > 55) {
+    possessionBonus = (possession - 50) * 0.6;
+  } else if (possession < 40) {
+    // Düşük top kontrolü = defansif → negatif momentum
+    possessionBonus = -5;
+  }
   
-  // Son momentum (0-100 arası)
-  const momentum = Math.min(Math.round(rawMomentum + possessionBonus), 100);
+  // İsabetli şut bonusu (3+ isabetli şut = extra momentum)
+  const shotBonus = shotsOnTarget >= 5 ? 15 : shotsOnTarget >= 3 ? 8 : shotsOnTarget >= 1 ? 3 : 0;
+  
+  // Korner bonusu (5+ korner = extra momentum)
+  const cornerBonus = corners >= 6 ? 10 : corners >= 3 ? 5 : 0;
+  
+  // Toplam momentum (0-100 arası)
+  const rawMomentum = tempoScore + possessionBonus + shotBonus + cornerBonus;
+  const momentum = Math.max(0, Math.min(Math.round(rawMomentum), 100));
   
   return momentum;
 }
@@ -696,7 +715,9 @@ export function analyzeMomentum(stats: LiveMatchStats, minute: number): Momentum
     stats.homeShotsOnTarget,
     stats.homeCorners,
     minute,
-    stats.homePossession
+    stats.homePossession,
+    stats.homeShotsTotal,
+    stats.homeFouls
   );
   
   const awayMomentum = calculateMomentumIndex(
@@ -704,7 +725,9 @@ export function analyzeMomentum(stats: LiveMatchStats, minute: number): Momentum
     stats.awayShotsOnTarget,
     stats.awayCorners,
     minute,
-    stats.awayPossession
+    stats.awayPossession,
+    stats.awayShotsTotal,
+    stats.awayFouls
   );
   
   // Dominant takım belirleme

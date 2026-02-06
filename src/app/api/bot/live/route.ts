@@ -93,19 +93,19 @@ export async function GET() {
       });
     }
     
-    // Her maç için istatistikleri çek ve LiveMatch formatına dönüştür
-    const liveMatches: LiveMatch[] = await Promise.all(
-      topLeagueMatches.slice(0, 10).map(async (fixture) => { // Max 10 maç (API limit)
-        let stats;
-        try {
-          stats = await getFixtureStatistics(fixture.id);
-        } catch {
-          stats = null;
-        }
-        
-        return convertToLiveMatch(fixture, stats);
-      })
-    );
+    // Her maç için istatistikleri SIRAYLA çek ve LiveMatch formatına dönüştür
+    const liveMatches: LiveMatch[] = [];
+    for (const fixture of topLeagueMatches.slice(0, 10)) {
+      let stats;
+      try {
+        stats = await getFixtureStatistics(fixture.id, true); // noCache for live
+      } catch {
+        stats = null;
+      }
+      liveMatches.push(convertToLiveMatch(fixture, stats));
+      // Rate limit koruma
+      await new Promise(r => setTimeout(r, 150));
+    }
     
     // Fırsatları tespit et
     const allOpportunities = detectLiveOpportunities(liveMatches, DEFAULT_LIVE_BOT_CONFIG);

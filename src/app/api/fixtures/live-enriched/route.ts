@@ -21,28 +21,44 @@ export interface EnrichedLiveFixture {
 
 export async function GET() {
   try {
-    // Canlı maçları getir
+    // Canlı maçları getir (cache'siz)
     const fixtures = await getLiveFixtures();
     
     // Top 20 ligleri filtrele
     const topLeagueFixtures = fixtures.filter(f => isTop20League(f.league.id));
     
-    // Her maç için istatistikleri paralel çek (max 15 maç, API limiti)
-    const enrichedFixtures: EnrichedLiveFixture[] = await Promise.all(
-      topLeagueFixtures.slice(0, 15).map(async (fixture) => {
-        let statistics: ProcessedStatistics | null = null;
-        try {
-          statistics = await getFixtureStatistics(fixture.id);
-        } catch (err) {
-          console.error(`[Live-Enriched] Stats fetch failed for fixture ${fixture.id}:`, err);
-        }
-        return { fixture, statistics };
-      })
-    );
+    // Her maç için istatistikleri SIRAYLA çek (rate limit'e takılmamak için)
+    // Max 10 maç — her biri ayrı API call
+    const enrichedFixtures: EnrichedLiveFixture[] = [];
+    const fixturesToFetch = topLeagueFixtures.slice(0, 10);
+    
+    for (const fixture of fixturesToFetch) {
+      let statistics: ProcessedStatistics | null = null;
+      try {
+        statistics = await getFixtureStatistics(fixture.id, true); // noCache=true
+      } catch (err) {
+        console.error(`[Live-Enriched] Stats fetch failed for fixture ${fixture.id}:`, err);
+      }
+      enrichedFixtures.push({ fixture, statistics });
+      
+      // Rate limit önleme: maçlar arası 200ms bekle
+      if (fixturesToFetch.indexOf(fixture) < fixturesToFetch.length - 1) {
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+    
+    // İstatistik çekilemeyen kalan maçları da ekle (stats=null)
+    for (const fixture of topLeagueFixtures.slice(10)) {
+      enrichedFixtures.push({ fixture, statistics: null });
+    }
+
+    const statsCount = enrichedFixtures.filter(e => e.statistics !== null).length;
+    console.log(`[Live-Enriched] ${enrichedFixtures.length} maç, ${statsCount} istatistik başarılı`);
 
     return NextResponse.json({
       success: true,
       count: enrichedFixtures.length,
+      statsLoaded: statsCount,
       totalLive: fixtures.length,
       enrichedFixtures,
     });

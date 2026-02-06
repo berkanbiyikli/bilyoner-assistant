@@ -39,7 +39,7 @@ export async function getLiveFixtures(): Promise<ProcessedFixture[]> {
   const response = await apiFootballFetch<FixtureResponse[]>('/fixtures', {
     live: 'all',
     timezone: 'Europe/Istanbul',
-  });
+  }, { noCache: true });
 
   return response.response.map(processFixture);
 }
@@ -62,11 +62,12 @@ export async function getFixtureById(fixtureId: number): Promise<ProcessedFixtur
 
 /**
  * Maç istatistiklerini getir
+ * @param live - true ise cache devre dışı (canlı maçlar için)
  */
-export async function getFixtureStatistics(fixtureId: number): Promise<ProcessedStatistics | null> {
+export async function getFixtureStatistics(fixtureId: number, live?: boolean): Promise<ProcessedStatistics | null> {
   const response = await apiFootballFetch<FixtureStatisticsResponse[]>('/fixtures/statistics', {
     fixture: fixtureId,
-  });
+  }, live ? { noCache: true } : undefined);
 
   if (response.response.length < 2) {
     return null;

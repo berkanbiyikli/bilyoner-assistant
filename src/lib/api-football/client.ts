@@ -17,10 +17,12 @@ export function getLastRateLimitInfo(): RateLimitInfo | null {
 
 /**
  * API-Football'a istek atan temel fonksiyon
+ * @param noCache - true ise Next.js cache devre dışı (canlı veriler için)
  */
 export async function apiFootballFetch<T>(
   endpoint: string,
-  params?: Record<string, string | number | boolean>
+  params?: Record<string, string | number | boolean>,
+  options?: { noCache?: boolean }
 ): Promise<ApiResponse<T>> {
   if (!API_KEY || API_KEY === 'your_api_key_here') {
     throw new Error('API_FOOTBALL_KEY is not configured. Please add your API key to .env.local');
@@ -40,14 +42,22 @@ export async function apiFootballFetch<T>(
 
   console.log(`[API-Football] Fetching: ${endpoint}`, params || '');
 
-  const response = await fetch(url, {
+  const fetchOptions: RequestInit & { next?: { revalidate: number } } = {
     method: 'GET',
     headers: {
       'x-rapidapi-key': API_KEY,
       'x-rapidapi-host': 'v3.football.api-sports.io',
     },
-    next: { revalidate: 60 }, // Next.js cache - 60 saniye
-  });
+  };
+
+  // Canlı veriler için cache devre dışı, diğerleri 60 saniye cache
+  if (options?.noCache) {
+    fetchOptions.cache = 'no-store';
+  } else {
+    fetchOptions.next = { revalidate: 60 };
+  }
+
+  const response = await fetch(url, fetchOptions);
 
   // Rate limit bilgilerini oku
   const rateLimitInfo: RateLimitInfo = {

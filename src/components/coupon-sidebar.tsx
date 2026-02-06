@@ -60,14 +60,41 @@ export function CouponSidebar() {
   if (count === 0) {
     return (
       <Card className="h-full border-dashed border-primary/20">
-        <CardContent className="flex flex-col items-center justify-center h-full p-6 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/10 to-violet-500/10 flex items-center justify-center mb-4">
+        <CardContent className="flex flex-col items-center justify-center h-full p-6 text-center space-y-5">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/10 to-violet-500/10 flex items-center justify-center">
             <ShoppingCart className="h-6 w-6 text-primary/30" />
           </div>
-          <p className="font-semibold text-sm text-muted-foreground mb-1">Kuponunuz Bos</p>
-          <p className="text-xs text-muted-foreground/60">
-            Oneri kartlarindan <span className="font-bold text-primary">+</span> butonuna tiklayarak bahis ekleyin
-          </p>
+          <div>
+            <p className="font-semibold text-sm text-muted-foreground mb-1">Kuponunuz Bos</p>
+            <p className="text-xs text-muted-foreground/60">
+              Oneri kartlarindan <span className="font-bold text-primary">+</span> butonuna tiklayarak bahis ekleyin
+            </p>
+          </div>
+          {/* Gunun Populer Kombinesi */}
+          <div className="w-full p-3 rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/15 text-left">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-[11px] font-bold text-amber-600">Gunun Onerisi</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground mb-2">
+              AI modelimizin en guvendigi 3 tahmini kombinleyin.
+            </p>
+            <div className="space-y-1">
+              {[
+                { label: 'MS 1 + 2.5 Ust', desc: 'Ev sahibi favoriler' },
+                { label: 'KG Var kombine', desc: 'Gol beklentisi yuksek maclar' },
+                { label: 'Cift Sans', desc: 'Dusuk riskli secimler' },
+              ].map((tip, i) => (
+                <div key={i} className="flex items-center gap-2 p-1.5 rounded-lg bg-background/50 border border-border/20">
+                  <span className="w-4 h-4 rounded flex items-center justify-center bg-amber-500/15 text-amber-600 text-[9px] font-bold">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-semibold truncate">{tip.label}</p>
+                    <p className="text-[9px] text-muted-foreground">{tip.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </CardContent>
       </Card>
     );

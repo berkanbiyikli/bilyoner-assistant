@@ -11,6 +11,11 @@ import { CouponFAB } from '@/components/coupon-fab';
 import { CouponCategoryTabs } from '@/components/coupon-category-tabs';
 import { ValueDashboard } from '@/components/value-dashboard';
 import { CouponSidebar } from '@/components/coupon-sidebar';
+import { PerformanceCard } from '@/components/performance-card';
+import { HighConfidencePicks } from '@/components/high-confidence-picks';
+import { TrendTracker } from '@/components/trend-tracker';
+import { HighOddsPicks } from '@/components/high-odds-picks';
+import { QuickBuild } from '@/components/quick-build';
 import { useDailyMatches, useBatchMatchDetails } from '@/hooks/useDailyMatches';
 import { useLeagueStore, usePinnedLeagues } from '@/lib/favorites/league-store';
 import { TOP_20_LEAGUES, getLeaguePriority } from '@/config/league-priorities';
@@ -18,11 +23,13 @@ import type { DailyMatchFixture, BetSuggestion } from '@/types/api-football';
 import { 
   Calendar, Star, Filter, ChevronLeft, ChevronRight, RefreshCw,
   Zap, Target, Ticket, TrendingUp, X, SlidersHorizontal,
-  Trophy, Activity, Flame
+  Trophy, Activity, Flame, Shield, ArrowUp, ArrowDown, Sparkles,
+  AlertTriangle, Users
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type TabKey = 'opportunities' | 'matches' | 'coupons';
+type PredictionFilter = 'all' | 'ms1' | 'ms2' | 'over25' | 'btts' | 'banko';
 
 const TABS: { key: TabKey; label: string; icon: typeof Zap; desc: string }[] = [
   { key: 'opportunities', label: 'Oneriler', icon: Flame, desc: 'AI tahminleri' },
@@ -30,11 +37,21 @@ const TABS: { key: TabKey; label: string; icon: typeof Zap; desc: string }[] = [
   { key: 'coupons', label: 'Kuponlar', icon: Ticket, desc: 'Hazir kuponlar' },
 ];
 
+const PREDICTION_FILTERS: { key: PredictionFilter; label: string; icon?: typeof Zap }[] = [
+  { key: 'all', label: 'Tumu' },
+  { key: 'banko', label: 'Banko', icon: Shield },
+  { key: 'ms1', label: 'MS 1', icon: ArrowUp },
+  { key: 'ms2', label: 'MS 2', icon: ArrowDown },
+  { key: 'over25', label: '2.5 Ust', icon: TrendingUp },
+  { key: 'btts', label: 'KG Var', icon: Target },
+];
+
 export default function HomePage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedLeagues, setSelectedLeagues] = useState<number[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('matches');
+  const [predictionFilter, setPredictionFilter] = useState<PredictionFilter>('all');
 
   const pinnedLeagues = usePinnedLeagues();
   const { togglePin } = useLeagueStore();
@@ -123,6 +140,51 @@ export default function HomePage() {
   };
 
   const isToday = selectedDate.toDateString() === new Date().toDateString();
+
+  // Günün Bankosu - yüksek güvenli tahminler
+  const topPicks = useMemo(() => {
+    if (!enrichedFixtures.length) return [];
+    return enrichedFixtures
+      .filter(f => f.prediction?.confidence && f.prediction.confidence >= 65 && !f.status.isFinished)
+      .sort((a, b) => (b.prediction?.confidence || 0) - (a.prediction?.confidence || 0))
+      .slice(0, 5);
+  }, [enrichedFixtures]);
+
+  // Quick prediction filter
+  const filteredMatches = useMemo(() => {
+    if (predictionFilter === 'all') return sortedMatches;
+    return sortedMatches.filter(m => {
+      const pred = m.prediction;
+      if (!pred) return false;
+      switch (predictionFilter) {
+        case 'banko': return pred.confidence >= 70;
+        case 'ms1': return pred.winner === m.homeTeam.name;
+        case 'ms2': return pred.winner === m.awayTeam.name;
+        case 'over25': return pred.goalsAdvice?.toLowerCase().includes('over') || pred.goalsAdvice?.toLowerCase().includes('üst');
+        case 'btts': return pred.goalsAdvice?.toLowerCase().includes('btts') || pred.goalsAdvice?.toLowerCase().includes('kg');
+        default: return true;
+      }
+    });
+  }, [sortedMatches, predictionFilter]);
+
+  // AI reasoning oluşturucu
+  const getAIReasoning = (fixture: DailyMatchFixture): string | null => {
+    const parts: string[] = [];
+    const pred = fixture.prediction;
+    if (!pred) return null;
+
+    if (pred.winner && pred.confidence >= 60) {
+      parts.push(`${pred.winner} %${pred.confidence} guvenle one cikiyor`);
+    }
+    if (fixture.formComparison) {
+      const homeWins = fixture.formComparison.homeLast5.filter(r => r === 'W').length;
+      const awayWins = fixture.formComparison.awayLast5.filter(r => r === 'W').length;
+      if (homeWins >= 4) parts.push(`${fixture.homeTeam.name.split(' ')[0]} son 5'te ${homeWins}G`);
+      if (awayWins >= 4) parts.push(`${fixture.awayTeam.name.split(' ')[0]} son 5'te ${awayWins}G`);
+    }
+    if (pred.goalsAdvice) parts.push(pred.goalsAdvice);
+    return parts.length > 0 ? parts.join(' · ') : null;
+  };
 
   const getSuggestions = (fixture: DailyMatchFixture): BetSuggestion[] | undefined => {
     const suggestions: BetSuggestion[] = [];
@@ -287,29 +349,160 @@ export default function HomePage() {
 
             {/* Opportunities */}
             {!isLoading && !error && activeTab === 'opportunities' && (
-              <ValueDashboard />
+              <div className="space-y-4">
+                {/* Performance Card - Dünün Performansı */}
+                <PerformanceCard period="yesterday" />
+                
+                {/* High Confidence Picks - Radarına Takılanlar */}
+                <HighConfidencePicks 
+                  matches={enrichedFixtures}
+                  onAddToCoupon={(fixtureId, pick) => {
+                    console.log('Kupona eklendi:', fixtureId, pick);
+                  }}
+                />
+                
+                {/* Quick Build - Kombine Sihirbazı */}
+                <QuickBuild 
+                  matches={enrichedFixtures}
+                  onBuildCoupon={(coupon) => {
+                    console.log('Kupon oluşturuldu:', coupon);
+                  }}
+                />
+                
+                {/* Trend Tracker - Seri Yakalayanlar */}
+                <TrendTracker 
+                  matches={enrichedFixtures}
+                  onAddToCoupon={(fixtureId, pick) => {
+                    console.log('Kupona eklendi:', fixtureId, pick);
+                  }}
+                />
+                
+                {/* High Odds Picks - Oran Avcısı */}
+                <HighOddsPicks 
+                  matches={enrichedFixtures}
+                  onAddToCoupon={(fixtureId, pick) => {
+                    console.log('Kupona eklendi:', fixtureId, pick);
+                  }}
+                />
+                
+                {/* Value Dashboard - Değerli Fırsatlar */}
+                <ValueDashboard />
+              </div>
             )}
 
             {/* Matches */}
             {!isLoading && !error && activeTab === 'matches' && data?.data && (
-              <div className="space-y-3">
-                {sortedMatches.length === 0 ? (
+              <div className="space-y-4">
+                {/* ===== GÜNÜN BANKOSU ===== */}
+                {topPicks.length > 0 && predictionFilter === 'all' && (
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/15">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                        <Sparkles className="h-4 w-4 text-amber-500" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-sm">Gunun Bankosu</h3>
+                        <p className="text-[10px] text-muted-foreground">AI&apos;nin en guvendi&breve;i tahminler</p>
+                      </div>
+                      <span className="ml-auto text-[10px] font-bold text-amber-600 bg-amber-500/15 px-2 py-0.5 rounded-lg">{topPicks.length} tahmin</span>
+                    </div>
+                    <div className="space-y-2">
+                      {topPicks.map((pick) => {
+                        const reasoning = getAIReasoning(pick);
+                        return (
+                          <div key={pick.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-background/60 border border-border/30 hover:border-amber-500/20 transition-colors">
+                            <div className="shrink-0 text-center">
+                              <span className={cn(
+                                'inline-block text-lg font-black',
+                                (pick.prediction?.confidence || 0) >= 75 ? 'text-emerald-500' : 'text-amber-500'
+                              )}>
+                                %{pick.prediction?.confidence}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 text-xs font-semibold">
+                                <span className="truncate">{pick.homeTeam.name}</span>
+                                <span className="text-muted-foreground">vs</span>
+                                <span className="truncate">{pick.awayTeam.name}</span>
+                              </div>
+                              {reasoning && (
+                                <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{reasoning}</p>
+                              )}
+                            </div>
+                            <div className="shrink-0 text-right">
+                              {pick.prediction?.winner && (
+                                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-lg">{pick.prediction.winner === pick.homeTeam.name ? 'MS 1' : pick.prediction.winner === pick.awayTeam.name ? 'MS 2' : 'X'}</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ===== QUICK PREDICTION FILTERS ===== */}
+                <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-1">
+                  {PREDICTION_FILTERS.map(filter => (
+                    <button
+                      key={filter.key}
+                      onClick={() => setPredictionFilter(filter.key)}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all border',
+                        predictionFilter === filter.key
+                          ? 'gradient-primary text-white border-transparent shadow-sm shadow-primary/20'
+                          : 'bg-muted/30 text-muted-foreground border-border/30 hover:bg-muted/50 hover:text-foreground'
+                      )}
+                    >
+                      {filter.icon && <filter.icon className="h-3 w-3" />}
+                      {filter.label}
+                      {filter.key !== 'all' && (
+                        <span className={cn(
+                          'text-[9px] font-bold px-1 rounded',
+                          predictionFilter === filter.key ? 'bg-white/20' : 'bg-muted'
+                        )}>
+                          {sortedMatches.filter(m => {
+                            const pred = m.prediction;
+                            if (!pred) return false;
+                            switch (filter.key) {
+                              case 'banko': return pred.confidence >= 70;
+                              case 'ms1': return pred.winner === m.homeTeam.name;
+                              case 'ms2': return pred.winner === m.awayTeam.name;
+                              case 'over25': return pred.goalsAdvice?.toLowerCase().includes('over') || pred.goalsAdvice?.toLowerCase().includes('üst');
+                              case 'btts': return pred.goalsAdvice?.toLowerCase().includes('btts') || pred.goalsAdvice?.toLowerCase().includes('kg');
+                              default: return true;
+                            }
+                          }).length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {filteredMatches.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-4">
                       <Calendar className="h-6 w-6 text-muted-foreground" />
                     </div>
-                    <h3 className="font-bold text-lg mb-2">Mac Bulunamadi</h3>
-                    <p className="text-sm text-muted-foreground">Bu tarihte mac yok. Baska bir gun deneyin.</p>
+                    <h3 className="font-bold text-lg mb-2">{predictionFilter !== 'all' ? 'Filtre Sonucu Bos' : 'Mac Bulunamadi'}</h3>
+                    <p className="text-sm text-muted-foreground">{predictionFilter !== 'all' ? 'Bu kritere uyan mac yok. Filtre degistirin.' : 'Bu tarihte mac yok. Baska bir gun deneyin.'}</p>
+                    {predictionFilter !== 'all' && (
+                      <Button variant="outline" size="sm" className="mt-4 rounded-xl" onClick={() => setPredictionFilter('all')}>
+                        Filtreyi Kaldir
+                      </Button>
+                    )}
                   </div>
                 ) : (
-                  sortedMatches.map((match, i) => (
-                    <div key={match.id} className="animate-fade-in" style={{ animationDelay: i < 10 ? i * 50 + 'ms' : '0ms' }}>
-                      <ExpandedMatchCard 
-                        fixture={match}
-                        defaultExpanded={match.status.isLive}
-                      />
-                    </div>
-                  ))
+                  <div className="space-y-3">
+                    {filteredMatches.map((match, i) => (
+                      <div key={match.id} className="animate-fade-in" style={{ animationDelay: i < 10 ? i * 50 + 'ms' : '0ms' }}>
+                        <ExpandedMatchCard 
+                          fixture={match}
+                          defaultExpanded={match.status.isLive}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

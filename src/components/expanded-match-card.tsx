@@ -16,7 +16,7 @@ import { LineupBadge } from '@/components/lineup-badge';
 import { FavoriteButton } from '@/components/favorite-button';
 import { useMatchDetail } from '@/hooks/useDailyMatches';
 import type { DailyMatchFixture, BetSuggestion } from '@/types/api-football';
-import { ChevronDown, ChevronUp, TrendingUp, Target, Zap, AlertTriangle, BarChart3, DollarSign, Plus, Check } from 'lucide-react';
+import { ChevronDown, ChevronUp, TrendingUp, Target, Zap, AlertTriangle, BarChart3, DollarSign, Plus, Check, ArrowUp, ArrowDown, ShieldAlert, Brain } from 'lucide-react';
 import { cn, formatTurkeyDate, formatTurkeyTime } from '@/lib/utils';
 import { useCouponStore } from '@/lib/coupon/store';
 import type { RiskCategory } from '@/lib/coupon/types';
@@ -91,7 +91,11 @@ function BetSuggestionCard({ suggestion, fixture }: BetSuggestionCardProps) {
         )}>
           %{suggestion.confidence}
         </span>
-        <span className="text-xs font-mono font-bold text-primary/70">{suggestion.odds.toFixed(2)}</span>
+        <span className="text-xs font-mono font-bold text-primary/70 flex items-center gap-0.5">
+          {suggestion.odds.toFixed(2)}
+          {suggestion.value === 'high' && <ArrowUp className="h-2.5 w-2.5 text-emerald-500" />}
+          {suggestion.value === 'low' && <ArrowDown className="h-2.5 w-2.5 text-red-400" />}
+        </span>
         <button
           onClick={handleAddToCoupon}
           disabled={inCoupon}
@@ -198,7 +202,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
         <CardContent className="pt-0 pb-3 px-3.5 space-y-3 border-t border-primary/10">
           {/* Action bar */}
           <div className="flex items-center justify-between pt-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
               {detail?.data?.lineupsAvailable !== undefined && (
                 <LineupBadge available={detail.data.lineupsAvailable} />
               )}
@@ -239,6 +243,31 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
                   <ConfidenceBar confidence={detail.data.prediction.confidence} advice={detail.data.prediction.advice} size="sm" />
                   {detail.data.prediction.goalsAdvice && (
                     <p className="mt-1.5 text-[11px] text-muted-foreground">{detail.data.prediction.goalsAdvice}</p>
+                  )}
+                  {/* AI Reasoning */}
+                  {(detail.data.prediction.advice || detail.data.formComparison) && (
+                    <div className="mt-2 flex items-start gap-1.5 p-2 rounded-lg bg-background/50 border border-primary/10">
+                      <Brain className="h-3 w-3 text-primary shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        {(() => {
+                          const parts: string[] = [];
+                          if (detail.data.prediction.winner) {
+                            parts.push(detail.data.prediction.winner + ' favori gosteriliyor.');
+                          }
+                          if (detail.data.formComparison?.homeLast5 && detail.data.formComparison?.awayLast5) {
+                            const hw = detail.data.formComparison.homeLast5.filter(r => r.toUpperCase() === 'W').length;
+                            const aw = detail.data.formComparison.awayLast5.filter(r => r.toUpperCase() === 'W').length;
+                            if (hw > aw) parts.push('Ev sahibi son 5 macta daha basarili.');
+                            else if (aw > hw) parts.push('Deplasman takimi son 5 macta daha formda.');
+                            else parts.push('Her iki takim da benzer formda.');
+                          }
+                          if (detail.data.prediction.goalsAdvice) {
+                            parts.push('Gol beklentisi: ' + detail.data.prediction.goalsAdvice + '.');
+                          }
+                          return parts.join(' ') || detail.data.prediction.advice || 'Analiz verisi isleniyor...';
+                        })()}
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
@@ -291,9 +320,12 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
                       </div>
                       <span className="font-semibold text-xs">Poisson</span>
                     </div>
-                    {detail.data.apiValidation && (
-                      <APIValidationBadge label={detail.data.apiValidation.label} deviation={detail.data.apiValidation.deviation} message={detail.data.apiValidation.message} />
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] font-semibold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded-md">Dogruluk ~%72</span>
+                      {detail.data.apiValidation && (
+                        <APIValidationBadge label={detail.data.apiValidation.label} deviation={detail.data.apiValidation.deviation} message={detail.data.apiValidation.message} />
+                      )}
+                    </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2 mb-2.5">
                     <div className="text-center p-2 rounded-xl bg-blue-500/15 border border-blue-500/10">

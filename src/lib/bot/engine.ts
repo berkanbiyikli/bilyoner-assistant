@@ -413,10 +413,10 @@ function filterAndScoreBetSuggestions(
     const bestSuggestion = validSuggestions[0];
     console.log(`[Bot] ✓ Aday: ${match.homeTeam.name} vs ${match.awayTeam.name} - ${bestSuggestion.pick} @${bestSuggestion.odds} (${bestSuggestion.confidence}%)`);
     
-    // Prediction oluştur
+    // Prediction oluştur (label'da confidence suffix koyma - tweet formatter bozuluyor)
     const prediction: BotMatch['prediction'] = {
       type: mapBetPickToType(bestSuggestion.pick),
-      label: `${bestSuggestion.pick} (${bestSuggestion.confidence}%)`,
+      label: bestSuggestion.pick,
       probability: bestSuggestion.confidence / 100,
       odds: bestSuggestion.odds,
     };
@@ -518,9 +518,18 @@ function mapBetPickToType(pick: string): BotMatch['prediction']['type'] {
   if (pickLower.includes('ev sahibi') || pickLower.includes('ms 1') || pick === '1') return 'home';
   if (pickLower.includes('beraberlik') || pickLower.includes('ms x') || pick === 'X') return 'draw';
   if (pickLower.includes('deplasman') || pickLower.includes('ms 2') || pick === '2') return 'away';
+  if (pickLower.includes('üst 3.5') || pickLower.includes('over 3.5')) return 'over35';
+  if (pickLower.includes('alt 3.5') || pickLower.includes('under 3.5')) return 'under35';
+  if (pickLower.includes('üst 1.5') || pickLower.includes('over 1.5')) return 'over15';
+  if (pickLower.includes('alt 1.5') || pickLower.includes('under 1.5')) return 'under15';
   if (pickLower.includes('üst') || pickLower.includes('over')) return 'over25';
+  if (pickLower.includes('alt') || pickLower.includes('under')) return 'under25';
   if (pickLower.includes('kg var') || pickLower.includes('btts')) return 'btts';
-  if (pickLower.includes('alt') || pickLower.includes('under')) return 'over25'; // Alt bahis olarak over25 kullan
+  if (pickLower.includes('kg yok')) return 'btts_no';
+  if (pickLower.includes('İy üst 0.5') || pickLower.includes('iy üst 0.5')) return 'ht_over05';
+  if (pickLower.includes('İy alt 0.5') || pickLower.includes('iy alt 0.5')) return 'ht_under05';
+  if (pickLower.includes('İy üst 1.5') || pickLower.includes('iy üst 1.5')) return 'ht_over15';
+  if (pickLower.includes('İy alt 1.5') || pickLower.includes('iy alt 1.5')) return 'ht_under15';
   return 'home';
 }
 

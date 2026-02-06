@@ -179,7 +179,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Sticky Sub-Header */}
-      <div className="sticky top-14 md:top-16 z-30 bg-background/95 backdrop-blur-lg border-b">
+      <div className="sticky top-16 z-30 glass border-b border-border/50">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-12 md:h-14 gap-2">
             {/* Date Navigation */}
@@ -188,7 +188,7 @@ export default function HomePage() {
                 variant="ghost" 
                 size="icon"
                 onClick={() => navigateDate('prev')}
-                className="h-8 w-8"
+                className="h-8 w-8 rounded-xl"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -197,7 +197,7 @@ export default function HomePage() {
                 variant={isToday ? "default" : "outline"}
                 size="sm"
                 onClick={() => setSelectedDate(new Date())}
-                className="h-8 px-3 gap-1.5 min-w-[120px]"
+                className="h-8 px-3 gap-1.5 min-w-[120px] rounded-xl"
               >
                 <Calendar className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">
@@ -216,7 +216,7 @@ export default function HomePage() {
                 variant="ghost" 
                 size="icon"
                 onClick={() => navigateDate('next')}
-                className="h-8 w-8"
+                className="h-8 w-8 rounded-xl"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -226,12 +226,12 @@ export default function HomePage() {
             <div className="hidden sm:flex items-center gap-2">
               {data?.stats && (
                 <>
-                  <Badge variant="outline" className="gap-1">
-                    <span className="font-bold">{data.stats.total}</span>
+                  <Badge variant="outline" className="gap-1 rounded-lg border-border/50">
+                    <span className="font-bold text-primary">{data.stats.total}</span>
                     <span className="text-muted-foreground text-xs">maç</span>
                   </Badge>
                   {isFetching && (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-primary" />
                   )}
                 </>
               )}
@@ -240,12 +240,12 @@ export default function HomePage() {
             {/* Tabs + Filter Button */}
             <div className="flex items-center gap-2">
               {/* Desktop Tabs */}
-              <div className="hidden md:flex items-center bg-muted rounded-lg p-1">
+              <div className="hidden md:flex items-center bg-muted/50 rounded-xl p-1 border border-border/30">
                 <Button
                   variant={activeTab === 'opportunities' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setActiveTab('opportunities')}
-                  className="h-7 px-3 text-xs gap-1.5"
+                  className="h-7 px-3 text-xs gap-1.5 rounded-lg"
                 >
                   <TrendingUp className="h-3.5 w-3.5" />
                   Öneriler
@@ -254,7 +254,7 @@ export default function HomePage() {
                   variant={activeTab === 'matches' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setActiveTab('matches')}
-                  className="h-7 px-3 text-xs gap-1.5"
+                  className="h-7 px-3 text-xs gap-1.5 rounded-lg"
                 >
                   <Zap className="h-3.5 w-3.5" />
                   Maçlar
@@ -263,7 +263,7 @@ export default function HomePage() {
                   variant={activeTab === 'coupons' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setActiveTab('coupons')}
-                  className="h-7 px-3 text-xs gap-1.5"
+                  className="h-7 px-3 text-xs gap-1.5 rounded-lg"
                 >
                   <Ticket className="h-3.5 w-3.5" />
                   Kuponlar
@@ -275,12 +275,12 @@ export default function HomePage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setShowFilters(true)}
-                className="h-8 gap-1.5"
+                className="h-8 gap-1.5 rounded-xl border-border/50"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Filtre</span>
                 {selectedLeagues.length > 0 && (
-                  <Badge className="h-5 min-w-5 p-0 flex items-center justify-center">
+                  <Badge className="h-5 min-w-5 p-0 flex items-center justify-center rounded-md">
                     {selectedLeagues.length}
                   </Badge>
                 )}
@@ -292,7 +292,7 @@ export default function HomePage() {
                 size="icon"
                 onClick={() => refetch()}
                 disabled={isFetching}
-                className="h-8 w-8"
+                className="h-8 w-8 rounded-xl"
               >
                 <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
               </Button>
@@ -305,7 +305,7 @@ export default function HomePage() {
               variant={activeTab === 'opportunities' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setActiveTab('opportunities')}
-              className="h-8 px-3 text-xs gap-1.5 flex-shrink-0"
+              className="h-8 px-3 text-xs gap-1.5 flex-shrink-0 rounded-xl"
             >
               <TrendingUp className="h-3.5 w-3.5" />
               Öneriler
@@ -314,7 +314,7 @@ export default function HomePage() {
               variant={activeTab === 'matches' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setActiveTab('matches')}
-              className="h-8 px-3 text-xs gap-1.5 flex-shrink-0"
+              className="h-8 px-3 text-xs gap-1.5 flex-shrink-0 rounded-xl"
             >
               <Zap className="h-3.5 w-3.5" />
               Maçlar
@@ -323,7 +323,7 @@ export default function HomePage() {
               variant={activeTab === 'coupons' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setActiveTab('coupons')}
-              className="h-8 px-3 text-xs gap-1.5 flex-shrink-0"
+              className="h-8 px-3 text-xs gap-1.5 flex-shrink-0 rounded-xl"
             >
               <Ticket className="h-3.5 w-3.5" />
               Kuponlar
@@ -333,8 +333,8 @@ export default function HomePage() {
       </div>
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-4">
-        <div className="flex gap-4">
+      <div className="container mx-auto px-4 py-6">
+        <div className="flex gap-6">
           {/* Content Area */}
           <div className="flex-1 min-w-0">
             {/* Loading State */}
@@ -348,9 +348,9 @@ export default function HomePage() {
 
             {/* Error State */}
             {error && (
-              <Card className="p-8 text-center">
+              <Card className="p-8 text-center glass-subtle rounded-2xl border-border/50">
                 <p className="text-destructive mb-4">Maçlar yüklenirken bir hata oluştu</p>
-                <Button onClick={() => refetch()}>Tekrar Dene</Button>
+                <Button onClick={() => refetch()} className="rounded-xl">Tekrar Dene</Button>
               </Card>
             )}
 
@@ -361,9 +361,9 @@ export default function HomePage() {
 
             {/* Matches View - Saate göre sıralı */}
             {!isLoading && !error && activeTab === 'matches' && data?.data && (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {sortedMatches.length === 0 ? (
-                  <Card className="p-8 text-center">
+                  <Card className="p-8 text-center glass-subtle rounded-2xl border-border/50">
                     <p className="text-muted-foreground">Bu tarihte maç bulunamadı</p>
                   </Card>
                 ) : (
@@ -382,9 +382,11 @@ export default function HomePage() {
             {!isLoading && !error && activeTab === 'coupons' && data?.data && (
               <div>
                 <div className="flex items-center gap-2 mb-4">
-                  <Target className="h-5 w-5 text-primary" />
+                  <div className="p-1.5 rounded-lg bg-primary/10">
+                    <Target className="h-5 w-5 text-primary" />
+                  </div>
                   <h2 className="text-lg font-bold">Kupon Kategorileri</h2>
-                  <Badge variant="outline">{data.stats?.total || 0} maç</Badge>
+                  <Badge variant="outline" className="rounded-lg border-border/50">{data.stats?.total || 0} maç</Badge>
                   {isBatchLoading && (
                     <Badge variant="secondary" className="animate-pulse">
                       Yükleniyor...
@@ -419,34 +421,37 @@ export default function HomePage() {
         <div className="fixed inset-0 z-50">
           {/* Backdrop */}
           <div 
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => setShowFilters(false)}
           />
           
           {/* Drawer */}
-          <div className="absolute inset-y-0 right-0 w-full max-w-sm bg-background shadow-xl flex flex-col animate-in slide-in-from-right duration-300">
+          <div className="absolute inset-y-0 right-0 w-full max-w-sm glass shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 border-l border-border/50">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b">
+            <div className="flex items-center justify-between p-4 border-b border-border/50">
               <div className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <Filter className="h-4 w-4 text-primary" />
+                </div>
                 <h2 className="font-semibold">Lig Filtreleri</h2>
               </div>
               <Button 
                 variant="ghost" 
                 size="icon"
                 onClick={() => setShowFilters(false)}
+                className="rounded-xl"
               >
                 <X className="h-5 w-5" />
               </Button>
             </div>
             
             {/* Quick Actions */}
-            <div className="flex gap-2 p-4 border-b">
+            <div className="flex gap-2 p-4 border-b border-border/50">
               <Button 
                 variant="outline" 
                 size="sm" 
                 onClick={handleSelectAll}
-                className="flex-1"
+                className="flex-1 rounded-xl border-border/50"
               >
                 {selectedLeagues.length === TOP_20_LEAGUES.length ? 'Temizle' : 'Tümünü Seç'}
               </Button>
@@ -455,7 +460,7 @@ export default function HomePage() {
                   variant="outline" 
                   size="sm" 
                   onClick={() => setSelectedLeagues(pinnedLeagues)}
-                  className="flex-1 gap-1"
+                  className="flex-1 gap-1 rounded-xl border-border/50"
                 >
                   <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
                   Favoriler
@@ -475,8 +480,8 @@ export default function HomePage() {
                     <div
                       key={league.id}
                       className={cn(
-                        "flex items-center gap-3 p-3 rounded-lg transition-colors",
-                        isSelected ? "bg-primary/5" : "hover:bg-muted/50"
+                        "flex items-center gap-3 p-3 rounded-xl transition-all duration-200",
+                        isSelected ? "bg-primary/5 border border-primary/10" : "hover:bg-muted/50 border border-transparent"
                       )}
                     >
                       <Checkbox
@@ -492,12 +497,12 @@ export default function HomePage() {
                         <span className="font-medium">{league.name}</span>
                       </label>
                       {matchCount > 0 && (
-                        <Badge variant="secondary">{matchCount}</Badge>
+                        <Badge variant="secondary" className="rounded-lg">{matchCount}</Badge>
                       )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-8 w-8 rounded-xl"
                         onClick={() => togglePin(league.id)}
                       >
                         <Star className={cn(
@@ -512,9 +517,9 @@ export default function HomePage() {
             </ScrollArea>
             
             {/* Footer */}
-            <div className="p-4 border-t">
+            <div className="p-4 border-t border-border/50">
               <Button 
-                className="w-full"
+                className="w-full rounded-xl"
                 onClick={() => setShowFilters(false)}
               >
                 Uygula

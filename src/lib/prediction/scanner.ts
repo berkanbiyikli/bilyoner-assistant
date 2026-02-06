@@ -15,6 +15,7 @@ import {
   calculateOutcomeProbabilities,
   type MatchOutcomeProbabilities 
 } from './poisson';
+import { getHomeAdvantage } from './engine';
 import { 
   analyzeValueBet,
   type ValueBetAnalysis 
@@ -333,12 +334,21 @@ function analyzeMatch(match: ScanInput): MatchAnalysis {
     const homeAvg = match.homeStats.goalsScored / Math.max(match.homeStats.matchesPlayed, 1);
     const awayAvg = match.awayStats.goalsScored / Math.max(match.awayStats.matchesPlayed, 1);
     
-    // Adjust with League DNA
-    const adjustedHomeExpected = (homeAvg * 0.7) + (leagueDNA.avgGoals / 2 * 0.3);
-    const adjustedAwayExpected = (awayAvg * 0.7) + (leagueDNA.avgGoals / 2 * 0.3);
+    // Lig DNA'dan ev/deplasman gol ortalamalarını ayır
+    const leagueHomeGoalAvg = leagueDNA.avgGoals * (leagueDNA.homeWinRate + 0.05); // Ev golü biraz daha yüksek
+    const leagueAwayGoalAvg = leagueDNA.avgGoals * (1 - leagueDNA.homeWinRate - 0.05);
+    
+    // Adjust with League DNA (%60 takım verisi, %40 lig ortalaması - shrinkage)
+    const adjustedHomeExpected = (homeAvg * 0.6) + (leagueHomeGoalAvg * 0.4);
+    const adjustedAwayExpected = (awayAvg * 0.6) + (leagueAwayGoalAvg * 0.4);
+    
+    // Dinamik ev avantajı uygula (lig bazlı)
+    const homeAdv = getHomeAdvantage(match.league.id);
+    const homeXG = adjustedHomeExpected * homeAdv;
+    const awayXG = adjustedAwayExpected / Math.sqrt(homeAdv); // Deplasman dezavantajı
     
     // Generate score matrix and calculate probabilities
-    const matrix = generateScoreMatrix(adjustedHomeExpected, adjustedAwayExpected);
+    const matrix = generateScoreMatrix(homeXG, awayXG);
     poisson = calculateOutcomeProbabilities(matrix);
   }
   

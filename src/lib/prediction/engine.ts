@@ -355,7 +355,8 @@ export class PredictionEngine {
     const homeFormScore = calcFormScore(homeForm);
     const awayFormScore = calcFormScore(awayForm);
     const homeHomeFormScore = calcFormScore(homeForm, true);
-    const awayAwayFormScore = calcFormScore(awayForm.map(m => ({ ...m, isHome: !m.isHome })), true);
+    // Deplasman maçlarını filtrele (isHome=false olanlar)
+    const awayAwayFormScore = calcFormScore(awayForm.filter(m => !m.isHome));
     
     // GPP varsa kullan, yoksa basit skoru kullan
     // GPP %60, Basit form %40 ağırlıklı kombine
@@ -526,45 +527,57 @@ export class PredictionEngine {
   ): MatchResultPrediction {
     const { form, h2h, stats, standings, motivation } = factors;
     
-    // Ağırlıklı skor hesapla
-    let homeScore = 50;
-    let awayScore = 50;
+    // Ağırlıklı skor hesapla (log-odds bazlı, daha doğru normalizasyon)
+    let homeLogit = 0;
+    let drawLogit = 0;
+    let awayLogit = 0;
     
     // Form etkisi (%30)
-    homeScore += (form.homeForm - 50) * 0.3;
-    awayScore += (form.awayForm - 50) * 0.3;
+    homeLogit += (form.homeForm - 50) * 0.012;
+    awayLogit += (form.awayForm - 50) * 0.012;
+    drawLogit += -Math.abs(form.formDifference) * 0.003; // Fark büyükse beraberlik düşer
     
     // Ev/Deplasman formu (%10)
-    homeScore += (form.homeHomeForm - 50) * 0.1;
-    awayScore += (form.awayAwayForm - 50) * 0.1;
+    homeLogit += (form.homeHomeForm - 50) * 0.004;
+    awayLogit += (form.awayAwayForm - 50) * 0.004;
     
-    // H2H etkisi (%15)
+    // H2H etkisi (%15) - psikolojik faktör
     if (h2h.totalMatches > 0) {
-      const h2hHomeAdvantage = ((h2h.homeWins - h2h.awayWins) / h2h.totalMatches) * 15;
-      homeScore += h2hHomeAdvantage;
-      awayScore -= h2hHomeAdvantage;
+      const h2hRatio = (h2h.homeWins - h2h.awayWins) / h2h.totalMatches;
+      homeLogit += h2hRatio * 0.4;
+      awayLogit -= h2hRatio * 0.4;
+      // H2H beraberlikleri
+      if (h2h.totalMatches >= 3) {
+        const drawRatio = h2h.draws / h2h.totalMatches;
+        drawLogit += (drawRatio - 0.25) * 0.3;
+      }
     }
     
     // İstatistik etkisi (%20)
-    homeScore += ((stats.homeAttack + stats.homeDefense) / 2 - 50) * 0.2;
-    awayScore += ((stats.awayAttack + stats.awayDefense) / 2 - 50) * 0.2;
+    homeLogit += ((stats.homeAttack + stats.homeDefense) / 2 - 50) * 0.008;
+    awayLogit += ((stats.awayAttack + stats.awayDefense) / 2 - 50) * 0.008;
     
     // Sıralama etkisi (%15)
-    homeScore += (standings.positionDifference * 1.5);
-    awayScore -= (standings.positionDifference * 1.5);
+    homeLogit += (standings.positionDifference * 0.05);
+    awayLogit -= (standings.positionDifference * 0.05);
     
     // Motivasyon etkisi (%10)
-    homeScore += (motivation.homeMotivation - 70) * 0.1;
-    awayScore += (motivation.awayMotivation - 70) * 0.1;
+    homeLogit += (motivation.homeMotivation - 70) * 0.004;
+    awayLogit += (motivation.awayMotivation - 70) * 0.004;
     
-    // Ev avantajı bonus (%5-10)
-    homeScore += 5;
+    // Ev avantajı bonus (dinamik)
+    homeLogit += 0.25; // ~5-7% ev avantajı
     
-    // Normalize et
-    const total = homeScore + awayScore;
-    const homePct = Math.min(70, Math.max(20, (homeScore / total) * 100));
-    const awayPct = Math.min(70, Math.max(20, (awayScore / total) * 100));
-    const drawPct = 100 - homePct - awayPct;
+    // Softmax normalizasyon (toplamı her zaman 100% yapar, negatif olasılık olmaz)
+    const expHome = Math.exp(homeLogit);
+    const expDraw = Math.exp(drawLogit);
+    const expAway = Math.exp(awayLogit);
+    const expTotal = expHome + expDraw + expAway;
+    
+    const homePct = Math.min(75, Math.max(15, (expHome / expTotal) * 100));
+    const awayPct = Math.min(75, Math.max(15, (expAway / expTotal) * 100));
+    // Beraberliği yeniden hesapla (toplam 100 olsun)
+    const drawPct = Math.max(10, Math.min(40, 100 - homePct - awayPct));
     
     // Value hesapla
     const calcValue = (prob: number, odds: number): number => {
@@ -694,15 +707,28 @@ export class PredictionEngine {
   ): BTTSPrediction {
     const { stats, h2h } = factors;
     
-    // Her iki takımın gol atma olasılığı
-    const homeScoreProb = Math.min(90, stats.homeGoalsScored * 50);
-    const awayScoreProb = Math.min(90, stats.awayGoalsScored * 50);
+    // Poisson bazlı BTTS hesabı (daha bilimsel)
+    // P(BTTS) = P(home>=1) * P(away>=1) = (1 - P(home=0)) * (1 - P(away=0))
+    const homeXG = stats.homeGoalsScored > 0 ? stats.homeGoalsScored : 1.3;
+    const awayXG = stats.awayGoalsScored > 0 ? stats.awayGoalsScored : 1.0;
+    const homeNoGoalProb = Math.exp(-homeXG); // P(0 gol) = e^(-λ)
+    const awayNoGoalProb = Math.exp(-awayXG);
+    const homeScoreProb = (1 - homeNoGoalProb) * 100;
+    const awayScoreProb = (1 - awayNoGoalProb) * 100;
     
-    let bttsProb = (homeScoreProb * awayScoreProb) / 100;
+    let bttsProb = homeScoreProb * awayScoreProb / 100;
     
-    // H2H düzeltmesi
+    // Savunma gücü düzeltmesi
+    const defenseFactor = ((stats.homeGoalsConceded + stats.awayGoalsConceded) / 2);
+    if (defenseFactor < 0.8) {
+      bttsProb *= 0.85; // Güçlü savunmalar BTTS'i düşürür
+    } else if (defenseFactor > 1.5) {
+      bttsProb *= 1.1; // Zayıf savunmalar BTTS'i artırır
+    }
+    
+    // H2H düzeltmesi (%20 ağırlık)
     if (h2h.totalMatches >= 3) {
-      bttsProb = (bttsProb + h2h.bttsPercentage) / 2;
+      bttsProb = (bttsProb * 0.8) + (h2h.bttsPercentage * 0.2);
     }
     
     const calcValue = (prob: number, marketOdds: number): number => {
@@ -864,27 +890,59 @@ export class PredictionEngine {
   }
   
   /**
-   * Genel güven skoru
+   * Genel güven skoru (gelişmiş versiyon)
+   * Veri kalitesi + faktör tutarlılığı + sinyal gücü
    */
   private calculateOverallConfidence(factors: PredictionFactors): number {
-    // Veri kalitesine göre güven
-    let confidence = 50;
+    let confidence = 40; // Temel başlangıç
     
-    // H2H verisi varsa
-    if (factors.h2h.totalMatches >= 5) confidence += 10;
-    else if (factors.h2h.totalMatches >= 3) confidence += 5;
+    // === Veri Kalitesi (max +20) ===
+    if (factors.h2h.totalMatches >= 5) confidence += 8;
+    else if (factors.h2h.totalMatches >= 3) confidence += 4;
     
+    // GPP verisi varsa daha güvenilir
+    if (factors.form.homeGPP && factors.form.awayGPP) confidence += 5;
+    
+    // İstatistik verisi kalitesi
+    if (factors.stats.homeGoalsScored > 0 && factors.stats.awayGoalsScored > 0) confidence += 7;
+    
+    // === Sinyal Gücü (max +25) ===
     // Form farkı net ise
-    if (Math.abs(factors.form.formDifference) >= 20) confidence += 10;
+    const formDiffAbs = Math.abs(factors.form.formDifference);
+    if (formDiffAbs >= 30) confidence += 12;
+    else if (formDiffAbs >= 20) confidence += 8;
+    else if (formDiffAbs >= 10) confidence += 4;
     
     // Sıralama farkı net ise
-    if (Math.abs(factors.standings.positionDifference) >= 8) confidence += 10;
+    const posDiffAbs = Math.abs(factors.standings.positionDifference);
+    if (posDiffAbs >= 10) confidence += 10;
+    else if (posDiffAbs >= 6) confidence += 6;
+    else if (posDiffAbs >= 3) confidence += 3;
     
-    // Motivasyon yüksek ise
-    if (factors.motivation.importanceLevel === 'critical') confidence += 10;
-    else if (factors.motivation.importanceLevel === 'high') confidence += 5;
+    // === Faktör Tutarlılığı (max +15) ===
+    // Form ve sıralama aynı yönü gösteriyorsa
+    const formFavorsHome = factors.form.formDifference > 5;
+    const standingsFavorsHome = factors.standings.positionDifference > 2;
+    const h2hFavorsHome = factors.h2h.homeWins > factors.h2h.awayWins;
     
-    return Math.min(95, confidence);
+    const signals = [formFavorsHome, standingsFavorsHome, h2hFavorsHome];
+    const trueCount = signals.filter(Boolean).length;
+    const falseCount = signals.filter(s => !s).length;
+    const maxAgreement = Math.max(trueCount, falseCount);
+    
+    if (maxAgreement === 3) confidence += 15; // Tüm faktörler aynı fikirde
+    else if (maxAgreement === 2) confidence += 8; // Çoğunluk aynı fikirde
+    // 1 = karışık sinyaller, bonus yok
+    
+    // === Motivasyon (max +8) ===
+    if (factors.motivation.importanceLevel === 'critical') confidence += 8;
+    else if (factors.motivation.importanceLevel === 'high') confidence += 4;
+    
+    // === Belirsizlik Cezası ===
+    // Form çok yakınsa güveni düşür
+    if (formDiffAbs < 5 && posDiffAbs < 3) confidence -= 5;
+    
+    return Math.min(95, Math.max(20, confidence));
   }
 }
 

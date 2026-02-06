@@ -405,6 +405,8 @@ export function calculateXG(input: XGCalculationInput): XGResult {
     leagueAvgHomeGoals = 1.5,
     leagueAvgAwayGoals = 1.2,
     homeAdvantage = 1.1,
+    homeRecentXG,
+    awayRecentXG,
   } = input;
 
   // Atak gücü = Takımın attığı gol / Lig ortalaması
@@ -416,17 +418,37 @@ export function calculateXG(input: XGCalculationInput): XGResult {
   const homeDefenseStrength = homeGoalsConceded / leagueAvgAwayGoals;
   const awayDefenseStrength = awayGoalsConceded / leagueAvgHomeGoals;
 
-  // xG hesabı
+  // xG hesabı (temel)
   // Ev sahibi xG = Lig ort. × Ev atak gücü × Deplasman savunma zayıflığı × Ev avantajı
-  const homeXG = leagueAvgHomeGoals * homeAttackStrength * awayDefenseStrength * homeAdvantage;
+  let homeXG = leagueAvgHomeGoals * homeAttackStrength * awayDefenseStrength * homeAdvantage;
   
   // Deplasman xG = Lig ort. × Dep. atak gücü × Ev savunma zayıflığı
-  const awayXG = leagueAvgAwayGoals * awayAttackStrength * homeDefenseStrength;
+  let awayXG = leagueAvgAwayGoals * awayAttackStrength * homeDefenseStrength;
+
+  // 🆕 xG Entegrasyonu: Gerçek xG verisi varsa ağırlıklı harmanlama yap
+  if (homeRecentXG && homeRecentXG.length >= 2) {
+    const { xgValues: homeXGValues, hasRealXG: homeHasReal } = processRecentXGData(
+      homeRecentXG.map(xg => ({ xg, goals: homeGoalsScored }))
+    );
+    const weightedHomeXG = calculateWeightedXG(homeXGValues, leagueAvgHomeGoals, DEFAULT_XG_SHRINKAGE, homeHasReal);
+    // %60 model xG + %40 gerçek xG harmanlama (gerçek xG varsa daha fazla ağırlık)
+    const realWeight = homeHasReal ? 0.5 : 0.3;
+    homeXG = (homeXG * (1 - realWeight)) + (weightedHomeXG * homeAdvantage * realWeight);
+  }
+  
+  if (awayRecentXG && awayRecentXG.length >= 2) {
+    const { xgValues: awayXGValues, hasRealXG: awayHasReal } = processRecentXGData(
+      awayRecentXG.map(xg => ({ xg, goals: awayGoalsScored }))
+    );
+    const weightedAwayXG = calculateWeightedXG(awayXGValues, leagueAvgAwayGoals, DEFAULT_XG_SHRINKAGE, awayHasReal);
+    const realWeight = awayHasReal ? 0.5 : 0.3;
+    awayXG = (awayXG * (1 - realWeight)) + (weightedAwayXG * realWeight);
+  }
 
   return {
     homeXG: Math.max(0.2, Math.min(4.0, homeXG)),  // 0.2 - 4.0 arası sınırla
     awayXG: Math.max(0.1, Math.min(3.5, awayXG)),  // 0.1 - 3.5 arası sınırla
-    totalXG: homeXG + awayXG,
+    totalXG: Math.max(0.2, Math.min(4.0, homeXG)) + Math.max(0.1, Math.min(3.5, awayXG)),
     homeAttackStrength,
     homeDefenseStrength,
     awayAttackStrength,

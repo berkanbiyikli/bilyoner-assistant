@@ -6,8 +6,16 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/bot/daily-preview",
+      "schedule": "0 8 * * *"
+    },
+    {
       "path": "/api/bot/run?action=new-coupon",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/bot/stats-tweet",
+      "schedule": "0 12 * * *"
     },
     {
       "path": "/api/bot/deep-stats",
@@ -20,6 +28,18 @@
     {
       "path": "/api/bot/cron",
       "schedule": "*/15 0-1 * * *"
+    },
+    {
+      "path": "/api/bot/live",
+      "schedule": "*/10 14-23 * * *"
+    },
+    {
+      "path": "/api/bot/live",
+      "schedule": "*/10 0-1 * * *"
+    },
+    {
+      "path": "/api/bot/run?action=check-results",
+      "schedule": "30 23 * * *"
     },
     {
       "path": "/api/bot/night-report",

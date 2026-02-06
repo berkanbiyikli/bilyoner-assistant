@@ -50,8 +50,8 @@ function LiveMatchCard({ fixture, isSelected, onSelect }: LiveMatchCardProps) {
   return (
     <Card 
       className={cn(
-        'cursor-pointer transition-all hover:shadow-md',
-        isSelected && 'ring-2 ring-primary',
+        'cursor-pointer transition-all duration-300 hover:shadow-lg rounded-2xl border-border/50',
+        isSelected && 'ring-2 ring-primary shadow-lg shadow-primary/10',
         !isHT && 'animate-pulse-subtle'
       )}
       onClick={onSelect}
@@ -69,7 +69,7 @@ function LiveMatchCard({ fixture, isSelected, onSelect }: LiveMatchCardProps) {
             />
           )}
           <span className="truncate">{fixture.league.name}</span>
-          <Badge variant="destructive" className="ml-auto text-[10px] animate-pulse">
+          <Badge variant="destructive" className="ml-auto text-[10px] animate-pulse rounded-lg shadow-sm shadow-red-500/20">
             <Radio className="h-2 w-2 mr-1" />
             {isHT ? 'Devre Arası' : `${fixture.status.elapsed}'`}
           </Badge>
@@ -158,12 +158,14 @@ function StatsPanel({ fixture }: StatsPanelProps) {
   }
 
   return (
-    <Card>
+    <Card className="rounded-2xl border-border/50">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg flex items-center gap-2">
-          <Target className="h-5 w-5 text-primary" />
+          <div className="p-1.5 rounded-lg bg-primary/10">
+            <Target className="h-4 w-4 text-primary" />
+          </div>
           Canlı İstatistikler
-          <Badge variant="outline" className="ml-auto">
+          <Badge variant="outline" className="ml-auto rounded-lg border-border/50">
             {fixture.status.elapsed}&apos; dakika
           </Badge>
         </CardTitle>
@@ -288,10 +290,10 @@ function StatRow({ label, homeValue, awayValue, suffix = '', isPercentage, highl
           {awayValue}{suffix}
         </span>
       </div>
-      <div className="flex h-2 rounded-full overflow-hidden bg-muted">
+      <div className="flex h-2 rounded-full overflow-hidden bg-muted/50">
         <div 
           className={cn(
-            "transition-all",
+            "transition-all duration-500 rounded-full",
             highlight ? "bg-green-500" : "bg-primary"
           )}
           style={{ width: `${isPercentage ? homeValue : homePercent}%` }}
@@ -396,25 +398,28 @@ export default function LiveMatchesPage() {
   const goldenChanceCount = hunterMatches.filter(m => m.hunterStatus === 'golden_chance').length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+    <div className="min-h-screen">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-background/95 backdrop-blur border-b">
+      <header className="sticky top-16 z-30 glass border-b border-border/50">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Link href="/">
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" className="rounded-xl">
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
               </Link>
               <div className="flex items-center gap-2">
-                <Radio className="h-5 w-5 text-red-500 animate-pulse" />
+                <div className="relative">
+                  <div className="absolute -inset-1 bg-red-500 rounded-full blur opacity-30 animate-pulse" />
+                  <Radio className="relative h-5 w-5 text-red-500" />
+                </div>
                 <h1 className="text-xl font-bold">Canlı Maçlar</h1>
-                <Badge variant="secondary" className="ml-2">
+                <Badge variant="secondary" className="ml-2 rounded-lg">
                   {liveMatches.length} maç
                 </Badge>
                 {goldenChanceCount > 0 && (
-                  <Badge className="bg-amber-500 animate-pulse">
+                  <Badge className="bg-amber-500 animate-pulse rounded-lg shadow-lg shadow-amber-500/30">
                     <Trophy className="w-3 h-3 mr-1" />
                     {goldenChanceCount}
                   </Badge>
@@ -427,6 +432,7 @@ export default function LiveMatchesPage() {
               size="sm"
               onClick={() => refetch()}
               disabled={isFetching}
+              className="rounded-xl border-border/50"
             >
               <RefreshCw className={cn("h-4 w-4 mr-2", isFetching && "animate-spin")} />
               Yenile
@@ -450,7 +456,7 @@ export default function LiveMatchesPage() {
             </Card>
           </div>
         ) : liveMatches.length === 0 ? (
-          <Card className="py-16 text-center">
+          <Card className="py-16 text-center glass-subtle rounded-2xl border-border/50">
             <CardContent>
               <Clock className="h-16 w-16 mx-auto mb-4 text-muted-foreground/50" />
               <h2 className="text-xl font-semibold mb-2">Şu an canlı maç yok</h2>
@@ -458,7 +464,7 @@ export default function LiveMatchesPage() {
                 Top 20 liglerden canlı maç başladığında burada görünecek
               </p>
               <Link href="/">
-                <Button>
+                <Button className="rounded-xl">
                   <ArrowLeft className="h-4 w-4 mr-2" />
                   Günlük Maçlara Dön
                 </Button>
@@ -467,7 +473,7 @@ export default function LiveMatchesPage() {
           </Card>
         ) : (
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'matches' | 'hunter')}>
-            <TabsList className="mb-6">
+            <TabsList className="mb-6 rounded-xl">
               <TabsTrigger value="hunter" className="gap-2">
                 <Target className="w-4 h-4" />
                 Avcı Modu
@@ -516,7 +522,7 @@ export default function LiveMatchesPage() {
                   {selectedFixture ? (
                     <StatsPanel fixture={selectedFixture} />
                   ) : (
-                    <Card className="py-8 text-center">
+                    <Card className="py-8 text-center glass-subtle rounded-2xl border-border/50">
                       <CardContent>
                         <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
                         <p className="text-muted-foreground">

@@ -1,6 +1,6 @@
-/**
- * Anasayfa - Profesyonel Tek Sayfa Tasarımı
- * Mobil ve Desktop uyumlu responsive layout
+﻿/**
+ * Anasayfa - Temiz, modern tasarim
+ * Tarih secimi + Tab navigasyon + Mac listesi
  */
 
 'use client';
@@ -36,31 +36,34 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+type TabKey = 'opportunities' | 'matches' | 'coupons';
+
+const TABS: { key: TabKey; label: string; icon: typeof Zap }[] = [
+  { key: 'opportunities', label: 'Oneriler', icon: TrendingUp },
+  { key: 'matches', label: 'Maclar', icon: Zap },
+  { key: 'coupons', label: 'Kuponlar', icon: Ticket },
+];
+
 export default function HomePage() {
-  // State
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedLeagues, setSelectedLeagues] = useState<number[]>([]);
   const [showFilters, setShowFilters] = useState(false);
-  const [activeTab, setActiveTab] = useState<'opportunities' | 'matches' | 'coupons'>('opportunities');
+  const [activeTab, setActiveTab] = useState<TabKey>('matches');
 
-  // Store hooks
   const pinnedLeagues = usePinnedLeagues();
   const { togglePin } = useLeagueStore();
 
-  // Data fetching
   const { data, isLoading, error, refetch, isFetching } = useDailyMatches(
     selectedDate,
     selectedLeagues.length > 0 ? selectedLeagues : undefined
   );
 
-  // Batch match details
   const { data: batchDetails, isLoading: isBatchLoading } = useBatchMatchDetails(
     data?.data || [],
     !!data?.data && data.data.length > 0,
     20
   );
 
-  // Ligleri sırala
   const sortedLeagues = useMemo(() => {
     return [...TOP_20_LEAGUES].sort((a, b) => {
       const aPinned = pinnedLeagues.includes(a.id);
@@ -71,7 +74,6 @@ export default function HomePage() {
     });
   }, [pinnedLeagues]);
 
-  // Maçları lige göre grupla ve her lig içinde saate göre sırala
   const matchesByLeague = useMemo(() => {
     if (!data?.data) return new Map<number, DailyMatchFixture[]>();
     const grouped = new Map<number, DailyMatchFixture[]>();
@@ -80,32 +82,25 @@ export default function HomePage() {
       if (!grouped.has(leagueId)) grouped.set(leagueId, []);
       grouped.get(leagueId)!.push(match);
     }
-    // Her lig içinde maçları saate göre sırala (canlı olanlar üstte)
     for (const [, matches] of grouped) {
       matches.sort((a, b) => {
-        // Canlı maçlar en üstte
         if (a.status.isLive && !b.status.isLive) return -1;
         if (!a.status.isLive && b.status.isLive) return 1;
-        // Sonra saate göre
         return a.timestamp - b.timestamp;
       });
     }
     return grouped;
   }, [data?.data]);
 
-  // Tüm maçları saate göre sıralı düz liste
   const sortedMatches = useMemo(() => {
     if (!data?.data) return [];
     return [...data.data].sort((a, b) => {
-      // Canlı maçlar en üstte
       if (a.status.isLive && !b.status.isLive) return -1;
       if (!a.status.isLive && b.status.isLive) return 1;
-      // Sonra saate göre
       return a.timestamp - b.timestamp;
     });
   }, [data?.data]);
 
-  // Enrich fixtures with batch details
   const enrichedFixtures = useMemo(() => {
     if (!data?.data) return [];
     if (!batchDetails) return data.data;
@@ -123,7 +118,6 @@ export default function HomePage() {
     });
   }, [data?.data, batchDetails]);
 
-  // Handlers
   const handleLeagueToggle = (leagueId: number) => {
     setSelectedLeagues(prev => 
       prev.includes(leagueId) ? prev.filter(id => id !== leagueId) : [...prev, leagueId]
@@ -144,16 +138,13 @@ export default function HomePage() {
 
   const isToday = selectedDate.toDateString() === new Date().toDateString();
 
-  // Basit tahmin üretici
   const getSuggestions = (fixture: DailyMatchFixture): BetSuggestion[] | undefined => {
     const suggestions: BetSuggestion[] = [];
-    
     if (fixture.prediction?.confidence && fixture.prediction.confidence >= 55) {
       const conf = fixture.prediction.confidence;
       const winner = fixture.prediction.winner;
       let pick = 'MS X';
       let odds = 3.20;
-      
       if (winner === fixture.homeTeam.name) {
         pick = 'MS 1';
         odds = 1.30 + (100 - conf) / 40;
@@ -161,183 +152,123 @@ export default function HomePage() {
         pick = 'MS 2';
         odds = 1.50 + (100 - conf) / 35;
       }
-      
       suggestions.push({
         type: 'result',
-        market: 'Maç Sonucu',
+        market: 'Mac Sonucu',
         pick,
         confidence: conf,
         odds: Number(odds.toFixed(2)),
         value: conf >= 75 ? 'high' : conf >= 65 ? 'medium' : 'low',
-        reasoning: fixture.prediction.advice || `${winner || 'Beraberlik'} öne çıkıyor`,
+        reasoning: fixture.prediction.advice || winner + ' one cikiyor',
       });
     }
-    
     return suggestions.length > 0 ? suggestions : undefined;
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Sticky Sub-Header */}
-      <div className="sticky top-16 z-30 glass border-b border-border/50">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-12 md:h-14 gap-2">
+    <div className="min-h-screen pb-20 md:pb-0">
+      {/* ===== Sticky Date Bar & Tabs ===== */}
+      <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-md border-b border-border">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          {/* Date Row */}
+          <div className="flex items-center justify-between h-12 gap-3">
             {/* Date Navigation */}
             <div className="flex items-center gap-1">
-              <Button 
-                variant="ghost" 
-                size="icon"
+              <button
                 onClick={() => navigateDate('prev')}
-                className="h-8 w-8 rounded-xl"
+                className="p-1.5 rounded-md hover:bg-muted transition-colors"
               >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
+                <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+              </button>
               
-              <Button
-                variant={isToday ? "default" : "outline"}
-                size="sm"
+              <button
                 onClick={() => setSelectedDate(new Date())}
-                className="h-8 px-3 gap-1.5 min-w-[120px] rounded-xl"
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                  isToday 
+                    ? 'bg-primary text-primary-foreground' 
+                    : 'bg-muted hover:bg-muted/80'
+                )}
               >
                 <Calendar className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">
-                  {selectedDate.toLocaleDateString('tr-TR', { 
-                    weekday: 'short', 
-                    day: 'numeric',
-                    month: 'short'
-                  })}
-                </span>
-                <span className="sm:hidden">
-                  {selectedDate.toLocaleDateString('tr-TR', { day: 'numeric', month: 'numeric' })}
-                </span>
-              </Button>
+                {selectedDate.toLocaleDateString('tr-TR', { 
+                  weekday: 'short', 
+                  day: 'numeric',
+                  month: 'short'
+                })}
+              </button>
               
-              <Button 
-                variant="ghost" 
-                size="icon"
+              <button
                 onClick={() => navigateDate('next')}
-                className="h-8 w-8 rounded-xl"
+                className="p-1.5 rounded-md hover:bg-muted transition-colors"
               >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </button>
             </div>
 
-            {/* Stats Badges */}
-            <div className="hidden sm:flex items-center gap-2">
-              {data?.stats && (
-                <>
-                  <Badge variant="outline" className="gap-1 rounded-lg border-border/50">
-                    <span className="font-bold text-primary">{data.stats.total}</span>
-                    <span className="text-muted-foreground text-xs">maç</span>
-                  </Badge>
-                  {isFetching && (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-primary" />
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Tabs + Filter Button */}
+            {/* Stats + Actions */}
             <div className="flex items-center gap-2">
-              {/* Desktop Tabs */}
-              <div className="hidden md:flex items-center bg-muted/50 rounded-xl p-1 border border-border/30">
-                <Button
-                  variant={activeTab === 'opportunities' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setActiveTab('opportunities')}
-                  className="h-7 px-3 text-xs gap-1.5 rounded-lg"
-                >
-                  <TrendingUp className="h-3.5 w-3.5" />
-                  Öneriler
-                </Button>
-                <Button
-                  variant={activeTab === 'matches' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setActiveTab('matches')}
-                  className="h-7 px-3 text-xs gap-1.5 rounded-lg"
-                >
-                  <Zap className="h-3.5 w-3.5" />
-                  Maçlar
-                </Button>
-                <Button
-                  variant={activeTab === 'coupons' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setActiveTab('coupons')}
-                  className="h-7 px-3 text-xs gap-1.5 rounded-lg"
-                >
-                  <Ticket className="h-3.5 w-3.5" />
-                  Kuponlar
-                </Button>
-              </div>
+              {data?.stats && (
+                <span className="text-xs text-muted-foreground hidden sm:block">
+                  <span className="font-semibold text-foreground">{data.stats.total}</span> mac
+                </span>
+              )}
 
-              {/* Filter Button */}
-              <Button
-                variant="outline"
-                size="sm"
+              <button
                 onClick={() => setShowFilters(true)}
-                className="h-8 gap-1.5 rounded-xl border-border/50"
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
+                  selectedLeagues.length > 0 
+                    ? 'border-primary/30 bg-primary/5 text-primary' 
+                    : 'border-border hover:bg-muted'
+                )}
               >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <SlidersHorizontal className="h-3 w-3" />
                 <span className="hidden sm:inline">Filtre</span>
                 {selectedLeagues.length > 0 && (
-                  <Badge className="h-5 min-w-5 p-0 flex items-center justify-center rounded-md">
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold px-1">
                     {selectedLeagues.length}
-                  </Badge>
+                  </span>
                 )}
-              </Button>
+              </button>
 
-              {/* Refresh */}
-              <Button
-                variant="ghost"
-                size="icon"
+              <button
                 onClick={() => refetch()}
                 disabled={isFetching}
-                className="h-8 w-8 rounded-xl"
+                className="p-1.5 rounded-md hover:bg-muted transition-colors disabled:opacity-50"
               >
-                <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
-              </Button>
+                <RefreshCw className={cn('h-3.5 w-3.5 text-muted-foreground', isFetching && 'animate-spin text-primary')} />
+              </button>
             </div>
           </div>
 
-          {/* Mobile Tab Bar */}
-          <div className="md:hidden flex items-center gap-1 pb-2 overflow-x-auto">
-            <Button
-              variant={activeTab === 'opportunities' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setActiveTab('opportunities')}
-              className="h-8 px-3 text-xs gap-1.5 flex-shrink-0 rounded-xl"
-            >
-              <TrendingUp className="h-3.5 w-3.5" />
-              Öneriler
-            </Button>
-            <Button
-              variant={activeTab === 'matches' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setActiveTab('matches')}
-              className="h-8 px-3 text-xs gap-1.5 flex-shrink-0 rounded-xl"
-            >
-              <Zap className="h-3.5 w-3.5" />
-              Maçlar
-            </Button>
-            <Button
-              variant={activeTab === 'coupons' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setActiveTab('coupons')}
-              className="h-8 px-3 text-xs gap-1.5 flex-shrink-0 rounded-xl"
-            >
-              <Ticket className="h-3.5 w-3.5" />
-              Kuponlar
-            </Button>
+          {/* Tabs */}
+          <div className="flex gap-1 pb-2 -mx-1 overflow-x-auto scrollbar-none">
+            {TABS.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all',
+                  activeTab === tab.key
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                )}
+              >
+                <tab.icon className="h-3.5 w-3.5" />
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-6">
+      {/* ===== Main Content ===== */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
         <div className="flex gap-6">
-          {/* Content Area */}
+          {/* Content */}
           <div className="flex-1 min-w-0">
-            {/* Loading State */}
+            {/* Loading */}
             {isLoading && (
               <div className="space-y-3">
                 {[...Array(5)].map((_, i) => (
@@ -346,26 +277,34 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Error State */}
+            {/* Error */}
             {error && (
-              <Card className="p-8 text-center glass-subtle rounded-2xl border-border/50">
-                <p className="text-destructive mb-4">Maçlar yüklenirken bir hata oluştu</p>
-                <Button onClick={() => refetch()} className="rounded-xl">Tekrar Dene</Button>
-              </Card>
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+                  <X className="h-5 w-5 text-destructive" />
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">Maclar yuklenirken bir hata olustu</p>
+                <Button onClick={() => refetch()} variant="outline" size="sm" className="rounded-lg">
+                  Tekrar Dene
+                </Button>
+              </div>
             )}
 
-            {/* Opportunities View */}
+            {/* Opportunities */}
             {!isLoading && !error && activeTab === 'opportunities' && (
               <ValueDashboard />
             )}
 
-            {/* Matches View - Saate göre sıralı */}
+            {/* Matches */}
             {!isLoading && !error && activeTab === 'matches' && data?.data && (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {sortedMatches.length === 0 ? (
-                  <Card className="p-8 text-center glass-subtle rounded-2xl border-border/50">
-                    <p className="text-muted-foreground">Bu tarihte maç bulunamadı</p>
-                  </Card>
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-4">
+                      <Calendar className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">Bu tarihte mac bulunamadi</p>
+                  </div>
                 ) : (
                   sortedMatches.map((match) => (
                     <ExpandedMatchCard 
@@ -378,19 +317,17 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Coupons View */}
+            {/* Coupons */}
             {!isLoading && !error && activeTab === 'coupons' && data?.data && (
               <div>
                 <div className="flex items-center gap-2 mb-4">
-                  <div className="p-1.5 rounded-lg bg-primary/10">
-                    <Target className="h-5 w-5 text-primary" />
-                  </div>
-                  <h2 className="text-lg font-bold">Kupon Kategorileri</h2>
-                  <Badge variant="outline" className="rounded-lg border-border/50">{data.stats?.total || 0} maç</Badge>
+                  <Target className="h-4 w-4 text-primary" />
+                  <h2 className="text-sm font-semibold">Kupon Kategorileri</h2>
+                  <Badge variant="secondary" className="text-[10px] rounded-md">
+                    {data.stats?.total || 0} mac
+                  </Badge>
                   {isBatchLoading && (
-                    <Badge variant="secondary" className="animate-pulse">
-                      Yükleniyor...
-                    </Badge>
+                    <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
                   )}
                 </div>
                 <CouponCategoryTabs 
@@ -402,8 +339,8 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* Desktop Sidebar - Coupon */}
-          <aside className="hidden xl:block w-80 flex-shrink-0">
+          {/* Desktop Sidebar */}
+          <aside className="hidden xl:block w-80 shrink-0">
             <div className="sticky top-32 h-[calc(100vh-150px)]">
               <CouponSidebar />
             </div>
@@ -416,51 +353,44 @@ export default function HomePage() {
         <CouponFAB />
       </div>
 
-      {/* Filter Drawer */}
+      {/* ===== Filter Drawer ===== */}
       {showFilters && (
         <div className="fixed inset-0 z-50">
-          {/* Backdrop */}
           <div 
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => setShowFilters(false)}
           />
-          
-          {/* Drawer */}
-          <div className="absolute inset-y-0 right-0 w-full max-w-sm glass shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 border-l border-border/50">
+          <div className="absolute inset-y-0 right-0 w-full max-w-sm bg-background shadow-2xl flex flex-col animate-slide-in-right border-l border-border">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-border/50">
+            <div className="flex items-center justify-between p-4 border-b border-border">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-primary/10">
-                  <Filter className="h-4 w-4 text-primary" />
-                </div>
-                <h2 className="font-semibold">Lig Filtreleri</h2>
+                <Filter className="h-4 w-4 text-primary" />
+                <h2 className="font-semibold text-sm">Lig Filtresi</h2>
               </div>
-              <Button 
-                variant="ghost" 
-                size="icon"
+              <button 
                 onClick={() => setShowFilters(false)}
-                className="rounded-xl"
+                className="p-1.5 rounded-md hover:bg-muted transition-colors"
               >
-                <X className="h-5 w-5" />
-              </Button>
+                <X className="h-4 w-4" />
+              </button>
             </div>
             
             {/* Quick Actions */}
-            <div className="flex gap-2 p-4 border-b border-border/50">
+            <div className="flex gap-2 p-4 border-b border-border">
               <Button 
                 variant="outline" 
                 size="sm" 
                 onClick={handleSelectAll}
-                className="flex-1 rounded-xl border-border/50"
+                className="flex-1 rounded-lg text-xs"
               >
-                {selectedLeagues.length === TOP_20_LEAGUES.length ? 'Temizle' : 'Tümünü Seç'}
+                {selectedLeagues.length === TOP_20_LEAGUES.length ? 'Temizle' : 'Tumunu Sec'}
               </Button>
               {pinnedLeagues.length > 0 && (
                 <Button 
                   variant="outline" 
                   size="sm" 
                   onClick={() => setSelectedLeagues(pinnedLeagues)}
-                  className="flex-1 gap-1 rounded-xl border-border/50"
+                  className="flex-1 gap-1 rounded-lg text-xs"
                 >
                   <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
                   Favoriler
@@ -470,7 +400,7 @@ export default function HomePage() {
             
             {/* League List */}
             <ScrollArea className="flex-1">
-              <div className="p-4 space-y-1">
+              <div className="p-3 space-y-0.5">
                 {sortedLeagues.map((league) => {
                   const isPinned = pinnedLeagues.includes(league.id);
                   const matchCount = matchesByLeague.get(league.id)?.length || 0;
@@ -480,36 +410,32 @@ export default function HomePage() {
                     <div
                       key={league.id}
                       className={cn(
-                        "flex items-center gap-3 p-3 rounded-xl transition-all duration-200",
-                        isSelected ? "bg-primary/5 border border-primary/10" : "hover:bg-muted/50 border border-transparent"
+                        'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer',
+                        isSelected ? 'bg-primary/5' : 'hover:bg-muted'
                       )}
+                      onClick={() => handleLeagueToggle(league.id)}
                     >
                       <Checkbox
-                        id={`filter-league-${league.id}`}
                         checked={isSelected}
                         onCheckedChange={() => handleLeagueToggle(league.id)}
+                        className="pointer-events-none"
                       />
-                      <label 
-                        htmlFor={`filter-league-${league.id}`}
-                        className="flex items-center gap-2 flex-1 cursor-pointer"
-                      >
-                        <span className="text-xl">{league.flag}</span>
-                        <span className="font-medium">{league.name}</span>
-                      </label>
+                      <span className="text-base">{league.flag}</span>
+                      <span className="text-sm font-medium flex-1 truncate">{league.name}</span>
                       {matchCount > 0 && (
-                        <Badge variant="secondary" className="rounded-lg">{matchCount}</Badge>
+                        <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                          {matchCount}
+                        </span>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 rounded-xl"
-                        onClick={() => togglePin(league.id)}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); togglePin(league.id); }}
+                        className="p-1 rounded hover:bg-muted transition-colors"
                       >
                         <Star className={cn(
-                          "h-4 w-4",
-                          isPinned && "fill-yellow-500 text-yellow-500"
+                          'h-3.5 w-3.5',
+                          isPinned ? 'fill-yellow-500 text-yellow-500' : 'text-muted-foreground'
                         )} />
-                      </Button>
+                      </button>
                     </div>
                   );
                 })}
@@ -517,9 +443,9 @@ export default function HomePage() {
             </ScrollArea>
             
             {/* Footer */}
-            <div className="p-4 border-t border-border/50">
+            <div className="p-4 border-t border-border">
               <Button 
-                className="w-full rounded-xl"
+                className="w-full rounded-lg"
                 onClick={() => setShowFilters(false)}
               >
                 Uygula

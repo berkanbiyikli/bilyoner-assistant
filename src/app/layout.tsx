@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const viewport: Viewport = {
-  themeColor: "#22c55e",
+  themeColor: "#10b981",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -44,7 +44,7 @@ export default function RootLayout({
   return (
     <html lang="tr" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gradient-to-br from-background via-background to-emerald-50/30 dark:to-emerald-950/10`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
       >
         <ThemeProvider
@@ -54,12 +54,9 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <QueryProvider>
-            <div className="min-h-screen bg-background">
-              {/* Navbar */}
+            <div className="min-h-screen bg-background flex flex-col">
               <Navbar />
-
-              {/* Main Content */}
-              <main>
+              <main className="flex-1">
                 {children}
               </main>
             </div>

@@ -53,8 +53,8 @@ export async function GET(request: NextRequest) {
         leagueId: 203,
         kickoff: new Date('2026-02-05T17:30:00Z'), // 20:30 TSİ
         prediction: {
-          type: 'ht_over15', // İY 1.5 Üst - YENİ TİP!
-          label: 'İY 1.5 Üst',
+          type: 'over25', // Gol Üst
+          label: 'MS 2.5 Üst',
           probability: 0.62,
           odds: 1.78,
         },
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
         valuePercent: 12,
         chaosLevel: 0.5,
         homeStyle: 'OFFENSIVE',
-        awayStyle: 'BALANCED',
+        awayStyle: 'COUNTER',
       },
       {
         fixtureId: 1377005, // Strasbourg vs Monaco - Ligue 1
@@ -137,8 +137,8 @@ export async function GET(request: NextRequest) {
         leagueId: 94,
         kickoff: new Date('2026-02-05T20:45:00Z'), // 23:45 TSİ
         prediction: {
-          type: 'ht_over15', // İY 1.5 Üst - YENİ TİP!
-          label: 'İY 1.5 Üst',
+          type: 'over25', // Gol Üst
+          label: 'MS 2.5 Üst',
           probability: 0.60,
           odds: 1.65,
         },

@@ -7,6 +7,16 @@ import type { SimulationResult } from '../analysis/monte-carlo';
 
 // ============ KUPON TİPLERİ ============
 
+// Tahmin tipleri - Tüm desteklenen bahis türleri
+export type PredictionType = 
+  | 'home' | 'draw' | 'away'  // Maç Sonucu
+  | 'over25' | 'under25'      // MS Alt/Üst 2.5
+  | 'over15' | 'under15'      // MS Alt/Üst 1.5
+  | 'over35' | 'under35'      // MS Alt/Üst 3.5
+  | 'ht_over15' | 'ht_under15' | 'iy_over15' | 'iy_under15'  // İY Alt/Üst 1.5
+  | 'ht_over05' | 'ht_under05' | 'iy_over05' | 'iy_under05'  // İY Alt/Üst 0.5
+  | 'btts' | 'btts_no';       // Karşılıklı Gol
+
 export interface BotMatch {
   fixtureId: number;
   homeTeam: string;
@@ -19,7 +29,7 @@ export interface BotMatch {
   
   // Analiz Sonuçları
   prediction: {
-    type: 'home' | 'draw' | 'away' | 'over25' | 'btts';
+    type: PredictionType;
     label: string;          // "MS 1", "KG Var", "Ü2.5" vb.
     probability: number;    // 0-1 arası
     odds: number;           // Bahis oranı

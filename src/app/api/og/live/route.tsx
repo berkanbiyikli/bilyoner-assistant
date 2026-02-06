@@ -68,7 +68,6 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
       matches = JSON.parse(matchesParam);
     }
   } catch {
-    // Demo data
     matches = [{
       home: 'Liverpool', away: 'Arsenal', score: '1-0', minute: 55,
       league: 'Premier League', pick: 'Üst 2.5', odds: 1.85, confidence: 78,
@@ -76,8 +75,16 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
     }];
   }
   
-  const title = isResult ? '📊 SONUÇ' : '🔴 CANLI ANALİZ';
-  const subtitle = isResult ? 'Pick Sonuçları' : 'Fırsat Tespiti';
+  if (matches.length === 0) {
+    matches = [{
+      home: 'Liverpool', away: 'Arsenal', score: '1-0', minute: 55,
+      league: 'Premier League', pick: 'Üst 2.5', odds: 1.85, confidence: 78,
+      reasoning: 'Demo veri',
+    }];
+  }
+  
+  const title = isResult ? 'SONUÇ' : 'CANLI ANALİZ';
+  const displayMatches = matches.slice(0, 3);
   
   return new ImageResponse(
     (
@@ -85,11 +92,10 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
         style={{
           display: 'flex',
           flexDirection: 'column',
-          width: '100%',
-          height: '100%',
+          width: '1200px',
+          height: '630px',
           backgroundColor: '#09090b',
           padding: '40px',
-          fontFamily: 'system-ui, sans-serif',
         }}
       >
         {/* Header */}
@@ -101,133 +107,118 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
             marginBottom: '24px',
           }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '36px', fontWeight: 'bold', color: 'white' }}>
-                {title}
-              </span>
-            </div>
-            <span style={{ fontSize: '18px', color: '#a1a1aa', marginTop: '4px' }}>
-              {subtitle}
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <span style={{ fontSize: '36px', fontWeight: 700, color: 'white', marginRight: '12px' }}>
+              {isResult ? '📊' : '🔴'}
+            </span>
+            <span style={{ fontSize: '36px', fontWeight: 700, color: 'white' }}>
+              {title}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '24px', color: '#71717a' }}>🤖</span>
-            <span style={{ fontSize: '20px', color: '#52525b', fontWeight: '600' }}>
-              Bilyoner Bot
-            </span>
-          </div>
+          <span style={{ fontSize: '20px', color: '#71717a' }}>
+            🤖 Bilyoner Bot
+          </span>
         </div>
         
         {/* Matches */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
-          {matches.slice(0, 3).map((match, i) => {
-            const resultColor = match.result === 'won' ? '#22c55e' : match.result === 'lost' ? '#ef4444' : '#fbbf24';
-            
-            return (
+        {displayMatches.map((match, i) => {
+          const isWon = match.result === 'won';
+          const isLost = match.result === 'lost';
+          const borderColor = isWon ? '#22c55e' : isLost ? '#ef4444' : '#27272a';
+          const confColor = match.confidence >= 75 ? '#22c55e' : match.confidence >= 60 ? '#eab308' : '#a1a1aa';
+          const oddsStr = typeof match.odds === 'number' ? match.odds.toFixed(2) : String(match.odds);
+          
+          return (
+            <div
+              key={String(i)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                backgroundColor: '#18181b',
+                borderRadius: '16px',
+                padding: '20px 24px',
+                marginBottom: '12px',
+                borderLeft: `4px solid ${borderColor}`,
+              }}
+            >
+              {/* Number circle */}
               <div
-                key={i}
                 style={{
                   display: 'flex',
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '20px',
+                  backgroundColor: isWon ? '#22c55e' : isLost ? '#ef4444' : '#3b82f6',
                   alignItems: 'center',
-                  backgroundColor: '#18181b',
-                  borderRadius: '16px',
-                  padding: '20px 24px',
-                  border: `1px solid ${match.result ? resultColor + '40' : '#27272a'}`,
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontWeight: 700,
+                  fontSize: '18px',
+                  marginRight: '20px',
                 }}
               >
-                {/* Match Number */}
-                <div
-                  style={{
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: '50%',
-                    backgroundColor: match.result ? resultColor : '#3b82f6',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'white',
-                    fontWeight: 'bold',
-                    fontSize: '20px',
-                    marginRight: '20px',
-                    flexShrink: 0,
-                  }}
-                >
-                  {match.result ? (match.result === 'won' ? '✓' : '✗') : String(i + 1)}
-                </div>
+                {isWon ? '✓' : isLost ? '✗' : String(i + 1)}
+              </div>
 
-                {/* Teams & Info */}
-                <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                    <span style={{ color: 'white', fontSize: '22px', fontWeight: '700' }}>
-                      {match.home} {match.result ? match.finalScore || match.score : match.score} {match.away}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ color: '#ef4444', fontSize: '15px', fontWeight: '600' }}>
-                      ⏱️ {match.minute}&apos;
-                    </span>
-                    <span style={{ color: '#71717a', fontSize: '15px' }}>
-                      {match.league}
-                    </span>
-                    <span style={{ color: '#a1a1aa', fontSize: '14px' }}>
-                      {match.reasoning}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Pick Badge */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginLeft: '16px' }}>
-                  <div
-                    style={{
-                      padding: '8px 18px',
-                      backgroundColor: match.result ? resultColor + '20' : '#3b82f620',
-                      borderRadius: '10px',
-                      border: `1px solid ${match.result ? resultColor : '#3b82f6'}`,
-                      color: match.result ? resultColor : '#60a5fa',
-                      fontWeight: 'bold',
-                      fontSize: '16px',
-                      marginBottom: '4px',
-                    }}
-                  >
-                    🎯 {match.pick}
-                  </div>
-                  <span style={{ color: '#fbbf24', fontSize: '22px', fontWeight: 'bold' }}>
-                    @{match.odds.toFixed(2)}
+              {/* Match content */}
+              <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+                <span style={{ color: 'white', fontSize: '22px', fontWeight: 700, marginBottom: '4px' }}>
+                  {match.home} {match.score} {match.away}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span style={{ color: '#ef4444', fontSize: '14px', fontWeight: 600, marginRight: '12px' }}>
+                    {match.minute}&apos;
+                  </span>
+                  <span style={{ color: '#71717a', fontSize: '14px', marginRight: '12px' }}>
+                    {match.league}
+                  </span>
+                  <span style={{ color: '#a1a1aa', fontSize: '13px' }}>
+                    {match.reasoning}
                   </span>
                 </div>
+              </div>
 
-                {/* Confidence */}
+              {/* Pick + Odds */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginLeft: '16px', marginRight: '16px' }}>
                 <div
                   style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    marginLeft: '20px',
-                    flexShrink: 0,
+                    padding: '6px 14px',
+                    backgroundColor: '#3b82f620',
+                    borderRadius: '8px',
+                    border: '1px solid #3b82f6',
+                    color: '#60a5fa',
+                    fontWeight: 700,
+                    fontSize: '15px',
+                    marginBottom: '4px',
                   }}
                 >
-                  <div
-                    style={{
-                      width: '60px',
-                      height: '60px',
-                      borderRadius: '50%',
-                      border: `3px solid ${match.confidence >= 75 ? '#22c55e' : match.confidence >= 60 ? '#eab308' : '#a1a1aa'}`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: match.confidence >= 75 ? '#22c55e' : match.confidence >= 60 ? '#eab308' : '#a1a1aa',
-                      fontWeight: 'bold',
-                      fontSize: '18px',
-                    }}
-                  >
-                    %{match.confidence}
-                  </div>
+                  {match.pick}
                 </div>
+                <span style={{ color: '#fbbf24', fontSize: '20px', fontWeight: 700 }}>
+                  @{oddsStr}
+                </span>
               </div>
-            );
-          })}
-        </div>
+
+              {/* Confidence */}
+              <div
+                style={{
+                  display: 'flex',
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '28px',
+                  border: `3px solid ${confColor}`,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: confColor,
+                  fontWeight: 700,
+                  fontSize: '16px',
+                }}
+              >
+                %{match.confidence}
+              </div>
+            </div>
+          );
+        })}
 
         {/* Footer */}
         <div
@@ -235,19 +226,15 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginTop: '20px',
-            padding: '16px 24px',
+            marginTop: 'auto',
+            padding: '12px 20px',
             backgroundColor: '#18181b',
             borderRadius: '12px',
-            border: '1px solid #27272a',
           }}
         >
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <span style={{ color: '#3b82f6', fontSize: '16px' }}>📊</span>
-            <span style={{ color: '#a1a1aa', fontSize: '15px' }}>
-              AI Destekli Canlı Analiz • İstatistik Tabanlı Tahmin
-            </span>
-          </div>
+          <span style={{ color: '#a1a1aa', fontSize: '14px' }}>
+            📊 AI Destekli Canlı Analiz
+          </span>
           <span style={{ color: '#52525b', fontSize: '14px' }}>
             bilyoner-assistant.vercel.app
           </span>
@@ -275,6 +262,11 @@ function renderPerformance(searchParams: URLSearchParams) {
   
   const total = perf.won + perf.lost;
   const rateColor = perf.winRate >= 70 ? '#22c55e' : perf.winRate >= 50 ? '#eab308' : '#ef4444';
+  const streakText = perf.streak > 0 
+    ? `🔥 ${perf.streak} maç kazanma serisi` 
+    : perf.streak < 0 
+    ? `💪 ${Math.abs(perf.streak)} maç kayıp serisi`
+    : '';
   
   return new ImageResponse(
     (
@@ -282,76 +274,68 @@ function renderPerformance(searchParams: URLSearchParams) {
         style={{
           display: 'flex',
           flexDirection: 'column',
-          width: '100%',
-          height: '100%',
+          width: '1200px',
+          height: '630px',
           backgroundColor: '#09090b',
           padding: '50px',
-          fontFamily: 'system-ui, sans-serif',
           justifyContent: 'center',
           alignItems: 'center',
         }}
       >
-        {/* Title */}
-        <div style={{ fontSize: '42px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>
+        <span style={{ fontSize: '42px', fontWeight: 700, color: 'white', marginBottom: '8px' }}>
           📊 GÜNLÜK PERFORMANS
-        </div>
-        <div style={{ fontSize: '20px', color: '#a1a1aa', marginBottom: '40px' }}>
-          {perf.date} • Bilyoner Bot AI
-        </div>
+        </span>
+        <span style={{ fontSize: '20px', color: '#a1a1aa', marginBottom: '40px' }}>
+          {perf.date || new Date().toISOString().split('T')[0]}
+        </span>
         
-        {/* Stats Grid */}
-        <div style={{ display: 'flex', gap: '30px', marginBottom: '40px' }}>
+        {/* Stats Row */}
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '40px' }}>
           {/* Win Rate Circle */}
           <div
             style={{
-              width: '200px',
-              height: '200px',
-              borderRadius: '50%',
-              border: `6px solid ${rateColor}`,
               display: 'flex',
               flexDirection: 'column',
+              width: '180px',
+              height: '180px',
+              borderRadius: '90px',
+              border: `6px solid ${rateColor}`,
               alignItems: 'center',
               justifyContent: 'center',
+              marginRight: '40px',
             }}
           >
-            <span style={{ fontSize: '56px', fontWeight: 'bold', color: rateColor }}>
+            <span style={{ fontSize: '52px', fontWeight: 700, color: rateColor }}>
               %{perf.winRate}
             </span>
-            <span style={{ fontSize: '16px', color: '#a1a1aa' }}>İsabet Oranı</span>
+            <span style={{ fontSize: '14px', color: '#a1a1aa' }}>İsabet</span>
           </div>
           
-          {/* Stats */}
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '16px' }}>
-            <div style={{ display: 'flex', gap: '40px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ color: '#a1a1aa', fontSize: '16px' }}>Toplam</span>
-                <span style={{ color: 'white', fontSize: '36px', fontWeight: 'bold' }}>{total}</span>
+          {/* Number Stats */}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', marginRight: '40px' }}>
+                <span style={{ color: '#a1a1aa', fontSize: '15px' }}>Toplam</span>
+                <span style={{ color: 'white', fontSize: '36px', fontWeight: 700 }}>{total}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', marginRight: '40px' }}>
+                <span style={{ color: '#a1a1aa', fontSize: '15px' }}>Kazanan</span>
+                <span style={{ color: '#22c55e', fontSize: '36px', fontWeight: 700 }}>{perf.won}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ color: '#a1a1aa', fontSize: '16px' }}>Kazanan</span>
-                <span style={{ color: '#22c55e', fontSize: '36px', fontWeight: 'bold' }}>{perf.won}</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ color: '#a1a1aa', fontSize: '16px' }}>Kaybeden</span>
-                <span style={{ color: '#ef4444', fontSize: '36px', fontWeight: 'bold' }}>{perf.lost}</span>
+                <span style={{ color: '#a1a1aa', fontSize: '15px' }}>Kaybeden</span>
+                <span style={{ color: '#ef4444', fontSize: '36px', fontWeight: 700 }}>{perf.lost}</span>
               </div>
             </div>
-            
-            {perf.streak !== 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '24px' }}>{perf.streak > 0 ? '🔥' : '💪'}</span>
-                <span style={{ color: perf.streak > 0 ? '#22c55e' : '#ef4444', fontSize: '20px', fontWeight: 'bold' }}>
-                  {Math.abs(perf.streak)} maç {perf.streak > 0 ? 'kazanma' : 'kayıp'} serisi
-                </span>
-              </div>
-            )}
+            {streakText ? (
+              <span style={{ color: '#a1a1aa', fontSize: '18px' }}>{streakText}</span>
+            ) : null}
           </div>
         </div>
         
-        {/* Footer */}
-        <div style={{ color: '#52525b', fontSize: '16px' }}>
-          AI Destekli Canlı Analiz • bilyoner-assistant.vercel.app
-        </div>
+        <span style={{ color: '#52525b', fontSize: '15px' }}>
+          🤖 Bilyoner Bot • bilyoner-assistant.vercel.app
+        </span>
       </div>
     ),
     { width: 1200, height: 630 }

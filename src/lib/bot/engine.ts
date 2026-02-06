@@ -392,12 +392,12 @@ function filterAndScoreBetSuggestions(
     }
     
     // En iyi mor kutu önerisini bul (confidence'a göre)
-    // SIKI FİLTRELER - Sadece kaliteli tahminler
+    // Kaliteli tahminleri filtrele (cards ve corners dahil)
     const validSuggestions = betSuggestions
       .filter(s => s.confidence >= config.minConfidence) // Config'den min güven (%70)
       .filter(s => s.odds >= config.minMatchOdds && s.odds <= config.maxMatchOdds)
-      .filter(s => ['goals', 'btts', 'result'].includes(s.type)) // Sadece temel bahisler
-      .filter(s => s.value === 'high' || s.value === 'medium') // Sadece değerli tahminler
+      .filter(s => ['goals', 'btts', 'result', 'cards', 'corners'].includes(s.type)) // Tüm temel bahisler
+      .filter(s => s.value === 'high' || s.value === 'medium' || !s.value) // Value belirtilmemişse de kabul et
       .sort((a, b) => b.confidence - a.confidence);
     
     if (validSuggestions.length === 0) {

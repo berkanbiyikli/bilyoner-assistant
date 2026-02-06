@@ -210,17 +210,17 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
   minStake: 500,             // 500 TL sabit
   maxStake: 500,             // 500 TL sabit
   
-  matchCount: 3,
-  minConfidence: 70,
+  matchCount: 2,             // 2 maç yeterli (daha kolay kupon bulunur)
+  minConfidence: 65,         // %65 güven yeterli
   maxChaosLevel: 0.5,
   minValue: 15,
-  minKickoffMinutes: 30,
-  maxKickoffHours: 14,       // 14 saat - günün tüm maçlarını kapsasın
+  minKickoffMinutes: 15,     // 15 dk sonra başlayan maçlar da dahil
+  maxKickoffHours: 18,       // 18 saat - akşam maçlarını da kapsasın
   
-  minMatchOdds: 1.30,        // Minimum oran - çok düşük oranlar kupon için değersiz
-  maxMatchOdds: 3.50,
-  minTotalOdds: 3.00,
-  maxTotalOdds: 10.00,
+  minMatchOdds: 1.25,        // Minimum oran biraz düşürüldü
+  maxMatchOdds: 4.00,        // Maksimum oran biraz artırıldı
+  minTotalOdds: 2.50,        // Toplam oran minimum
+  maxTotalOdds: 12.00,
   
   twitterEnabled: true,
   tweetOnNewCoupon: true,

@@ -16,6 +16,7 @@ import { HighConfidencePicks } from '@/components/high-confidence-picks';
 import { TrendTracker } from '@/components/trend-tracker';
 import { HighOddsPicks } from '@/components/high-odds-picks';
 import { QuickBuild } from '@/components/quick-build';
+import { PremiumLock } from '@/components/premium-lock';
 import { useDailyMatches, useBatchMatchDetails } from '@/hooks/useDailyMatches';
 import { useLeagueStore, usePinnedLeagues } from '@/lib/favorites/league-store';
 import { TOP_20_LEAGUES, getLeaguePriority } from '@/config/league-priorities';
@@ -377,16 +378,20 @@ export default function HomePage() {
                   }}
                 />
                 
-                {/* High Odds Picks - Oran Avcısı */}
-                <HighOddsPicks 
-                  matches={enrichedFixtures}
-                  onAddToCoupon={(fixtureId, pick) => {
-                    console.log('Kupona eklendi:', fixtureId, pick);
-                  }}
-                />
+                {/* High Odds Picks - Oran Avcısı (PRO) */}
+                <PremiumLock requiredTier="pro" message="Yuksek oranli tahminler Pro uyelerine ozeldir">
+                  <HighOddsPicks 
+                    matches={enrichedFixtures}
+                    onAddToCoupon={(fixtureId, pick) => {
+                      console.log('Kupona eklendi:', fixtureId, pick);
+                    }}
+                  />
+                </PremiumLock>
                 
-                {/* Value Dashboard - Değerli Fırsatlar */}
-                <ValueDashboard />
+                {/* Value Dashboard - Değerli Fırsatlar (PRO) */}
+                <PremiumLock requiredTier="pro" message="Value bahis analizi Pro uyelerine ozeldir">
+                  <ValueDashboard />
+                </PremiumLock>
               </div>
             )}
 

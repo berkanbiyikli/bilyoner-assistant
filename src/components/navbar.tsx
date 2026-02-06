@@ -8,6 +8,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { useDailyMatches } from '@/hooks/useDailyMatches';
 import { Home, Radio, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AuthButton } from '@/components/auth-button';
 
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -95,6 +96,7 @@ export function Navbar() {
                 <span className="text-xs text-muted-foreground">@vbb1905</span>
               </a>
               <ThemeToggle />
+              <AuthButton />
             </div>
           </div>
         </div>

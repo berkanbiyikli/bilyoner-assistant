@@ -604,6 +604,8 @@ function formatOpportunityTweet(opportunities: Array<{
   });
   
   lines.push('');
+  lines.push('🔗 https://bilyoner-assistant.vercel.app/live');
+  lines.push('');
   lines.push('#VeriAnalizi #Algoritma');
   
   return lines.join('\n');

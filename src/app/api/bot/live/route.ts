@@ -76,6 +76,8 @@ function formatLiveOpportunityTweet(opportunities: LiveOpportunity[]): string {
   });
   
   lines.push('');
+  lines.push('🔗 https://bilyoner-assistant.vercel.app/live');
+  lines.push('');
   lines.push('#CanlıAnaliz #VeriAnalizi #Bahis');
   
   return lines.join('\n');

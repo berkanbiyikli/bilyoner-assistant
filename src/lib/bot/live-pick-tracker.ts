@@ -351,6 +351,8 @@ export function formatPickResultTweet(pick: LivePick, stats: LivePickStats): str
   }
   
   lines.push('');
+  lines.push('🔗 https://bilyoner-assistant.vercel.app');
+  lines.push('');
   lines.push('#CanlıAnaliz #BahisTakip');
   
   return lines.join('\n');
@@ -405,6 +407,8 @@ export function formatDailyPerformanceTweet(stats: LivePickStats): string {
   }
   
   lines.push('');
+  lines.push('🔗 https://bilyoner-assistant.vercel.app');
+  lines.push('');
   lines.push('#CanlıAnaliz #Performans #BahisTakip');
   
   return lines.join('\n');
@@ -431,6 +435,8 @@ export function formatWinStreakTweet(picks: LivePick[], stats: LivePickStats): s
     lines.push(`🏆 ${stats.streak} maçlık isabet serisi!`);
   }
   
+  lines.push('');
+  lines.push('🔗 https://bilyoner-assistant.vercel.app');
   lines.push('');
   lines.push('Algoritma konuşuyor! 🤖');
   lines.push('#CanlıAnaliz #İsabet #Bahis');

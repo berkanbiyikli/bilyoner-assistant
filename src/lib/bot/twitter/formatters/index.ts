@@ -100,3 +100,21 @@ export type {
   DynamicStat,
   WeeklySummaryStats,
 } from './stats';
+
+// Surprise — sürpriz radar & viral tweet formatları
+export {
+  formatOddsAnomalyTweet,
+  formatAntiPublicTweet,
+  formatKasaKapatanTweet,
+  formatScoreHunterTweet,
+  formatTrapAlertTweet,
+  formatNightOpsTweet,
+  formatGenericSurpriseTweet,
+  formatDailySurpriseRadarThread,
+  formatSurpriseVerifiedTweet,
+  formatSurpriseTweet,
+} from './surprise';
+export type {
+  SurpriseAlertData,
+  DailySurpriseData,
+} from './surprise';

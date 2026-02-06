@@ -17,6 +17,7 @@ import { TrendTracker } from '@/components/trend-tracker';
 import { HighOddsPicks } from '@/components/high-odds-picks';
 import { QuickBuild } from '@/components/quick-build';
 import { PremiumLock } from '@/components/premium-lock';
+import { SurpriseRadar } from '@/components/surprise-radar';
 import { useDailyMatches, useBatchMatchDetails } from '@/hooks/useDailyMatches';
 import { useLeagueStore, usePinnedLeagues } from '@/lib/favorites/league-store';
 import { TOP_20_LEAGUES, getLeaguePriority } from '@/config/league-priorities';
@@ -377,6 +378,9 @@ export default function HomePage() {
                     console.log('Kupona eklendi:', fixtureId, pick);
                   }}
                 />
+                
+                {/* 📡 Surprise Radar - Sürpriz Radarı */}
+                <SurpriseRadar />
                 
                 {/* High Odds Picks - Oran Avcısı (PRO) */}
                 <PremiumLock requiredTier="pro" message="Yuksek oranli tahminler Pro uyelerine ozeldir">

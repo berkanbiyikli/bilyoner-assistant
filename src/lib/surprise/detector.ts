@@ -31,27 +31,28 @@ import type {
 
 const SURPRISE_CONFIG = {
   // Minimum eşikler
-  minSurpriseScore: 35,         // En az bu kadar sürpriz skoru olmalı
-  minOdds: 2.00,                // Sürpriz pick minimum oran
+  minSurpriseScore: 18,         // Düşük eşik — daha fazla maç radarata girsin
+  minOdds: 1.80,                // Sürpriz pick minimum oran
   maxOdds: 50.00,               // Sürpriz pick maksimum oran
   
   // Ağırlıklar (toplam = 1.0)
   weights: {
-    chaosIndex: 0.20,           // Monte Carlo kaos seviyesi
-    valueEdge: 0.30,            // Value bet avantajı
-    apiDeviation: 0.20,         // Model-API sapması
-    antiPublic: 0.20,           // Kamu karşıtı sinyal
+    chaosIndex: 0.15,           // Monte Carlo kaos seviyesi
+    valueEdge: 0.25,            // Value bet avantajı
+    apiDeviation: 0.15,         // Model-API sapması
+    antiPublic: 0.15,           // Kamu karşıtı sinyal
     oddsMovement: 0.10,         // Oran hareketi anomalisi
+    oddsImbalance: 0.20,        // Odds-only sürpriz tespiti (Poisson yoksa bile çalışır)
   },
   
   // Liste sınıflandırma
-  goldThreshold: 70,            // Altın liste: SurpriseScore >= 70
-  silverThreshold: 50,          // Gümüş liste: 50-69
-  redTrapThreshold: 60,         // Kırmızı liste: Tuzak maçlar (kamu çok emin ama volatilite yüksek)
+  goldThreshold: 60,            // Altın liste: SurpriseScore >= 60
+  silverThreshold: 35,          // Gümüş liste: 35-59
+  redTrapThreshold: 50,         // Kırmızı liste: Tuzak maçlar
   
   // Seri konseptleri
-  kasaKapatanMinOdds: 5.00,     // Kasa Kapatan: min 5.00 oran
-  kasaKapatanMinConf: 55,       // Kasa Kapatan: min %55 model güveni
+  kasaKapatanMinOdds: 4.00,     // Kasa Kapatan: min 4.00 oran
+  kasaKapatanMinConf: 45,       // Kasa Kapatan: min %45 model güveni
 };
 
 // ============ EXACT SCORE ============
@@ -172,6 +173,7 @@ function calculateSurpriseScore(
   apiDeviation: number,     // 0-100
   antiPublicEdge: number,   // 0-100
   oddsAnomalyStrength: number, // 0-100
+  oddsImbalance: number = 0,   // 0-100 (odds-only sürpriz sinyali)
 ): number {
   const w = SURPRISE_CONFIG.weights;
   
@@ -181,23 +183,26 @@ function calculateSurpriseScore(
   const deviationNorm = Math.min(apiDeviation, 100);
   const antiPublicNorm = Math.min(antiPublicEdge, 100);
   const oddsNorm = Math.min(oddsAnomalyStrength, 100);
+  const imbalanceNorm = Math.min(oddsImbalance, 100);
   
   const raw = 
     chaosNorm * w.chaosIndex +
     valueNorm * w.valueEdge +
     deviationNorm * w.apiDeviation +
     antiPublicNorm * w.antiPublic +
-    oddsNorm * w.oddsMovement;
+    oddsNorm * w.oddsMovement +
+    imbalanceNorm * w.oddsImbalance;
   
   // Bonus: Birden fazla sinyal çakışıyorsa (multi-signal bonus)
   let signalCount = 0;
-  if (chaosNorm > 50) signalCount++;
-  if (valueNorm > 20) signalCount++;
-  if (deviationNorm > 15) signalCount++;
-  if (antiPublicNorm > 15) signalCount++;
-  if (oddsNorm > 10) signalCount++;
+  if (chaosNorm > 40) signalCount++;
+  if (valueNorm > 10) signalCount++;
+  if (deviationNorm > 10) signalCount++;
+  if (antiPublicNorm > 10) signalCount++;
+  if (oddsNorm > 5) signalCount++;
+  if (imbalanceNorm > 15) signalCount++;
   
-  const multiSignalBonus = signalCount >= 3 ? (signalCount - 2) * 5 : 0;
+  const multiSignalBonus = signalCount >= 2 ? (signalCount - 1) * 4 : 0;
   
   return Math.min(100, Math.round(raw + multiSignalBonus));
 }
@@ -223,14 +228,14 @@ function getListCategory(
   isContrarian: boolean
 ): ListCategory {
   // KIRMIZI LİSTE (Tuzak):
-  // Kamu çok emin (%70+) ama kaos yüksek → herkes bir tarafa yükleniyor ama maç patlar
-  if (publicConfidence >= 65 && chaosIndex > 0.6 && !isContrarian) {
+  // Kamu çok emin (%60+) ama kaos yüksek → herkes bir tarafa yükleniyor ama maç patlar
+  if (publicConfidence >= 60 && chaosIndex > 0.5 && !isContrarian) {
     return 'red';
   }
   
   // ALTIN LİSTE (Oyna):
-  // Yüksek sürpriz skoru + model güvenli + contrarian
-  if (surpriseScore >= SURPRISE_CONFIG.goldThreshold && modelConfidence >= 55) {
+  // Yüksek sürpriz skoru + model güvenli
+  if (surpriseScore >= SURPRISE_CONFIG.goldThreshold && modelConfidence >= 40) {
     return 'gold';
   }
   
@@ -272,13 +277,13 @@ function determineSurprisePick(
     const { homeWin, draw, awayWin } = poisson;
     
     // Sürpriz odaklı: Eğer deplasman veya beraberlik value'su yüksekse onu tercih et
-    if (awayWin > 30 && odds?.away && odds.away >= 2.50) {
+    if (awayWin > 25 && odds?.away && odds.away >= 2.20) {
       poissonPick = { market: 'MS 2', pick: 'Deplasman', prob: awayWin, odds: odds.away };
       reasoning.push(`Poisson deplasman galibiyetine %${awayWin.toFixed(0)} ihtimal veriyor`);
-    } else if (draw > 25 && odds?.draw && odds.draw >= 3.00) {
+    } else if (draw > 22 && odds?.draw && odds.draw >= 2.80) {
       poissonPick = { market: 'Beraberlik', pick: 'X', prob: draw, odds: odds.draw };
       reasoning.push(`Poisson beraberliğe %${draw.toFixed(0)} ihtimal veriyor`);
-    } else if (homeWin > 50 && odds?.home && odds.home >= 2.00) {
+    } else if (homeWin > 40 && odds?.home && odds.home >= 1.80) {
       poissonPick = { market: 'MS 1', pick: 'Ev Sahibi', prob: homeWin, odds: odds.home };
     }
     
@@ -463,6 +468,38 @@ export function analyzeSurprise(
     ? Math.min(oddsMovements.reduce((sum, m) => sum + m.impliedProbShift, 0), 100)
     : 0;
   
+  // --- 4b. Odds-only sürpriz tespiti (Poisson yoksa bile çalışır) ---
+  let oddsImbalance = 0;
+  if (odds) {
+    // Ev vs Deplasman oran dengesizliği → ev çok favori ama deplasman tehdidi var
+    if (odds.home && odds.away) {
+      const homeImplied = (1 / odds.home) * 100;
+      const awayImplied = (1 / odds.away) * 100;
+      // Ev çok favori ama oran 1.30 üstü → sürpriz potansiyeli
+      if (homeImplied > 55 && awayImplied > 18 && odds.away >= 2.80) {
+        oddsImbalance += Math.min((awayImplied - 15) * 2, 40);
+      }
+      // Deplasman çok favori → ev sürprizi potansiyeli
+      if (awayImplied > 50 && homeImplied > 20 && odds.home >= 2.80) {
+        oddsImbalance += Math.min((homeImplied - 15) * 2, 40);
+      }
+      // Dengeli maç (oranlar yakın) ama beraberlik oranı yüksek → kaos sinyali
+      if (odds.draw && odds.draw >= 3.20 && Math.abs(homeImplied - awayImplied) < 10) {
+        oddsImbalance += 20;
+      }
+    }
+    // Yüksek oranlı pazar (oran >= 3.50 olan herhangi bir pazar)
+    if (odds.away && odds.away >= 3.50) oddsImbalance += 15;
+    if (odds.home && odds.home >= 3.50) oddsImbalance += 15;
+    // BTTS + Üst/Alt tutarsızlığı
+    if (odds.over25 && odds.under25 && odds.bttsYes) {
+      const overImplied = 1 / odds.over25;
+      const bttsImplied = 1 / odds.bttsYes;
+      if (Math.abs(overImplied - bttsImplied) > 0.15) oddsImbalance += 15;
+    }
+    oddsImbalance = Math.min(oddsImbalance, 100);
+  }
+  
   // --- 5. Composite surprise score ---
   const surpriseScore = calculateSurpriseScore(
     chaosIndex,
@@ -470,6 +507,7 @@ export function analyzeSurprise(
     apiDeviation,
     antiPublicEdge,
     oddsAnomalyStrength,
+    oddsImbalance,
   );
   
   // Minimum eşik kontrolü
@@ -481,15 +519,17 @@ export function analyzeSurprise(
   const categories: SurpriseCategory[] = [];
   if (oddsMovements.some(m => m.isAnomaly || m.isSuspicious)) categories.push('odds_anomaly');
   if (antiPublicSignal?.isContrarian) categories.push('anti_public');
-  if (chaosIndex > 0.6) categories.push('chaos_match');
-  if (valueEdge > 30) categories.push('value_bomb');
+  if (chaosIndex > 0.5) categories.push('chaos_match');
+  if (valueEdge > 15) categories.push('value_bomb');
   if (scorePredictions.surpriseScore) categories.push('score_hunter');
+  // Odds-only sürpriz sinyali
+  if (oddsImbalance >= 25 && categories.length === 0) categories.push('odds_anomaly');
   
   const isContrarian = antiPublicSignal?.isContrarian || false;
   const publicConf = antiPublicSignal?.publicConfidence || 50;
   
   // Tuzak maç tespiti
-  if (publicConf >= 65 && chaosIndex > 0.55 && !isContrarian) {
+  if (publicConf >= 60 && chaosIndex > 0.45 && !isContrarian) {
     categories.push('trap_match');
   }
   

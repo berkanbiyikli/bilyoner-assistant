@@ -73,22 +73,61 @@ export async function GET() {
           };
         }
 
+        // teamStats yoksa → lig DNA + oranlardan fallback stat üret
+        let homeStats: ScanInput['homeStats'] = undefined;
+        let awayStats: ScanInput['awayStats'] = undefined;
+        
+        if (m.teamStats) {
+          homeStats = {
+            goalsScored: m.teamStats.homeGoalsScored || 0,
+            goalsConceded: m.teamStats.homeGoalsConceded || 0,
+            matchesPlayed: 10,
+          };
+          awayStats = {
+            goalsScored: m.teamStats.awayGoalsScored || 0,
+            goalsConceded: m.teamStats.awayGoalsConceded || 0,
+            matchesPlayed: 10,
+          };
+        } else if (dna) {
+          // Lig DNA'dan ortalama gol istatistikleri türet
+          const avgGoals = dna.avgGoals || 2.5;
+          const homeGoalAvg = avgGoals * (0.5 + dna.homeWinRate * 0.2);
+          const awayGoalAvg = avgGoals * (0.5 - dna.homeWinRate * 0.1);
+          homeStats = {
+            goalsScored: Math.round(homeGoalAvg * 10),
+            goalsConceded: Math.round(awayGoalAvg * 10),
+            matchesPlayed: 10,
+          };
+          awayStats = {
+            goalsScored: Math.round(awayGoalAvg * 10),
+            goalsConceded: Math.round(homeGoalAvg * 10),
+            matchesPlayed: 10,
+          };
+        } else if (odds.home && odds.away) {
+          // Oranlardan implied probability → gol tahmini
+          const homeProb = 1 / odds.home;
+          const awayProb = 1 / odds.away;
+          const totalGoals = 2.5;
+          homeStats = {
+            goalsScored: Math.round(totalGoals * homeProb * 10),
+            goalsConceded: Math.round(totalGoals * awayProb * 10),
+            matchesPlayed: 10,
+          };
+          awayStats = {
+            goalsScored: Math.round(totalGoals * awayProb * 10),
+            goalsConceded: Math.round(totalGoals * homeProb * 10),
+            matchesPlayed: 10,
+          };
+        }
+
         return {
           fixtureId: m.id,
           homeTeam: { id: m.homeTeam.id, name: m.homeTeam.name },
           awayTeam: { id: m.awayTeam.id, name: m.awayTeam.name },
           league: { id: m.league.id, name: m.league.name },
           kickoff: m.date,
-          homeStats: m.teamStats ? {
-            goalsScored: m.teamStats.homeGoalsScored || 0,
-            goalsConceded: m.teamStats.homeGoalsConceded || 0,
-            matchesPlayed: 10, // DailyMatchFixture'da matchesPlayed yok, varsayılan
-          } : undefined,
-          awayStats: m.teamStats ? {
-            goalsScored: m.teamStats.awayGoalsScored || 0,
-            goalsConceded: m.teamStats.awayGoalsConceded || 0,
-            matchesPlayed: 10,
-          } : undefined,
+          homeStats,
+          awayStats,
           odds,
           h2h: m.h2hSummary ? {
             homeWins: m.h2hSummary.homeWins,

@@ -6,7 +6,7 @@
  * POST /api/bot/live - Fırsata bahis yap
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getLiveFixtures, getFixtureStatistics } from '@/lib/api-football/fixtures';
 import { 
   detectLiveOpportunities, 
@@ -26,10 +26,36 @@ import { saveLivePick, type LivePick } from '@/lib/bot/live-pick-tracker';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-// Spam önleme
-let lastLiveTweetTime = 0;
-let lastLiveTweetSnapshot = '';
+// Spam önleme - Redis tabanlı (Vercel cold start'a dayanıklı)
 const LIVE_TWEET_COOLDOWN = 15 * 60 * 1000; // 15 dk arası
+const REDIS_KEY_LIVE_TWEET_TIME = 'bot:live:lastTweetTime';
+const REDIS_KEY_LIVE_TWEET_SNAPSHOT = 'bot:live:lastSnapshot';
+const REDIS_KEY_TWEETED_FIXTURES = 'bot:live:tweetedFixtures'; // Duplicate prevention
+
+async function getLastLiveTweetTime(): Promise<number> {
+  return (await cacheGet<number>(REDIS_KEY_LIVE_TWEET_TIME)) || 0;
+}
+async function setLastLiveTweetTime(time: number): Promise<void> {
+  await cacheSet(REDIS_KEY_LIVE_TWEET_TIME, time, 3600); // 1 saat TTL
+}
+async function getLastLiveTweetSnapshot(): Promise<string> {
+  return (await cacheGet<string>(REDIS_KEY_LIVE_TWEET_SNAPSHOT)) || '';
+}
+async function setLastLiveTweetSnapshot(snapshot: string): Promise<void> {
+  await cacheSet(REDIS_KEY_LIVE_TWEET_SNAPSHOT, snapshot, 3600);
+}
+// Fixture bazlı duplicate tweet önleme (cron + live arası)
+async function isFixtureAlreadyTweeted(fixtureId: number): Promise<boolean> {
+  const tweeted = (await cacheGet<number[]>(REDIS_KEY_TWEETED_FIXTURES)) || [];
+  return tweeted.includes(fixtureId);
+}
+async function markFixtureTweeted(fixtureId: number): Promise<void> {
+  const tweeted = (await cacheGet<number[]>(REDIS_KEY_TWEETED_FIXTURES)) || [];
+  if (!tweeted.includes(fixtureId)) {
+    tweeted.push(fixtureId);
+    await cacheSet(REDIS_KEY_TWEETED_FIXTURES, tweeted, 3600); // 1 saat TTL
+  }
+}
 
 /**
  * Canlı fırsat tweet metni oluştur
@@ -57,8 +83,21 @@ function formatLiveOpportunityTweet(opportunities: LiveOpportunity[]): string {
 
 // ============ GET - Canlı Fırsatları Getir ============
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Auth kontrolü
+    const isVercelCron = request.headers.get('x-vercel-cron') === '1';
+    const { searchParams } = new URL(request.url);
+    const isTestMode = searchParams.get('test') === '1';
+    
+    if (!isVercelCron && !isTestMode && process.env.NODE_ENV !== 'development') {
+      const authHeader = request.headers.get('authorization');
+      const cronSecret = process.env.CRON_SECRET;
+      if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
+    
     const startTime = Date.now();
     
     // Cache kontrolü (30 saniye)
@@ -123,12 +162,22 @@ export async function GET() {
         `${o.fixtureId}:${o.type}:${o.confidence}`
       ).join('|');
       
-      const isNew = oppSnapshot !== lastLiveTweetSnapshot;
-      const canTweet = Date.now() - lastLiveTweetTime >= LIVE_TWEET_COOLDOWN;
+      const lastSnapshot = await getLastLiveTweetSnapshot();
+      const lastTweetTime = await getLastLiveTweetTime();
+      const isNew = oppSnapshot !== lastSnapshot;
+      const canTweet = Date.now() - lastTweetTime >= LIVE_TWEET_COOLDOWN;
       const useMock = process.env.TWITTER_MOCK === 'true';
       
-      if (isNew && canTweet) {
-        const tweetText = formatLiveOpportunityTweet(tweetableOpportunities);
+      // Duplicate fixture check: cron veya live zaten tweet attıysa atma
+      const uniqueOpportunities = [];
+      for (const opp of tweetableOpportunities) {
+        if (!(await isFixtureAlreadyTweeted(opp.fixtureId))) {
+          uniqueOpportunities.push(opp);
+        }
+      }
+      
+      if (isNew && canTweet && uniqueOpportunities.length > 0) {
+        const tweetText = formatLiveOpportunityTweet(uniqueOpportunities);
         let tweetId: string | undefined;
         
         if (!useMock) {
@@ -148,7 +197,7 @@ export async function GET() {
         
         // Pick'leri kaydet (takip için)
         if (tweetSent) {
-          for (const opp of tweetableOpportunities) {
+          for (const opp of uniqueOpportunities) {
             const pick: LivePick = {
               id: `pick_${opp.fixtureId}_${Date.now()}`,
               fixtureId: opp.fixtureId,
@@ -168,12 +217,15 @@ export async function GET() {
               source: 'live-bot',
             };
             const saved = await saveLivePick(pick);
-            if (saved) savedPicks.push(`${opp.match.homeTeam} vs ${opp.match.awayTeam}: ${opp.pick}`);
+            if (saved) {
+              savedPicks.push(`${opp.match.homeTeam} vs ${opp.match.awayTeam}: ${opp.pick}`);
+              await markFixtureTweeted(opp.fixtureId);
+            }
           }
         }
         
-        lastLiveTweetSnapshot = oppSnapshot;
-        lastLiveTweetTime = Date.now();
+        await setLastLiveTweetSnapshot(oppSnapshot);
+        await setLastLiveTweetTime(Date.now());
       }
     }
     

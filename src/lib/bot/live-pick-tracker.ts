@@ -241,7 +241,7 @@ export function checkPickResult(
   pick: LivePick, 
   finalHomeScore: number, 
   finalAwayScore: number
-): 'won' | 'lost' {
+): 'won' | 'lost' | 'void' {
   const totalGoals = finalHomeScore + finalAwayScore;
   const market = pick.market.toLowerCase();
   const pickText = pick.pick.toLowerCase();
@@ -301,17 +301,17 @@ export function checkPickResult(
   // Korner Üstü
   if (market.includes('korner üst')) {
     // Korner bilgisini bilemediğimiz için void dönelim
-    return 'lost'; // Fallback
+    return 'void';
   }
   
   // Kart Üstü
   if (market.includes('kart üst')) {
-    return 'lost'; // Fallback
+    return 'void';
   }
   
   // Bilinmeyen market — güvende ol
   console.warn(`[LivePicker] Bilinmeyen market: ${pick.market} / ${pick.pick}`);
-  return 'lost';
+  return 'void';
 }
 
 // ============ TWEET FORMAT YARDIMCILARI ============

@@ -13,19 +13,31 @@ import { sendQuoteTweet, sendTweet } from '@/lib/bot/twitter';
 import type { BotMatch, BankrollState } from '@/lib/bot/types';
 import { isTop20League } from '@/config/league-priorities';
 import { saveLivePick, type LivePick } from '@/lib/bot/live-pick-tracker';
+import { cacheGet, cacheSet } from '@/lib/cache/redis-cache';
 
 // API Football config
 const API_KEY = process.env.API_FOOTBALL_KEY || '';
 const API_BASE = process.env.API_FOOTBALL_BASE_URL || 'https://v3.football.api-sports.io';
 
-// Son durum cache (spam önleme için)
-let lastCouponSnapshot = '';
-let lastOpportunitySnapshot = '';
-let lastCouponTweetTime = 0;
-let lastOpportunityTweetTime = 0;
-// Gol bazlı tweet için son skorları takip et
-let lastScoreSnapshot = '';
-let lastHalftimeSnapshot = '';
+// ============ REDIS TABANLI SPAM ÖNLEME ============
+// Vercel serverless cold start'lara dayanıklı
+
+const REDIS_KEY_COUPON_SNAPSHOT = 'bot:cron:couponSnapshot';
+const REDIS_KEY_OPP_SNAPSHOT = 'bot:cron:oppSnapshot';
+const REDIS_KEY_COUPON_TWEET_TIME = 'bot:cron:couponTweetTime';
+const REDIS_KEY_OPP_TWEET_TIME = 'bot:cron:oppTweetTime';
+const REDIS_KEY_SCORE_SNAPSHOT = 'bot:cron:scoreSnapshot';
+const REDIS_KEY_HALFTIME_SNAPSHOT = 'bot:cron:halftimeSnapshot';
+const REDIS_KEY_SUGGESTED_MATCHES = 'bot:cron:suggestedMatches';
+const REDIS_KEY_TWEETED_FIXTURES = 'bot:live:tweetedFixtures'; // Shared with live route
+
+// Helper functions
+async function getCronState<T>(key: string, fallback: T): Promise<T> {
+  return (await cacheGet<T>(key)) ?? fallback;
+}
+async function setCronState<T>(key: string, value: T, ttl: number = 3600): Promise<void> {
+  await cacheSet(key, value, ttl);
+}
 
 interface LiveMatchData {
   fixtureId: number;
@@ -269,9 +281,17 @@ function formatCouponStatusTweet(statuses: CouponMatchStatus[]): string {
  * - Aynı maçı tekrar önerme
  */
 
-// Daha önce önerilen maçları takip et (spam önleme)
-const suggestedMatches = new Map<number, { timestamp: number; opportunity: string }>();
+// Daha önce önerilen maçları takip et (spam önleme - Redis tabanlı)
 const SUGGESTION_COOLDOWN = 30 * 60 * 1000; // 30 dakika aynı maçı önerme
+
+type SuggestedMatchesMap = Record<string, { timestamp: number; opportunity: string }>;
+
+async function getSuggestedMatches(): Promise<SuggestedMatchesMap> {
+  return (await cacheGet<SuggestedMatchesMap>(REDIS_KEY_SUGGESTED_MATCHES)) || {};
+}
+async function setSuggestedMatches(data: SuggestedMatchesMap): Promise<void> {
+  await cacheSet(REDIS_KEY_SUGGESTED_MATCHES, data, 3600);
+}
 
 async function scanLiveOpportunities(): Promise<Array<{
   match: LiveMatchData;
@@ -299,9 +319,10 @@ async function scanLiveOpportunities(): Promise<Array<{
     
     // Eski öneri kayıtlarını temizle
     const now = Date.now();
-    for (const [fixtureId, data] of suggestedMatches) {
-      if (now - data.timestamp > SUGGESTION_COOLDOWN) {
-        suggestedMatches.delete(fixtureId);
+    const suggestedMatches = await getSuggestedMatches();
+    for (const fixtureId of Object.keys(suggestedMatches)) {
+      if (now - suggestedMatches[fixtureId].timestamp > SUGGESTION_COOLDOWN) {
+        delete suggestedMatches[fixtureId];
       }
     }
     
@@ -415,7 +436,7 @@ async function scanLiveOpportunities(): Promise<Array<{
         const finalConfidence = confidenceBase + bonus;
         
         // Minimum %62 güven ve daha önce önerilmemiş
-        const prevSuggestion = suggestedMatches.get(fixtureId);
+        const prevSuggestion = suggestedMatches[String(fixtureId)];
         const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Ev Sahibi');
         
         if (finalConfidence >= 62 && !alreadySuggested) {
@@ -460,7 +481,7 @@ async function scanLiveOpportunities(): Promise<Array<{
         
         const finalConfidence = confidenceBase + bonus;
         
-        const prevSuggestion = suggestedMatches.get(fixtureId);
+        const prevSuggestion = suggestedMatches[String(fixtureId)];
         const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Deplasman');
         
         if (finalConfidence >= 62 && !alreadySuggested) {
@@ -505,7 +526,7 @@ async function scanLiveOpportunities(): Promise<Array<{
           const finalConfidence = confidenceBase + bonus;
           const odds = totalGoals === 2 ? 1.55 : 1.85;
           
-          const prevSuggestion = suggestedMatches.get(fixtureId);
+          const prevSuggestion = suggestedMatches[String(fixtureId)];
           const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Üst 2.5');
           
           if (finalConfidence >= 65 && !alreadySuggested) {
@@ -528,11 +549,14 @@ async function scanLiveOpportunities(): Promise<Array<{
     
     // Önerilen maçları kaydet (spam önleme)
     for (const opp of topOpps) {
-      suggestedMatches.set(opp.match.fixtureId, {
+      suggestedMatches[String(opp.match.fixtureId)] = {
         timestamp: Date.now(),
         opportunity: opp.opportunity,
-      });
+      };
     }
+    
+    // Redis'e kaydet
+    await setSuggestedMatches(suggestedMatches);
     
     return topOpps;
       
@@ -621,14 +645,15 @@ export async function GET(request: NextRequest) {
       // Her maç için canlı veri çek
       for (const match of state.activeCoupon.matches) {
         const liveData = await fetchLiveMatch(match.fixtureId);
-        const status = analyzePrediction(match, liveData!);
-        couponStatuses.push(status);
         
-        if (liveData) {
-          log(`${match.homeTeam} ${liveData.homeScore}-${liveData.awayScore} ${match.awayTeam} (${liveData.minute}') - ${status.neededMessage}`);
-        } else {
-          log(`${match.homeTeam} vs ${match.awayTeam} - Veri alınamadı`);
+        if (!liveData) {
+          log(`${match.homeTeam} vs ${match.awayTeam} - Veri alınamadı, atlanıyor`);
+          continue;
         }
+        
+        const status = analyzePrediction(match, liveData);
+        couponStatuses.push(status);
+        log(`${match.homeTeam} ${liveData.homeScore}-${liveData.awayScore} ${match.awayTeam} (${liveData.minute}') - ${status.neededMessage}`);
       }
       
       // Kupon snapshot oluştur (değişiklik kontrolü için)
@@ -651,15 +676,20 @@ export async function GET(request: NextRequest) {
         s.live && ['1H', '2H', 'HT', 'ET', 'P', 'LIVE', 'BT'].includes(s.live.status)
       );
       
+      // Redis'ten önceki snapshot'ları al
+      const prevScoreSnapshot = await getCronState<string>(REDIS_KEY_SCORE_SNAPSHOT, '');
+      const prevHalftimeSnapshot = await getCronState<string>(REDIS_KEY_HALFTIME_SNAPSHOT, '');
+      const prevCouponTweetTime = await getCronState<number>(REDIS_KEY_COUPON_TWEET_TIME, 0);
+      
       // GOL OLDU MU? (Skor değişikliği kontrolü)
-      const isGoalScored = currentScoreSnapshot !== lastScoreSnapshot && lastScoreSnapshot !== '';
+      const isGoalScored = currentScoreSnapshot !== prevScoreSnapshot && prevScoreSnapshot !== '';
       
       // DEVRE ARASI MI? (HT'ye geçiş kontrolü)
-      const isHalftime = currentHalftimeSnapshot.includes(':HT') && !lastHalftimeSnapshot.includes(':HT');
+      const isHalftime = currentHalftimeSnapshot.includes(':HT') && !prevHalftimeSnapshot.includes(':HT');
       
       // SADECE GOL VEYA DEVRE ARASINDA TWEET AT (Spam önleme)
       const MIN_TWEET_INTERVAL = 3 * 60 * 1000; // Gol durumunda minimum 3 dk arası
-      const canTweet = Date.now() - lastCouponTweetTime >= MIN_TWEET_INTERVAL;
+      const canTweet = Date.now() - prevCouponTweetTime >= MIN_TWEET_INTERVAL;
       
       if (hasLiveMatch && (isGoalScored || isHalftime) && canTweet) {
         // Gol durumunda "Dediğimiz gibi!" veya normal güncelleme
@@ -668,22 +698,22 @@ export async function GET(request: NextRequest) {
         if (!useMock && state.activeCoupon.tweetId) {
           // QUOTE TWEET olarak at - orijinal kuponu alıntıla
           await sendQuoteTweet(tweetText, state.activeCoupon.tweetId);
-          lastCouponSnapshot = currentSnapshot;
-          lastScoreSnapshot = currentScoreSnapshot;
-          lastHalftimeSnapshot = currentHalftimeSnapshot;
-          lastCouponTweetTime = Date.now();
+          await setCronState(REDIS_KEY_COUPON_SNAPSHOT, currentSnapshot);
+          await setCronState(REDIS_KEY_SCORE_SNAPSHOT, currentScoreSnapshot);
+          await setCronState(REDIS_KEY_HALFTIME_SNAPSHOT, currentHalftimeSnapshot);
+          await setCronState(REDIS_KEY_COUPON_TWEET_TIME, Date.now());
           log(isGoalScored ? '⚽ GOL! Kupon durumu tweeti atıldı' : '⏸️ Devre arası tweeti atıldı');
         } else if (useMock) {
           log(`[MOCK] ${isGoalScored ? 'GOL' : 'DEVRE ARASI'} tweeti:\n${tweetText}`);
-          lastCouponSnapshot = currentSnapshot;
-          lastScoreSnapshot = currentScoreSnapshot;
-          lastHalftimeSnapshot = currentHalftimeSnapshot;
-          lastCouponTweetTime = Date.now();
+          await setCronState(REDIS_KEY_COUPON_SNAPSHOT, currentSnapshot);
+          await setCronState(REDIS_KEY_SCORE_SNAPSHOT, currentScoreSnapshot);
+          await setCronState(REDIS_KEY_HALFTIME_SNAPSHOT, currentHalftimeSnapshot);
+          await setCronState(REDIS_KEY_COUPON_TWEET_TIME, Date.now());
         }
       } else {
         // Snapshot'ları güncelle ama tweet atma
-        lastScoreSnapshot = currentScoreSnapshot;
-        lastHalftimeSnapshot = currentHalftimeSnapshot;
+        await setCronState(REDIS_KEY_SCORE_SNAPSHOT, currentScoreSnapshot);
+        await setCronState(REDIS_KEY_HALFTIME_SNAPSHOT, currentHalftimeSnapshot);
         
         if (!hasLiveMatch) {
           log('Canlı maç yok, tweet atılmadı');
@@ -709,29 +739,36 @@ export async function GET(request: NextRequest) {
         `${o.match.fixtureId}:${o.opportunity}`
       ).join('|');
       
-      const isNewOpportunity = oppSnapshot !== lastOpportunitySnapshot;
-      const MIN_OPPORTUNITY_INTERVAL = 15 * 60 * 1000; // Minimum 15 dk arası
-      const canTweetOpportunity = Date.now() - lastOpportunityTweetTime >= MIN_OPPORTUNITY_INTERVAL;
+      const prevOppSnapshot = await getCronState<string>(REDIS_KEY_OPP_SNAPSHOT, '');
+      const prevOppTweetTime = await getCronState<number>(REDIS_KEY_OPP_TWEET_TIME, 0);
       
-      if (isNewOpportunity && canTweetOpportunity) {
-        const tweetText = formatOpportunityTweet(opportunities);
+      const isNewOpportunity = oppSnapshot !== prevOppSnapshot;
+      const MIN_OPPORTUNITY_INTERVAL = 15 * 60 * 1000; // Minimum 15 dk arası
+      const canTweetOpportunity = Date.now() - prevOppTweetTime >= MIN_OPPORTUNITY_INTERVAL;
+      
+      // Duplicate check: live route zaten tweet attıysa atma
+      const tweetedFixtures = (await cacheGet<number[]>(REDIS_KEY_TWEETED_FIXTURES)) || [];
+      const uniqueOpportunities = opportunities.filter(o => !tweetedFixtures.includes(o.match.fixtureId));
+      
+      if (isNewOpportunity && canTweetOpportunity && uniqueOpportunities.length > 0) {
+        const tweetText = formatOpportunityTweet(uniqueOpportunities);
         let tweetId: string | undefined;
         
         if (!useMock) {
           const tweetResult = await sendTweet(tweetText);
           tweetId = tweetResult.tweetId;
-          lastOpportunitySnapshot = oppSnapshot;
-          lastOpportunityTweetTime = Date.now();
+          await setCronState(REDIS_KEY_OPP_SNAPSHOT, oppSnapshot);
+          await setCronState(REDIS_KEY_OPP_TWEET_TIME, Date.now());
           log('Yeni fırsat tweeti atıldı');
         } else {
           log(`[MOCK] Fırsat tweeti:\n${tweetText}`);
           tweetId = `mock_${Date.now()}`;
-          lastOpportunitySnapshot = oppSnapshot;
-          lastOpportunityTweetTime = Date.now();
+          await setCronState(REDIS_KEY_OPP_SNAPSHOT, oppSnapshot);
+          await setCronState(REDIS_KEY_OPP_TWEET_TIME, Date.now());
         }
         
-        // Pick'leri kaydet (takip için)
-        for (const opp of opportunities) {
+        // Pick'leri kaydet (takip için) + fixture'ları tweeted olarak işaretle
+        for (const opp of uniqueOpportunities) {
           const pick: LivePick = {
             id: `pick_cron_${opp.match.fixtureId}_${Date.now()}`,
             fixtureId: opp.match.fixtureId,
@@ -751,8 +788,11 @@ export async function GET(request: NextRequest) {
             source: 'cron-bot',
           };
           await saveLivePick(pick);
+          // Fixture'ı tweeted olarak işaretle (duplicate prevention)
+          tweetedFixtures.push(opp.match.fixtureId);
         }
-        log(`${opportunities.length} pick kaydedildi (takip için)`);
+        await cacheSet(REDIS_KEY_TWEETED_FIXTURES, tweetedFixtures, 3600);
+        log(`${uniqueOpportunities.length} pick kaydedildi (takip için)`);
       } else if (!isNewOpportunity) {
         log('Aynı fırsatlar, tweet atılmadı');
       } else if (!canTweetOpportunity) {

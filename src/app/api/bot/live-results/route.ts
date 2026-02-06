@@ -7,7 +7,7 @@
  * Vercel Cron ile her 10 dakikada bir çağrılır
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { 
   getActivePicks, 
   settlePick, 
@@ -21,6 +21,7 @@ import {
   type LivePickStats,
 } from '@/lib/bot/live-pick-tracker';
 import { sendTweet, sendReplyTweet } from '@/lib/bot/twitter';
+import { cacheGet, cacheSet } from '@/lib/cache/redis-cache';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -28,11 +29,24 @@ export const maxDuration = 30;
 const API_KEY = process.env.API_FOOTBALL_KEY || '';
 const API_BASE = process.env.API_FOOTBALL_BASE_URL || 'https://v3.football.api-sports.io';
 
-// Spam önleme
-let lastResultTweetTime = 0;
-let lastPerformanceTweetTime = 0;
+// Spam önleme - Redis tabanlı (Vercel cold start'a dayanıklı)
 const RESULT_TWEET_COOLDOWN = 3 * 60 * 1000;     // 3 dk arası result tweet
 const PERFORMANCE_TWEET_COOLDOWN = 60 * 60 * 1000; // 1 saat arası performans tweet
+const REDIS_KEY_RESULT_TWEET_TIME = 'bot:results:lastResultTweetTime';
+const REDIS_KEY_PERFORMANCE_TWEET_TIME = 'bot:results:lastPerformanceTweetTime';
+
+async function getLastResultTweetTime(): Promise<number> {
+  return (await cacheGet<number>(REDIS_KEY_RESULT_TWEET_TIME)) || 0;
+}
+async function setLastResultTweetTime(time: number): Promise<void> {
+  await cacheSet(REDIS_KEY_RESULT_TWEET_TIME, time, 600); // 10 dk TTL
+}
+async function getLastPerformanceTweetTime(): Promise<number> {
+  return (await cacheGet<number>(REDIS_KEY_PERFORMANCE_TWEET_TIME)) || 0;
+}
+async function setLastPerformanceTweetTime(time: number): Promise<void> {
+  await cacheSet(REDIS_KEY_PERFORMANCE_TWEET_TIME, time, 7200); // 2 saat TTL
+}
 
 /**
  * Fixture'ın final skorunu çek
@@ -68,7 +82,7 @@ async function getFixtureFinalScore(fixtureId: number): Promise<{
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const logs: string[] = [];
   const log = (msg: string) => {
     console.log(`[LiveResults] ${msg}`);
@@ -76,6 +90,19 @@ export async function GET() {
   };
   
   try {
+    // Auth kontrolü
+    const isVercelCron = request.headers.get('x-vercel-cron') === '1';
+    const { searchParams } = new URL(request.url);
+    const isTestMode = searchParams.get('test') === '1';
+    
+    if (!isVercelCron && !isTestMode && process.env.NODE_ENV !== 'development') {
+      const authHeader = request.headers.get('authorization');
+      const cronSecret = process.env.CRON_SECRET;
+      if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
+    
     const useMock = process.env.TWITTER_MOCK === 'true';
     
     // Aktif pick'leri al
@@ -126,7 +153,8 @@ export async function GET() {
     const stats = await updateDailyStats(today);
     
     if (settledPicks.length > 0) {
-      const canTweetResult = Date.now() - lastResultTweetTime >= RESULT_TWEET_COOLDOWN;
+      const lastResultTime = await getLastResultTweetTime();
+      const canTweetResult = Date.now() - lastResultTime >= RESULT_TWEET_COOLDOWN;
       
       if (canTweetResult) {
         // Birden fazla kazanan pick varsa toplu kutlama tweeti
@@ -149,7 +177,7 @@ export async function GET() {
           } else {
             log(`[MOCK] Kutlama tweeti:\n${tweetText}`);
           }
-          lastResultTweetTime = Date.now();
+          await setLastResultTweetTime(Date.now());
         }
         // Tek pick settle olduysa sonuç tweeti
         else {
@@ -173,14 +201,15 @@ export async function GET() {
               log(`[MOCK] Sonuç tweeti:\n${tweetText}`);
             }
           }
-          lastResultTweetTime = Date.now();
+          await setLastResultTweetTime(Date.now());
         }
       }
     }
     
     // Günlük performans tweeti (belirli milestonelar'da)
     const settled = stats.won + stats.lost;
-    const canTweetPerformance = Date.now() - lastPerformanceTweetTime >= PERFORMANCE_TWEET_COOLDOWN;
+    const lastPerfTime = await getLastPerformanceTweetTime();
+    const canTweetPerformance = Date.now() - lastPerfTime >= PERFORMANCE_TWEET_COOLDOWN;
     
     // 5+ pick settle olmuşsa ve 1 saattir performans tweeti atılmadıysa
     if (settled >= 5 && canTweetPerformance && stats.pending === 0) {
@@ -196,7 +225,7 @@ export async function GET() {
       } else {
         log(`[MOCK] Performans tweeti:\n${perfTweet}`);
       }
-      lastPerformanceTweetTime = Date.now();
+      await setLastPerformanceTweetTime(Date.now());
     }
     
     return NextResponse.json({

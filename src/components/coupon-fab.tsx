@@ -55,10 +55,10 @@ export function CouponFAB() {
         onClick={toggleOpen}
         className={cn(
           "fixed bottom-6 right-6 z-50",
-          "flex items-center gap-2 px-4 py-3 rounded-full",
+          "flex items-center gap-2 px-5 py-3.5 rounded-2xl",
           "bg-gradient-to-r from-green-500 to-emerald-600",
-          "text-white font-medium shadow-lg",
-          "hover:shadow-xl hover:scale-105 transition-all",
+          "text-white font-medium shadow-xl shadow-green-500/25",
+          "hover:shadow-2xl hover:shadow-green-500/30 hover:scale-105 transition-all duration-300",
           count > 0 && "animate-bounce-subtle"
         )}
       >
@@ -106,7 +106,7 @@ function CouponPanel() {
       />
 
       {/* Panel */}
-      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md bg-background shadow-2xl flex flex-col">
+      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md glass shadow-2xl flex flex-col border-l border-border/50">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-green-500 to-emerald-600 text-white">
           <div className="flex items-center gap-2">
@@ -133,7 +133,7 @@ function CouponPanel() {
               const categoryInfo = CATEGORY_INFO[selection.category];
               
               return (
-                <Card key={selection.id} className="relative overflow-hidden">
+                <Card key={selection.id} className="relative overflow-hidden rounded-xl border-border/50">
                   <div className={cn(
                     "absolute left-0 top-0 bottom-0 w-1",
                     selection.category === 'banko' && "bg-green-500",
@@ -260,7 +260,7 @@ function CouponPanel() {
 
           {/* Warning if incomplete */}
           {selections.length < 2 && systemType !== 'single' && (
-            <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-500/10 p-2 rounded">
+            <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20">
               <AlertCircle className="h-4 w-4" />
               <span>Kombine için en az 2 seçim gerekli</span>
             </div>
@@ -271,12 +271,12 @@ function CouponPanel() {
             <Button
               variant="outline"
               onClick={clearCoupon}
-              className="flex-1"
+              className="flex-1 rounded-xl"
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Temizle
             </Button>
-            <Button className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600">
+            <Button className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl shadow-lg shadow-green-500/20">
               <Calculator className="h-4 w-4 mr-2" />
               Kuponu Onayla
             </Button>
@@ -348,7 +348,7 @@ export function AddToCouponButton({
       size="sm"
       onClick={handleClick}
       className={cn(
-        "h-7 text-xs",
+        "h-7 text-xs rounded-lg",
         inCoupon && "bg-green-500 hover:bg-green-600"
       )}
     >

@@ -83,7 +83,7 @@ function BetSuggestionCard({ suggestion, fixture }: BetSuggestionCardProps) {
 
   return (
     <div className={cn(
-      'flex items-center justify-between p-2 rounded-md border text-sm group',
+      'flex items-center justify-between p-2.5 rounded-xl border text-sm group transition-all duration-200',
       getConfidenceColor(suggestion.confidence),
       inCoupon && 'ring-2 ring-primary'
     )}>
@@ -150,16 +150,17 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
   return (
     <Card 
       className={cn(
-        'transition-all duration-200',
-        status.isLive && 'ring-2 ring-green-500 animate-pulse-border',
-        isExpanded && 'shadow-lg'
+        'transition-all duration-300 rounded-2xl border-border/50 overflow-hidden',
+        status.isLive && 'ring-2 ring-emerald-500/70 shadow-lg shadow-emerald-500/10',
+        isExpanded && 'shadow-xl',
+        !isExpanded && 'hover:shadow-md hover:border-border'
       )}
     >
       {/* Header - Her zaman görünür */}
       <div 
         className={cn(
-          'flex items-center gap-3 p-3 cursor-pointer hover:bg-muted/50 transition-colors',
-          status.isLive && 'bg-green-50 dark:bg-green-950/20'
+          'flex items-center gap-3 p-3.5 cursor-pointer hover:bg-muted/30 transition-all duration-200',
+          status.isLive && 'bg-emerald-500/5'
         )}
         onClick={() => setIsExpanded(!isExpanded)}
       >
@@ -167,7 +168,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
         <div className="w-14 flex-shrink-0 text-center">
           {status.isLive ? (
             <div className="flex flex-col items-center">
-              <Badge className="bg-red-600 text-white animate-pulse text-xs">
+              <Badge className="bg-red-500 text-white animate-pulse text-xs rounded-lg shadow-sm shadow-red-500/30">
                 {status.elapsed}&apos;
               </Badge>
             </div>
@@ -229,11 +230,11 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
           )}
           
           {/* Expand/Collapse Icon */}
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg">
             {isExpanded ? (
-              <ChevronUp className="h-4 w-4" />
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
             ) : (
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
             )}
           </Button>
         </div>
@@ -241,7 +242,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
       {/* Expanded Content */}
       {isExpanded && (
-        <CardContent className="pt-0 pb-3 px-3 space-y-3 border-t">
+        <CardContent className="pt-0 pb-4 px-4 space-y-3 border-t border-border/40">
           {/* Action Bar */}
           <div className="flex items-center justify-between pt-2">
             <div className="flex items-center gap-2">
@@ -280,7 +281,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
             <div className="space-y-3">
               {/* Tahmin ve Güven */}
               {detail.data.prediction && (
-                <div className="p-2 rounded-lg bg-muted/50">
+                <div className="p-3 rounded-xl bg-muted/30 border border-border/30">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <TrendingUp className="h-4 w-4 text-primary" />
@@ -305,8 +306,8 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
               {/* Form Karşılaştırma */}
               {detail.data.formComparison && (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2 rounded-lg bg-muted/30">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 rounded-xl bg-muted/20 border border-border/30">
                     <div className="text-xs text-muted-foreground mb-1">Ev Sahibi Form</div>
                     <div className="flex gap-0.5">
                       {detail.data.formComparison.homeLast5.map((result, i) => (
@@ -314,7 +315,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
                       ))}
                     </div>
                   </div>
-                  <div className="p-2 rounded-lg bg-muted/30">
+                  <div className="p-3 rounded-xl bg-muted/20 border border-border/30">
                     <div className="text-xs text-muted-foreground mb-1">Deplasman Form</div>
                     <div className="flex gap-0.5">
                       {detail.data.formComparison.awayLast5.map((result, i) => (
@@ -327,7 +328,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
               {/* H2H Özeti */}
               {detail.data.h2hSummary && (
-                <div className="p-2 rounded-lg bg-muted/30">
+                <div className="p-3 rounded-xl bg-muted/20 border border-border/30">
                   <div className="text-xs text-muted-foreground mb-2">Karşılıklı ({detail.data.h2hSummary.totalMatches} maç)</div>
                   <div className="grid grid-cols-3 gap-2 text-center text-sm">
                     <div>
@@ -358,11 +359,13 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
               {/* 📊 POISSON TAHMİNİ - YENİ */}
               {detail.data.poissonAnalysis && (
-                <div className="p-3 rounded-lg bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20">
+                <div className="p-3 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <BarChart3 className="h-4 w-4 text-indigo-500" />
-                      <span className="font-semibold text-sm">Poisson Analizi (Bilimsel Tahmin)</span>
+                      <div className="p-1 rounded-lg bg-indigo-500/10">
+                        <BarChart3 className="h-4 w-4 text-indigo-500" />
+                      </div>
+                      <span className="font-semibold text-sm">Poisson Analizi</span>
                     </div>
                     {/* API Validation Badge */}
                     {detail.data.apiValidation && (
@@ -376,20 +379,20 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
                   
                   {/* xG ve En Olası Skor */}
                   <div className="grid grid-cols-3 gap-2 mb-3">
-                    <div className="text-center p-2 rounded bg-blue-500/10">
+                    <div className="text-center p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/10">
                       <div className="text-lg font-bold text-blue-600">
                         {detail.data.poissonAnalysis.expectedHomeGoals?.toFixed(2) ?? '-'}
                       </div>
                       <div className="text-[10px] text-muted-foreground">Ev xG</div>
                     </div>
-                    <div className="text-center p-2 rounded bg-purple-500/10">
-                      <div className="text-lg font-bold text-purple-600">
+                    <div className="text-center p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/10">
+                      <div className="text-lg font-bold text-purple-600 dark:text-purple-400">
                         {detail.data.poissonAnalysis.mostLikelyScore}
                       </div>
                       <div className="text-[10px] text-muted-foreground">Tahmini Skor</div>
                     </div>
-                    <div className="text-center p-2 rounded bg-red-500/10">
-                      <div className="text-lg font-bold text-red-600">
+                    <div className="text-center p-2.5 rounded-xl bg-red-500/10 border border-red-500/10">
+                      <div className="text-lg font-bold text-red-600 dark:text-red-400">
                         {detail.data.poissonAnalysis.expectedAwayGoals?.toFixed(2) ?? '-'}
                       </div>
                       <div className="text-[10px] text-muted-foreground">Dep xG</div>
@@ -397,20 +400,20 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
                   </div>
 
                   {/* Olasılıklar */}
-                  <div className="grid grid-cols-4 gap-1 text-[10px]">
-                    <div className="text-center p-1 rounded bg-muted/50">
+                  <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+                    <div className="text-center p-1.5 rounded-lg bg-muted/40 border border-border/20">
                       <div className="font-bold">{detail.data.poissonAnalysis.probabilities?.homeWin?.toFixed(0) ?? '-'}%</div>
                       <div className="text-muted-foreground">1</div>
                     </div>
-                    <div className="text-center p-1 rounded bg-muted/50">
+                    <div className="text-center p-1.5 rounded-lg bg-muted/40 border border-border/20">
                       <div className="font-bold">{detail.data.poissonAnalysis.probabilities?.draw?.toFixed(0) ?? '-'}%</div>
                       <div className="text-muted-foreground">X</div>
                     </div>
-                    <div className="text-center p-1 rounded bg-muted/50">
+                    <div className="text-center p-1.5 rounded-lg bg-muted/40 border border-border/20">
                       <div className="font-bold">{detail.data.poissonAnalysis.probabilities?.awayWin?.toFixed(0) ?? '-'}%</div>
                       <div className="text-muted-foreground">2</div>
                     </div>
-                    <div className="text-center p-1 rounded bg-muted/50">
+                    <div className="text-center p-1.5 rounded-lg bg-muted/40 border border-border/20">
                       <div className="font-bold">{detail.data.poissonAnalysis.probabilities?.over25?.toFixed(0) ?? '-'}%</div>
                       <div className="text-muted-foreground">Ü2.5</div>
                     </div>
@@ -432,7 +435,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
               {/* 💰 VALUE BET ANALİZİ - YENİ */}
               {detail.data.valueBets && detail.data.valueBets.count > 0 && (
-                <div className="p-3 rounded-lg bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20">
+                <div className="p-3 rounded-xl bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <DollarSign className="h-4 w-4 text-green-500" />
@@ -481,7 +484,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
               {/* 🎯 BAHİS ÖNERİLERİ */}
               {detail.data.betSuggestions && detail.data.betSuggestions.length > 0 && (
-                <div className="p-3 rounded-lg bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20">
+                <div className="p-3 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20">
                   <div className="flex items-center gap-2 mb-2">
                     <Zap className="h-4 w-4 text-purple-500" />
                     <span className="font-semibold text-sm">Bahis Önerileri</span>
@@ -505,7 +508,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="p-2 rounded-lg bg-blue-500/10">
+                    <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/10">
                       <div className="font-medium mb-1">{homeTeam.name.split(' ')[0]}</div>
                       <div className="space-y-0.5 text-muted-foreground">
                         <div>⚽ Gol ort: {typeof detail.data.teamStats.homeGoalsScored === 'number' ? detail.data.teamStats.homeGoalsScored.toFixed(2) : detail.data.teamStats.homeGoalsScored}/maç</div>
@@ -514,7 +517,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
                         <div>🟨 Kart: {typeof detail.data.teamStats.homeAvgCards === 'number' ? detail.data.teamStats.homeAvgCards.toFixed(1) : detail.data.teamStats.homeAvgCards}/maç</div>
                       </div>
                     </div>
-                    <div className="p-2 rounded-lg bg-red-500/10">
+                    <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/10">
                       <div className="font-medium mb-1">{awayTeam.name.split(' ')[0]}</div>
                       <div className="space-y-0.5 text-muted-foreground">
                         <div>⚽ Gol ort: {typeof detail.data.teamStats.awayGoalsScored === 'number' ? detail.data.teamStats.awayGoalsScored.toFixed(2) : detail.data.teamStats.awayGoalsScored}/maç</div>
@@ -529,7 +532,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
               {/* 🟨 OYUNCU KART RİSKLERİ */}
               {detail.data.playerCards && (detail.data.playerCards.home.length > 0 || detail.data.playerCards.away.length > 0) && (
-                <div className="p-3 rounded-lg bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/20">
+                <div className="p-3 rounded-xl bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/20">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-lg">🟨</span>
                     <span className="font-semibold text-sm">Kart Riski Yüksek Oyuncular</span>
@@ -598,7 +601,7 @@ function FormBadge({ result }: { result: string }) {
 
   return (
     <span className={cn(
-      'w-5 h-5 flex items-center justify-center rounded text-[10px] font-bold',
+      'w-5 h-5 flex items-center justify-center rounded-md text-[10px] font-bold',
       getFormColor(result)
     )}>
       {result.toUpperCase()}
@@ -611,14 +614,14 @@ function FormBadge({ result }: { result: string }) {
  */
 export function ExpandedMatchCardSkeleton() {
   return (
-    <Card>
-      <div className="flex items-center gap-3 p-3">
-        <Skeleton className="w-14 h-6" />
+    <Card className="rounded-2xl border-border/50">
+      <div className="flex items-center gap-3 p-3.5">
+        <Skeleton className="w-14 h-6 rounded-lg" />
         <div className="flex-1 space-y-2">
-          <Skeleton className="h-5 w-3/4" />
-          <Skeleton className="h-5 w-3/4" />
+          <Skeleton className="h-5 w-3/4 rounded-lg" />
+          <Skeleton className="h-5 w-3/4 rounded-lg" />
         </div>
-        <Skeleton className="w-10 h-6" />
+        <Skeleton className="w-10 h-6 rounded-lg" />
       </div>
     </Card>
   );

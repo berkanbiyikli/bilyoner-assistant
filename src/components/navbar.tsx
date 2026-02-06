@@ -19,7 +19,6 @@ import {
   Radio, 
   Trophy,
   BarChart3,
-  Bot,
   ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -56,7 +55,6 @@ export function Navbar() {
   const navLinks = [
     { href: '/', label: 'Maçlar', icon: Trophy },
     ...(liveCount > 0 ? [{ href: '/live', label: 'Canlı', icon: Radio, badge: liveCount }] : []),
-    { href: '/bot', label: 'Bot', icon: Bot },
   ];
 
   return (

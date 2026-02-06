@@ -98,7 +98,7 @@ function ValueMatchCard({ match }: ValueMatchCardProps) {
   
   return (
     <Link href={`/match/${match.fixtureId}`}>
-      <Card className={`hover:bg-accent/50 transition-colors cursor-pointer border-l-4 border-l-primary/50 group ${inCoupon ? 'ring-2 ring-primary/50' : ''}`}>
+      <Card className={`hover:bg-accent/50 transition-all duration-300 cursor-pointer border-l-4 border-l-primary/50 group rounded-2xl border-border/50 hover:shadow-md ${inCoupon ? 'ring-2 ring-primary/50' : ''}`}>
         <CardContent className="p-4">
           {/* Header: Time & League */}
           <div className="flex items-center justify-between mb-2">
@@ -110,13 +110,13 @@ function ValueMatchCard({ match }: ValueMatchCardProps) {
             </div>
             <div className="flex gap-1 items-center">
               {match.isBanko && (
-                <Badge variant="default" className="bg-green-600 text-xs">
+                <Badge variant="default" className="bg-green-600 text-xs rounded-lg">
                   <Trophy className="h-3 w-3 mr-1" />
                   Banko
                 </Badge>
               )}
               {match.isValue && !match.isBanko && (
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="secondary" className="text-xs rounded-lg">
                   <TrendingUp className="h-3 w-3 mr-1" />
                   Value
                 </Badge>
@@ -156,7 +156,7 @@ function ValueMatchCard({ match }: ValueMatchCardProps) {
           </div>
           
           {/* AI Summary */}
-          <div className="flex items-start gap-2 p-2 bg-muted/50 rounded-md">
+          <div className="flex items-start gap-2 p-2.5 bg-muted/30 rounded-xl border border-border/20">
             <Sparkles className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
             <p className="text-xs text-muted-foreground leading-relaxed">
               {match.aiSummary}
@@ -165,7 +165,7 @@ function ValueMatchCard({ match }: ValueMatchCardProps) {
           
           {/* Style Analysis & Monte Carlo */}
           {(match.styleAnalysis || match.monteCarloResult) && (
-            <div className="mt-2 p-2 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-md border border-purple-500/20">
+            <div className="mt-2 p-2.5 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-xl border border-purple-500/20">
               <div className="flex items-center justify-between">
                 {/* Stil Eşleşmesi */}
                 {match.styleAnalysis && (
@@ -258,7 +258,7 @@ function SortSelector({ value, onChange }: SortSelectorProps) {
             key={opt.value}
             variant={value === opt.value ? 'secondary' : 'ghost'}
             size="sm"
-            className="h-7 px-2 text-xs"
+            className="h-7 px-2 text-xs rounded-lg"
             onClick={() => onChange(opt.value)}
           >
             {opt.label}
@@ -278,13 +278,13 @@ function CouponPreview() {
   
   if (!coupon || coupon.matches.length === 0) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-dashed rounded-2xl border-border/50">
         <CardContent className="p-4 text-center">
           <Zap className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
           <p className="text-sm text-muted-foreground mb-3">
             Otomatik kupon oluştur
           </p>
-          <Button onClick={generateNewCoupon} size="sm">
+          <Button onClick={generateNewCoupon} size="sm" className="rounded-xl">
             <Sparkles className="h-4 w-4 mr-2" />
             Kupon Oluştur
           </Button>
@@ -294,7 +294,7 @@ function CouponPreview() {
   }
   
   return (
-    <Card className="border-primary/50">
+    <Card className="border-primary/50 rounded-2xl">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center justify-between">
           <span className="flex items-center gap-2">
@@ -337,7 +337,7 @@ function CouponPreview() {
         </div>
         
         {coupon.suggestedStake > 0 && (
-          <div className="mt-3 p-2 bg-muted/50 rounded-md">
+          <div className="mt-3 p-2.5 bg-muted/30 rounded-xl border border-border/20">
             <p className="text-xs text-muted-foreground">
               Önerilen Bahis: <span className="font-medium text-foreground">{coupon.suggestedStake} ₺</span>
             </p>
@@ -345,10 +345,10 @@ function CouponPreview() {
         )}
         
         <div className="flex gap-2 mt-3">
-          <Button variant="outline" size="sm" className="flex-1" onClick={clearCoupon}>
+          <Button variant="outline" size="sm" className="flex-1 rounded-xl" onClick={clearCoupon}>
             Temizle
           </Button>
-          <Button size="sm" className="flex-1" onClick={generateNewCoupon}>
+          <Button size="sm" className="flex-1 rounded-xl" onClick={generateNewCoupon}>
             Yenile
           </Button>
         </div>
@@ -393,7 +393,7 @@ export function ValueDashboard() {
   
   if (!result) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-dashed rounded-2xl border-border/50">
         <CardContent className="p-8 text-center">
           <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
           <p className="text-muted-foreground">
@@ -418,7 +418,9 @@ export function ValueDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold flex items-center gap-2">
-            <Target className="h-5 w-5 text-primary" />
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <Target className="h-5 w-5 text-primary" />
+            </div>
             Günün Fırsatları
           </h2>
           <p className="text-sm text-muted-foreground">
@@ -434,24 +436,24 @@ export function ValueDashboard() {
             value={activeTab} 
             onValueChange={(v) => setActiveTab(v as typeof activeTab)}
           >
-            <TabsList className="grid w-full grid-cols-5">
-              <TabsTrigger value="banko" className="text-xs">
+            <TabsList className="grid w-full grid-cols-5 rounded-xl">
+              <TabsTrigger value="banko" className="text-xs rounded-lg">
                 <Trophy className="h-3 w-3 mr-1" />
                 Banko ({tabCounts.banko})
               </TabsTrigger>
-              <TabsTrigger value="value" className="text-xs">
+              <TabsTrigger value="value" className="text-xs rounded-lg">
                 <TrendingUp className="h-3 w-3 mr-1" />
                 Value ({tabCounts.value})
               </TabsTrigger>
-              <TabsTrigger value="highScoring" className="text-xs">
+              <TabsTrigger value="highScoring" className="text-xs rounded-lg">
                 <Goal className="h-3 w-3 mr-1" />
                 Gollü ({tabCounts.highScoring})
               </TabsTrigger>
-              <TabsTrigger value="btts" className="text-xs">
+              <TabsTrigger value="btts" className="text-xs rounded-lg">
                 <Target className="h-3 w-3 mr-1" />
                 KG ({tabCounts.btts})
               </TabsTrigger>
-              <TabsTrigger value="all" className="text-xs">
+              <TabsTrigger value="all" className="text-xs rounded-lg">
                 Tümü ({tabCounts.all})
               </TabsTrigger>
             </TabsList>
@@ -465,7 +467,7 @@ export function ValueDashboard() {
             <TabsContent value={activeTab} className="mt-0">
               <ScrollArea className="h-[600px]">
                 {matches.length === 0 ? (
-                  <Card className="border-dashed">
+                  <Card className="border-dashed rounded-2xl border-border/50">
                     <CardContent className="p-8 text-center">
                       <p className="text-muted-foreground">
                         Bu kategoride maç bulunamadı.
@@ -489,7 +491,7 @@ export function ValueDashboard() {
           <CouponPreview />
           
           {/* Quick Stats */}
-          <Card>
+          <Card className="rounded-2xl border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Hızlı İstatistik</CardTitle>
             </CardHeader>

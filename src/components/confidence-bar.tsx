@@ -172,7 +172,7 @@ export function ConfidenceBadge({ confidence, className }: ConfidenceBadgeProps)
 
   return (
     <span className={cn(
-      'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border',
+      'inline-flex items-center px-1.5 py-0.5 rounded-lg text-xs font-medium border',
       getColorClasses(confidence),
       className
     )}>
@@ -232,7 +232,7 @@ export function APIValidationBadge({
 
   const badge = (
     <span className={cn(
-      'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border',
+      'inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border',
       color,
       className
     )}>
@@ -300,7 +300,7 @@ export function CombinedConfidenceBadge({
 
   const badge = (
     <span className={cn(
-      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium border bg-muted/50 border-border',
+      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-medium border bg-muted/50 border-border',
       className
     )}>
       <span className={cn('font-bold', getConfidenceColor(confidence))}>

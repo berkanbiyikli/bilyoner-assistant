@@ -43,7 +43,7 @@ function MomentumMeter({ momentum, teamName, isHome }: { momentum: number; teamN
   };
 
   return (
-    <div className={`p-3 rounded-lg bg-card border ${getGlowClass()}`}>
+    <div className={`p-3 rounded-xl bg-card border border-border/50 ${getGlowClass()}`}>
       <div className="flex items-center gap-2 mb-2">
         <Zap className={`w-4 h-4 ${momentum >= 80 ? 'text-red-500 animate-pulse' : 'text-muted-foreground'}`} />
         <span className="text-xs text-muted-foreground">{isHome ? '🏠' : '✈️'} {teamName}</span>
@@ -73,7 +73,7 @@ function XGValueCard({ liveXG, actualGoals }: { liveXG: LiveXGData; actualGoals:
   const hasValue = liveXG.hasValueOpportunity;
 
   return (
-    <div className={`p-3 rounded-lg border ${hasValue ? 'bg-amber-500/10 border-amber-500' : 'bg-card'}`}>
+    <div className={`p-3 rounded-xl border border-border/50 ${hasValue ? 'bg-amber-500/10 border-amber-500' : 'bg-card'}`}>
       <div className="flex items-center gap-2 mb-2">
         <Target className={`w-4 h-4 ${hasValue ? 'text-amber-500' : 'text-muted-foreground'}`} />
         <span className="text-xs text-muted-foreground">Canlı xG Analizi</span>
@@ -97,7 +97,7 @@ function XGValueCard({ liveXG, actualGoals }: { liveXG: LiveXGData; actualGoals:
       </div>
 
       {hasValue && liveXG.opportunityMessage && (
-        <div className="mt-2 p-2 bg-amber-500/20 rounded text-xs text-center font-medium">
+        <div className="mt-2 p-2 bg-amber-500/20 rounded-lg text-xs text-center font-medium">
           {liveXG.opportunityMessage}
         </div>
       )}
@@ -128,7 +128,7 @@ function OpportunityAlert({ opportunity, onDismiss }: { opportunity: HunterOppor
   const expiresSeconds = expiresIn % 60;
 
   return (
-    <div className={`p-4 rounded-lg border-2 ${urgencyColors[opportunity.urgency]} ${opportunity.urgency === 'critical' ? 'animate-pulse' : ''}`}>
+    <div className={`p-4 rounded-xl border-2 ${urgencyColors[opportunity.urgency]} ${opportunity.urgency === 'critical' ? 'animate-pulse' : ''}`}>
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
           {urgencyIcons[opportunity.urgency]}
@@ -186,14 +186,14 @@ function HunterMatchCard({ match }: { match: LiveMatchHunter }) {
   };
 
   return (
-    <Card className={`${match.hunterStatus === 'golden_chance' ? 'ring-2 ring-amber-500 shadow-amber-500/20 shadow-lg' : ''}`}>
+    <Card className={`rounded-2xl border-border/50 ${match.hunterStatus === 'golden_chance' ? 'ring-2 ring-amber-500 shadow-amber-500/20 shadow-lg' : ''}`}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Radio className={`w-4 h-4 ${match.hunterStatus === 'golden_chance' ? 'text-amber-500 animate-pulse' : 'text-red-500'}`} />
             <span className="text-sm text-muted-foreground">{match.minute}'</span>
           </div>
-          <Badge className={statusColors[match.hunterStatus]}>
+          <Badge className={`rounded-lg ${statusColors[match.hunterStatus]}`}>
             {statusLabels[match.hunterStatus]}
           </Badge>
         </div>
@@ -238,19 +238,19 @@ function HunterMatchCard({ match }: { match: LiveMatchHunter }) {
 
         {/* Quick Stats */}
         <div className="grid grid-cols-4 gap-2 text-center text-xs">
-          <div className="p-2 bg-muted rounded">
+          <div className="p-2 bg-muted/30 rounded-xl border border-border/20">
             <p className="text-muted-foreground">İsabetli Şut</p>
             <p className="font-bold">{match.liveStats.shotsOnTarget.home} - {match.liveStats.shotsOnTarget.away}</p>
           </div>
-          <div className="p-2 bg-muted rounded">
+          <div className="p-2 bg-muted/30 rounded-xl border border-border/20">
             <p className="text-muted-foreground">Korner</p>
             <p className="font-bold">{match.liveStats.corners.home} - {match.liveStats.corners.away}</p>
           </div>
-          <div className="p-2 bg-muted rounded">
+          <div className="p-2 bg-muted/30 rounded-xl border border-border/20">
             <p className="text-muted-foreground">Top Kontrolü</p>
             <p className="font-bold">{match.liveStats.possession.home}% - {match.liveStats.possession.away}%</p>
           </div>
-          <div className="p-2 bg-muted rounded">
+          <div className="p-2 bg-muted/30 rounded-xl border border-border/20">
             <p className="text-muted-foreground">Kart</p>
             <p className="font-bold">
               🟨{match.liveStats.yellowCards.home + match.liveStats.yellowCards.away}
@@ -338,7 +338,9 @@ export function HunterDashboard({ hunterMatches, onRefresh, isLoading }: HunterD
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-xl font-bold">
-            <Target className="w-6 h-6 text-amber-500" />
+            <div className="p-1.5 rounded-lg bg-amber-500/10">
+              <Target className="w-5 h-5 text-amber-500" />
+            </div>
             Canlı Avcı Modu
           </div>
           {goldenChances > 0 && (
@@ -352,7 +354,7 @@ export function HunterDashboard({ hunterMatches, onRefresh, isLoading }: HunterD
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-2 rounded-lg hover:bg-muted transition-colors"
+            className="p-2 rounded-xl hover:bg-muted transition-colors"
             title={soundEnabled ? 'Sesi Kapat' : 'Sesi Aç'}
           >
             {soundEnabled ? (
@@ -365,7 +367,7 @@ export function HunterDashboard({ hunterMatches, onRefresh, isLoading }: HunterD
           <button
             onClick={onRefresh}
             disabled={isLoading}
-            className="p-2 rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+            className="p-2 rounded-xl hover:bg-muted transition-colors disabled:opacity-50"
             title="Yenile"
           >
             <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
@@ -375,23 +377,23 @@ export function HunterDashboard({ hunterMatches, onRefresh, isLoading }: HunterD
 
       {/* Stats Summary */}
       <div className="grid grid-cols-4 gap-2">
-        <Card className="p-3 text-center">
+        <Card className="p-3 text-center rounded-2xl border-border/50">
           <p className="text-2xl font-bold">{hunterMatches.length}</p>
           <p className="text-xs text-muted-foreground">Canlı Maç</p>
         </Card>
-        <Card className="p-3 text-center">
+        <Card className="p-3 text-center rounded-2xl border-border/50">
           <p className={`text-2xl font-bold ${goldenChances > 0 ? 'text-amber-500' : ''}`}>
             {goldenChances}
           </p>
           <p className="text-xs text-muted-foreground">Altın Fırsat</p>
         </Card>
-        <Card className="p-3 text-center">
+        <Card className="p-3 text-center rounded-2xl border-border/50">
           <p className={`text-2xl font-bold ${alertMatches > 0 ? 'text-orange-500' : ''}`}>
             {alertMatches}
           </p>
           <p className="text-xs text-muted-foreground">Uyarı</p>
         </Card>
-        <Card className="p-3 text-center">
+        <Card className="p-3 text-center rounded-2xl border-border/50">
           <p className="text-2xl font-bold text-green-500">{totalOpportunities}</p>
           <p className="text-xs text-muted-foreground">Toplam Fırsat</p>
         </Card>
@@ -399,7 +401,7 @@ export function HunterDashboard({ hunterMatches, onRefresh, isLoading }: HunterD
 
       {/* Match Cards */}
       {sortedMatches.length === 0 ? (
-        <Card className="p-8 text-center">
+        <Card className="p-8 text-center rounded-2xl border-border/50 border-dashed">
           <Radio className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <h3 className="text-lg font-semibold mb-2">Canlı Maç Bekleniyor</h3>
           <p className="text-sm text-muted-foreground">

@@ -89,9 +89,9 @@ export function CouponSidebar() {
 
   if (count === 0) {
     return (
-      <Card className="h-full border-dashed">
+      <Card className="h-full border-dashed rounded-2xl border-border/50">
         <CardContent className="flex flex-col items-center justify-center h-full p-6 text-center">
-          <ShoppingCart className="h-12 w-12 text-muted-foreground/50 mb-4" />
+          <ShoppingCart className="h-12 w-12 text-muted-foreground/30 mb-4" />
           <h3 className="font-medium text-muted-foreground mb-2">Kuponunuz Boş</h3>
           <p className="text-sm text-muted-foreground">
             Maç önerilerindeki <span className="font-medium">+</span> butonuna tıklayarak bahis ekleyin
@@ -102,7 +102,7 @@ export function CouponSidebar() {
   }
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="h-full flex flex-col rounded-2xl border-border/50">
       {/* Header */}
       <CardHeader className="pb-2 space-y-0">
         <div className="flex items-center justify-between">
@@ -141,7 +141,7 @@ export function CouponSidebar() {
             <div
               key={selection.id}
               className={cn(
-                'p-2 rounded-lg border text-sm',
+                'p-2.5 rounded-xl border text-sm',
                 CATEGORY_COLORS[selection.category]
               )}
             >
@@ -187,7 +187,7 @@ export function CouponSidebar() {
               key={sys.value}
               variant={systemType === sys.value ? 'default' : 'outline'}
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-7 px-2 text-xs rounded-lg"
               onClick={() => setSystemType(sys.value)}
             >
               {sys.label}
@@ -227,7 +227,7 @@ export function CouponSidebar() {
         </div>
 
         {/* Summary */}
-        <div className="p-2 rounded-lg bg-muted/50 space-y-1">
+        <div className="p-2.5 rounded-xl bg-muted/30 border border-border/20 space-y-1">
           <div className="flex justify-between text-xs">
             <span className="text-muted-foreground">Kombinasyon</span>
             <span className="font-medium">{result.totalCombinations}</span>
@@ -255,7 +255,7 @@ export function CouponSidebar() {
         </div>
 
         {/* CTA Button */}
-        <Button className="w-full gap-2" size="sm">
+        <Button className="w-full gap-2 rounded-xl" size="sm">
           <Sparkles className="h-4 w-4" />
           Kuponu Onayla
         </Button>

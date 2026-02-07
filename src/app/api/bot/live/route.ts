@@ -148,8 +148,8 @@ export async function GET(request: NextRequest) {
       await new Promise(r => setTimeout(r, 150));
     }
     
-    // Fırsatları tespit et
-    const allOpportunities = detectLiveOpportunities(liveMatches, DEFAULT_LIVE_BOT_CONFIG);
+    // Fırsatları tespit et (artık async - gerçek oranları API'den çekiyor)
+    const allOpportunities = await detectLiveOpportunities(liveMatches, DEFAULT_LIVE_BOT_CONFIG);
     
     // En iyi fırsatları filtrele
     const bestOpportunities = filterBestOpportunities(allOpportunities, 1, 5);

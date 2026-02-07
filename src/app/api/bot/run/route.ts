@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { isApiCallAllowed, updateRateLimitFromHeaders } from '@/lib/api-football/client';
 import { generateBotCoupon, checkCouponResults, DEFAULT_BOT_CONFIG } from '@/lib/bot/engine';
 import { 
   tweetNewCoupon, 
@@ -261,9 +262,14 @@ async function handleCheckLive(
   
   for (const match of state.activeCoupon.matches) {
     try {
+      if (!isApiCallAllowed('/fixtures')) {
+        log('Rate limit - canlı skor kontrolü durduruldu');
+        break;
+      }
       const res = await fetch(`${baseUrl}/fixtures?id=${match.fixtureId}`, {
         headers: { 'x-apisports-key': apiKey || '' },
       });
+      updateRateLimitFromHeaders(res.headers);
       const data = await res.json();
       const fixture = data?.response?.[0];
       
@@ -361,9 +367,15 @@ async function handleCheckResult(
   
   for (const match of state.activeCoupon.matches) {
     try {
+      if (!isApiCallAllowed('/fixtures')) {
+        log('Rate limit - kupon sonuç kontrolü durduruldu');
+        allMatchesFinished = false;
+        break;
+      }
       const res = await fetch(`${baseUrl}/fixtures?id=${match.fixtureId}`, {
         headers: { 'x-apisports-key': apiKey || '' },
       });
+      updateRateLimitFromHeaders(res.headers);
       const data = await res.json();
       const fixture = data?.response?.[0];
       

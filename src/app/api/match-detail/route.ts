@@ -6,6 +6,7 @@
 
 import { NextResponse } from 'next/server';
 import { getMatchDetail } from '@/lib/api-football/daily-matches';
+import { isApiCallAllowed, updateRateLimitFromHeaders, getRateLimitStatus } from '@/lib/api-football/client';
 import type { Referee, BetSuggestion, BetSuggestionInput } from '@/types/api-football';
 import { analyzePoissonPrediction, type PoissonAnalysis } from '@/lib/prediction/poisson';
 import { analyzeValueBet, type ValueBetAnalysis } from '@/lib/prediction/value-bet';
@@ -155,6 +156,13 @@ async function fetchSeasonTeamStats(teamId: number, leagueId: number): Promise<T
   
   const season = getCurrentSeason();
   
+  // Redis cache kontrolü
+  const rKey = redisCacheKeys.seasonStats(teamId, leagueId, season);
+  const cached = await cacheGet<TeamFixtureStats['seasonStats']>(rKey);
+  if (cached) return cached;
+  
+  if (!isApiCallAllowed('/teams/statistics')) return null;
+  
   try {
     const response = await fetch(
       `${API_BASE_URL}/teams/statistics?team=${teamId}&league=${leagueId}&season=${season}`,
@@ -167,6 +175,7 @@ async function fetchSeasonTeamStats(teamId: number, leagueId: number): Promise<T
       }
     );
 
+    updateRateLimitFromHeaders(response.headers);
     if (!response.ok) return null;
 
     const data = await response.json();
@@ -189,7 +198,7 @@ async function fetchSeasonTeamStats(teamId: number, leagueId: number): Promise<T
       }
     }
 
-    return {
+    const seasonResult = {
       played: stats.fixtures?.played?.total || 0,
       wins: stats.fixtures?.wins?.total || 0,
       draws: stats.fixtures?.draws?.total || 0,
@@ -202,6 +211,11 @@ async function fetchSeasonTeamStats(teamId: number, leagueId: number): Promise<T
       cleanSheets: (stats.clean_sheet?.total || 0),
       failedToScore: (stats.failed_to_score?.total || 0),
     };
+    
+    // Redis cache'e kaydet
+    cacheSet(rKey, seasonResult, REDIS_TTL.SEASON_STATS).catch(() => {});
+    
+    return seasonResult;
   } catch (error) {
     console.error(`[Season Stats] Error for team ${teamId}:`, error);
     return null;
@@ -210,6 +224,13 @@ async function fetchSeasonTeamStats(teamId: number, leagueId: number): Promise<T
 
 async function fetchTeamStats(teamId: number, leagueId: number, last: number = 5): Promise<TeamFixtureStats | null> {
   if (!API_KEY) return null;
+  
+  // Redis cache kontrolü
+  const rKey = redisCacheKeys.teamStats(teamId, last);
+  const cached = await cacheGet<TeamFixtureStats>(rKey);
+  if (cached) return cached;
+  
+  if (!isApiCallAllowed('/fixtures')) return null;
   
   try {
     const response = await fetch(
@@ -222,6 +243,7 @@ async function fetchTeamStats(teamId: number, leagueId: number, last: number = 5
       }
     );
 
+    updateRateLimitFromHeaders(response.headers);
     if (!response.ok) return null;
 
     const data = await response.json();
@@ -324,6 +346,9 @@ async function fetchTeamStats(teamId: number, leagueId: number, last: number = 5
       }
     }
 
+    // Redis cache'e kaydet
+    cacheSet(rKey, result, REDIS_TTL.TEAM_STATS).catch(() => {});
+    
     return result;
   } catch {
     return null;
@@ -348,6 +373,13 @@ async function fetchPlayerCardStats(teamId: number, season?: number): Promise<Pl
   
   const currentSeason = season || getCurrentSeason();
   
+  // Redis cache kontrolü
+  const rKey = redisCacheKeys.playerCards(teamId, currentSeason);
+  const cached = await cacheGet<PlayerCardStats[]>(rKey);
+  if (cached) return cached;
+  
+  if (!isApiCallAllowed('/players')) return [];
+  
   try {
     // Takımın oyuncu istatistiklerini çek
     const response = await fetch(
@@ -360,6 +392,7 @@ async function fetchPlayerCardStats(teamId: number, season?: number): Promise<Pl
       }
     );
 
+    updateRateLimitFromHeaders(response.headers);
     if (!response.ok) return [];
 
     const data = await response.json();
@@ -405,7 +438,14 @@ async function fetchPlayerCardStats(teamId: number, season?: number): Promise<Pl
     }
 
     // Kart oranına göre sırala
-    return cardStats.sort((a, b) => b.cardRate - a.cardRate).slice(0, 5);
+    const sortedCards = cardStats.sort((a, b) => b.cardRate - a.cardRate).slice(0, 5);
+    
+    // Redis cache'e kaydet
+    if (sortedCards.length > 0) {
+      cacheSet(rKey, sortedCards, REDIS_TTL.PLAYER_CARDS).catch(() => {});
+    }
+    
+    return sortedCards;
   } catch {
     return [];
   }
@@ -416,7 +456,15 @@ async function fetchRefereeStatsInternal(refereeName: string): Promise<Referee |
     return null;
   }
 
+  // Redis cache kontrolü
+  const rKey = redisCacheKeys.referee(refereeName);
+  const cached = await cacheGet<Referee>(rKey);
+  if (cached) return cached;
+
   try {
+    // Rate limit kontrolü
+    if (!isApiCallAllowed('/fixtures')) return null;
+    
     // Hakem adıyla maç ara
     const response = await fetch(
       `${API_BASE_URL}/fixtures?referee=${encodeURIComponent(refereeName)}&last=20`,
@@ -429,6 +477,7 @@ async function fetchRefereeStatsInternal(refereeName: string): Promise<Referee |
       }
     );
 
+    updateRateLimitFromHeaders(response.headers);
     if (!response.ok) return null;
 
     const data = await response.json();
@@ -475,7 +524,7 @@ async function fetchRefereeStatsInternal(refereeName: string): Promise<Referee |
       }
     }
 
-    return {
+    const refereeResult: Referee = {
       id: 0,
       name: refereeName,
       nationality: 'Unknown',
@@ -490,6 +539,11 @@ async function fetchRefereeStatsInternal(refereeName: string): Promise<Referee |
       },
       insights,
     };
+    
+    // Redis cache'e kaydet
+    cacheSet(rKey, refereeResult, REDIS_TTL.REFEREE_STATS).catch(() => {});
+    
+    return refereeResult;
   } catch {
     return null;
   }
@@ -747,8 +801,22 @@ export async function GET(request: Request) {
       } : null,
     };
 
-    // Redis cache'e kaydet (async)
-    cacheSet(cacheKey, responseData, REDIS_TTL.MATCH_DETAIL).catch(() => {});
+    // Redis cache'e kaydet - SADECE anlamlı veri varsa
+    // API limit dolduğunda boş response cache'lemeyi engelle
+    const hasUsefulData = (
+      betSuggestions.length > 0 || 
+      homeStats !== null || 
+      awayStats !== null || 
+      poissonAnalysis !== null ||
+      matchDetail.h2hSummary !== undefined ||
+      matchDetail.prediction !== undefined
+    );
+    
+    if (hasUsefulData) {
+      cacheSet(cacheKey, responseData, REDIS_TTL.MATCH_DETAIL).catch(() => {});
+    } else {
+      console.warn(`[Match Detail] Boş response cache'lenmedi (fixture: ${fixtureId}) - API limit dolmuş olabilir`);
+    }
 
     return NextResponse.json({
       success: true,

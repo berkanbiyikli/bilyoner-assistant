@@ -257,53 +257,68 @@ export function useRefereeStats(refereeId: string | number | null, enabled: bool
 /**
  * Birden fazla maç için detay bilgilerini batch olarak çek
  * API limitlerini korumak için sınırlı sayıda maç çeker
+ * Paralel yerine sıralı çalışır (rate limit koruması)
+ * Sadece upcoming (henüz başlamamış) maçları öncelikli çeker
  */
 export function useBatchMatchDetails(
   fixtures: DailyMatchFixture[],
   enabled: boolean = false,
-  maxMatches: number = 15
+  maxMatches: number = 20
 ) {
+  // Bitmiş maçları filtrele, sadece upcoming ve live maçları al
+  const eligibleFixtures = fixtures.filter(f => !f.status.isFinished);
   // Sadece ilk N maçı al (API limitleri için)
-  const limitedFixtures = fixtures.slice(0, maxMatches);
+  const limitedFixtures = eligibleFixtures.slice(0, maxMatches);
   
   return useQuery<Map<number, MatchDetailResponse['data']>>({
     queryKey: ['batch-match-details', limitedFixtures.map(f => f.id).join(',')],
     queryFn: async () => {
       const detailsMap = new Map<number, MatchDetailResponse['data']>();
       
-      // Paralel olarak tüm maçların detaylarını çek
-      const promises = limitedFixtures.map(async (fixture) => {
-        try {
-          const params = new URLSearchParams({
-            fixtureId: fixture.id.toString(),
-            homeTeamId: fixture.homeTeam.id.toString(),
-            awayTeamId: fixture.awayTeam.id.toString(),
-          });
-          
-          // Lig ID'yi ekle (sezon istatistikleri için)
-          if (fixture.league?.id) {
-            params.set('leagueId', fixture.league.id.toString());
+      // Sıralı olarak maç detaylarını çek (rate limit koruması)
+      // Her seferinde 5'li gruplar halinde paralel çek
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < limitedFixtures.length; i += BATCH_SIZE) {
+        const batch = limitedFixtures.slice(i, i + BATCH_SIZE);
+        
+        const promises = batch.map(async (fixture) => {
+          try {
+            const params = new URLSearchParams({
+              fixtureId: fixture.id.toString(),
+              homeTeamId: fixture.homeTeam.id.toString(),
+              awayTeamId: fixture.awayTeam.id.toString(),
+            });
+            
+            if (fixture.league?.id) {
+              params.set('leagueId', fixture.league.id.toString());
+            }
+            
+            if (fixture.referee?.name) {
+              params.set('referee', fixture.referee.name);
+            }
+            
+            const res = await fetch(`/api/match-detail?${params.toString()}`);
+            const data: MatchDetailResponse = await res.json();
+            
+            if (data.success) {
+              detailsMap.set(fixture.id, data.data);
+            }
+          } catch (error) {
+            console.error(`[Batch Details] Error for fixture ${fixture.id}:`, error);
           }
-          
-          if (fixture.referee?.name) {
-            params.set('referee', fixture.referee.name);
-          }
-          
-          const res = await fetch(`/api/match-detail?${params.toString()}`);
-          const data: MatchDetailResponse = await res.json();
-          
-          if (data.success) {
-            detailsMap.set(fixture.id, data.data);
-          }
-        } catch (error) {
-          console.error(`[Batch Details] Error for fixture ${fixture.id}:`, error);
+        });
+        
+        await Promise.all(promises);
+        
+        // Batch'ler arasında kısa bekleme (rate limit koruması)
+        if (i + BATCH_SIZE < limitedFixtures.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
-      });
+      }
       
-      await Promise.all(promises);
       return detailsMap;
     },
-    staleTime: 180000, // 3 dakika
+    staleTime: 300000, // 5 dakika
     enabled: enabled && limitedFixtures.length > 0,
   });
 }

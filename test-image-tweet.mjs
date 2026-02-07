@@ -35,7 +35,7 @@ const oauth1Client = new TwitterApi({
 
 async function main() {
   try {
-    // 1. OG image URL oluştur (production endpoint)
+    // 1. LOCAL OG image URL kullan (dev server çalışıyor)
     const matchesData = [
       {
         home: 'Leeds',
@@ -48,20 +48,9 @@ async function main() {
         confidence: 82,
         reasoning: 'Yüksek xG, açık oyun',
       },
-      {
-        home: 'Celta Vigo',
-        away: 'Osasuna',
-        score: '1-2',
-        minute: 85,
-        league: 'La Liga',
-        pick: 'Ev Sahibi +0.5',
-        odds: 1.45,
-        confidence: 71,
-        reasoning: 'Ev sahibi baskısı',
-      },
     ];
 
-    const imageUrl = `https://bilyoner-assistant.vercel.app/api/og/live?type=opportunity&matches=${encodeURIComponent(JSON.stringify(matchesData))}`;
+    const imageUrl = `http://127.0.0.1:3000/api/og/live?type=opportunity&matches=${encodeURIComponent(JSON.stringify(matchesData))}`;
     
     console.log('📸 OG Image URL:', imageUrl);
     console.log('⬇️ Görsel indiriliyor...');
@@ -83,17 +72,11 @@ async function main() {
     console.log('✅ Media yüklendi:', mediaId);
 
     // 4. Tweet at
-    const tweetText = `🔴 CANLI ANALİZ - Test Tweet
+    const tweetText = `🔴 CANLI ANALİZ - Sistem Testi
 
-1. Leeds 3-1 Nott. Forest
+⚽ Leeds 3-1 Nott. Forest
 ⏱️ 87' | Premier League
 🎯 Üst 3.5 Gol @1.65 | Güven: %82
-📈 Yüksek xG, açık oyun
-
-2. Celta Vigo 1-2 Osasuna
-⏱️ 85' | La Liga
-🎯 Ev Sahibi +0.5 @1.45 | Güven: %71
-📈 Ev sahibi baskısı
 
 🔗 https://bilyoner-assistant.vercel.app/live
 

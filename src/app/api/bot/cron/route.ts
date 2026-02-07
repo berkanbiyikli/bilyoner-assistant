@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBankrollState, saveBankrollState } from '@/lib/bot/bankroll-store';
 import { sendQuoteTweet, sendTweet } from '@/lib/bot/twitter';
+import { isApiCallAllowed, updateRateLimitFromHeaders } from '@/lib/api-football/client';
 import type { BotMatch, BankrollState } from '@/lib/bot/types';
 import { isTop20League } from '@/config/league-priorities';
 import { saveLivePick, type LivePick } from '@/lib/bot/live-pick-tracker';
@@ -67,10 +68,12 @@ interface CouponMatchStatus {
  */
 async function fetchLiveMatch(fixtureId: number): Promise<LiveMatchData | null> {
   try {
+    if (!isApiCallAllowed('/fixtures')) return null;
     const res = await fetch(`${API_BASE}/fixtures?id=${fixtureId}`, {
       headers: { 'x-apisports-key': API_KEY },
       next: { revalidate: 0 },
     });
+    updateRateLimitFromHeaders(res.headers);
     const data = await res.json();
     const fixture = data?.response?.[0];
     
@@ -272,12 +275,12 @@ function formatCouponStatusTweet(statuses: CouponMatchStatus[]): string {
 }
 
 /**
- * Canlı fırsat tara - SADECE Sıradaki Gol bahislerine odaklan
+ * Canlı fırsat tara - Genel bahis fırsatları (Üst Gol, Kart, Korner, KG Var)
  * 
  * Mantık:
  * - 80+ dk'da fırsat vermiyoruz (maç bitiyor)
- * - İstatistik bazlı karar: şut baskısı, top kontrolü, tehlikeli atak
- * - Dominant takımı bul → Sıradaki gol o atar
+ * - İstatistik bazlı karar: şut baskısı, faul yoğunluğu, korner temposu
+ * - Gol üstü, kart üstü, korner üstü, KG var gibi genel bahisler öner
  * - Aynı maçı tekrar önerme
  */
 
@@ -302,10 +305,12 @@ async function scanLiveOpportunities(): Promise<Array<{
 }>> {
   try {
     // Canlı maçları çek
+    if (!isApiCallAllowed('/fixtures')) return [];
     const res = await fetch(`${API_BASE}/fixtures?live=all`, {
       headers: { 'x-apisports-key': API_KEY },
       next: { revalidate: 0 },
     });
+    updateRateLimitFromHeaders(res.headers);
     const data = await res.json();
     const liveMatches = data?.response || [];
     
@@ -365,178 +370,375 @@ async function scanLiveOpportunities(): Promise<Array<{
       let awayShots = 0;
       let homeDangerous = 0;
       let awayDangerous = 0;
+      // Kart ve korner istatistikleri
+      let homeYellowCards = 0;
+      let awayYellowCards = 0;
+      let homeRedCards = 0;
+      let awayRedCards = 0;
+      let homeFouls = 0;
+      let awayFouls = 0;
+      let homeCorners = 0;
+      let awayCorners = 0;
       
       try {
-        const statsRes = await fetch(`${API_BASE}/fixtures/statistics?fixture=${fixtureId}`, {
-          headers: { 'x-apisports-key': API_KEY },
-          next: { revalidate: 0 },
-        });
-        const statsData = await statsRes.json();
-        const statsArray = statsData?.response || [];
+        if (!isApiCallAllowed('/fixtures/statistics')) {
+          // Rate limit - istatistik atla
+        } else {
+          const statsRes = await fetch(`${API_BASE}/fixtures/statistics?fixture=${fixtureId}`, {
+            headers: { 'x-apisports-key': API_KEY },
+            next: { revalidate: 0 },
+          });
+          updateRateLimitFromHeaders(statsRes.headers);
+          const statsData = await statsRes.json();
+          const statsArray = statsData?.response || [];
         
-        if (Array.isArray(statsArray) && statsArray.length >= 2) {
-          const homeStats = statsArray[0]?.statistics || [];
-          const awayStats = statsArray[1]?.statistics || [];
+          if (Array.isArray(statsArray) && statsArray.length >= 2) {
+            const homeStats = statsArray[0]?.statistics || [];
+            const awayStats = statsArray[1]?.statistics || [];
           
-          for (const s of homeStats) {
-            if (s.type === 'Ball Possession') homePossession = parseInt(s.value) || 50;
-            if (s.type === 'Shots on Goal') homeShotsOn = parseInt(s.value) || 0;
-            if (s.type === 'Total Shots') homeShots = parseInt(s.value) || 0;
-            if (s.type === 'Dangerous Attacks') homeDangerous = parseInt(s.value) || 0;
-          }
-          for (const s of awayStats) {
-            if (s.type === 'Ball Possession') awayPossession = parseInt(s.value) || 50;
-            if (s.type === 'Shots on Goal') awayShotsOn = parseInt(s.value) || 0;
-            if (s.type === 'Total Shots') awayShots = parseInt(s.value) || 0;
-            if (s.type === 'Dangerous Attacks') awayDangerous = parseInt(s.value) || 0;
+            for (const s of homeStats) {
+              if (s.type === 'Ball Possession') homePossession = parseInt(s.value) || 50;
+              if (s.type === 'Shots on Goal') homeShotsOn = parseInt(s.value) || 0;
+              if (s.type === 'Total Shots') homeShots = parseInt(s.value) || 0;
+              if (s.type === 'Dangerous Attacks') homeDangerous = parseInt(s.value) || 0;
+              if (s.type === 'Yellow Cards') homeYellowCards = parseInt(s.value) || 0;
+              if (s.type === 'Red Cards') homeRedCards = parseInt(s.value) || 0;
+              if (s.type === 'Fouls') homeFouls = parseInt(s.value) || 0;
+              if (s.type === 'Corner Kicks') homeCorners = parseInt(s.value) || 0;
+            }
+            for (const s of awayStats) {
+              if (s.type === 'Ball Possession') awayPossession = parseInt(s.value) || 50;
+              if (s.type === 'Shots on Goal') awayShotsOn = parseInt(s.value) || 0;
+              if (s.type === 'Total Shots') awayShots = parseInt(s.value) || 0;
+              if (s.type === 'Dangerous Attacks') awayDangerous = parseInt(s.value) || 0;
+              if (s.type === 'Yellow Cards') awayYellowCards = parseInt(s.value) || 0;
+              if (s.type === 'Red Cards') awayRedCards = parseInt(s.value) || 0;
+              if (s.type === 'Fouls') awayFouls = parseInt(s.value) || 0;
+              if (s.type === 'Corner Kicks') awayCorners = parseInt(s.value) || 0;
+            }
           }
         }
       } catch (statsErr) {
         console.error(`[Cron] Stats fetch failed for fixture ${fixtureId}:`, statsErr);
       }
       
-      // ===== SADECE SIRADAKİ GOL BAHİSLERİ =====
-      
-      // Dominant takımı tespit et
-      const homeScore_dominance = (homeShotsOn * 3) + (homeShots * 1.5) + (homePossession * 0.5) + (homeDangerous * 0.5);
-      const awayScore_dominance = (awayShotsOn * 3) + (awayShots * 1.5) + (awayPossession * 0.5) + (awayDangerous * 0.5);
+      // ===== KAPSAMLI CANLI ANALİZ =====
+      // Gol Üstü, Kart Üstü, Korner Üstü, KG Var gibi genel bahisler
       
       const totalShotsOn = homeShotsOn + awayShotsOn;
-      const dominanceRatio = homeScore_dominance > 0 ? awayScore_dominance / homeScore_dominance : 1;
+      const totalShots = homeShots + awayShots;
+      const totalCards = homeYellowCards + awayYellowCards + homeRedCards + awayRedCards;
+      const totalFouls = homeFouls + awayFouls;
+      const totalCorners = homeCorners + awayCorners;
+      const remainingMinutes = 90 - minute;
       
-      // SIRADAKİ GOL - EV SAHİBİ
-      // Şartlar: Ev sahibi dominant, istatistikler yeterli
-      if (homeScore_dominance > awayScore_dominance * 1.4 && totalShotsOn >= 3) {
-        const confidenceBase = 55;
-        let bonus = 0;
+      // ===== 1. AKILLI ÜST GOL BAHİSLERİ (3.5 / 4.5) =====
+      // Gol sayısı ve tempo bazlı - en güvenilir bahis türü
+      
+      const goalRate = totalGoals / minute;
+      const shotRate = totalShotsOn / minute;
+      const projectedGoals = goalRate * 90;
+      
+      // ÜST 3.5 GOL - 3 gol varsa
+      if (totalGoals >= 3 && minute <= 78 && minute >= 35) {
+        let confidence = 68;
         const reasons: string[] = [];
         
-        // İsabetli şut üstünlüğü
-        if (homeShotsOn >= awayShotsOn + 2) {
-          bonus += 10;
-          reasons.push(`${homeShotsOn} isabetli şut`);
-        }
+        // Gol temposu
+        if (goalRate >= 0.06) { confidence += 12; reasons.push(`tempo: ${projectedGoals.toFixed(1)} gol/maç`); }
+        else if (goalRate >= 0.04) { confidence += 8; }
         
-        // Top kontrolü
-        if (homePossession >= 58) {
-          bonus += 8;
-          reasons.push(`%${homePossession} top`);
-        }
+        // Şut baskısı
+        if (totalShotsOn >= 8) { confidence += 10; reasons.push(`${totalShotsOn} isabetli şut`); }
+        else if (totalShotsOn >= 5) { confidence += 5; }
         
-        // Ev avantajı + golsüz
-        if (totalGoals === 0 && minute >= 30) {
-          bonus += 5;
-          reasons.push(`${minute}' golsüz baskı`);
-        }
+        // Açık maç (iki takım da gol attıysa)
+        if (homeScore > 0 && awayScore > 0) { confidence += 8; reasons.push('açık maç'); }
         
-        // Gerçekçi oran hesapla (dominance'a göre)
-        const impliedProb = (confidenceBase + bonus) / 100;
-        const odds = Math.max(1.50, Math.min(2.50, 1 / impliedProb + 0.15));
+        // Kalan süre
+        if (remainingMinutes >= 30) confidence += 6;
+        else if (remainingMinutes >= 15) confidence += 3;
         
-        const finalConfidence = confidenceBase + bonus;
-        
-        // Minimum %62 güven ve daha önce önerilmemiş
-        const prevSuggestion = suggestedMatches[String(fixtureId)];
-        const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Ev Sahibi');
-        
-        if (finalConfidence >= 62 && !alreadySuggested) {
-          opportunities.push({
-            match: matchData,
-            opportunity: 'Sıradaki Gol Ev Sahibi',
-            confidence: finalConfidence,
-            odds: parseFloat(odds.toFixed(2)),
-            reasoning: reasons.join(', ') || 'Ev sahibi baskın',
-          });
+        if (confidence >= 70) {
+          // Gerçekçi oran: 3+ gol varsa kalan süreye göre
+          const odds = remainingMinutes >= 35 ? 1.75 : remainingMinutes >= 25 ? 1.60 : 1.40;
+          if (odds < 1.50) continue; // Değer yok, önerme
+          const prevSuggestion = suggestedMatches[String(fixtureId)];
+          const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Üst 3.5');
+          
+          if (!alreadySuggested) {
+            opportunities.push({
+              match: matchData,
+              opportunity: 'Üst 3.5 Gol',
+              confidence,
+              odds,
+              reasoning: reasons.join(', ') || `${totalGoals} gol, hâlâ vakit var`,
+            });
+          }
         }
       }
       
-      // SIRADAKİ GOL - DEPLASMAN
-      // Şartlar: Deplasman dominant, istatistikler yeterli
-      if (awayScore_dominance > homeScore_dominance * 1.4 && totalShotsOn >= 3) {
-        const confidenceBase = 52; // Deplasman için biraz düşük başla
-        let bonus = 0;
+      // ÜST 4.5 GOL - 4+ gol varsa
+      if (totalGoals >= 4 && minute <= 75) {
+        let confidence = 65;
         const reasons: string[] = [];
         
-        // İsabetli şut üstünlüğü
-        if (awayShotsOn >= homeShotsOn + 2) {
-          bonus += 12;
-          reasons.push(`${awayShotsOn} isabetli şut`);
-        }
+        // Gol temposu çok yüksek
+        if (goalRate >= 0.07) { confidence += 15; reasons.push(`festival maç: ${projectedGoals.toFixed(1)}/maç`); }
+        else if (goalRate >= 0.05) { confidence += 10; }
         
-        // Top kontrolü
-        if (awayPossession >= 55) {
-          bonus += 8;
-          reasons.push(`%${awayPossession} top`);
-        }
+        // Açık maç
+        if (homeScore >= 2 && awayScore >= 2) { confidence += 12; reasons.push('iki taraf da atakta'); }
+        else if (homeScore > 0 && awayScore > 0) { confidence += 6; }
         
-        // Deplasmanda baskı yapmak daha zor, golsüz baskı önemli
-        if (totalGoals === 0 && minute >= 35) {
-          bonus += 8;
-          reasons.push(`${minute}' deplasmanda baskın`);
-        }
+        // Şut baskısı
+        if (totalShotsOn >= 10) { confidence += 8; reasons.push(`${totalShotsOn} isabetli şut`); }
         
-        // Gerçekçi oran hesapla
-        const impliedProb = (confidenceBase + bonus) / 100;
-        const odds = Math.max(1.65, Math.min(2.80, 1 / impliedProb + 0.20));
-        
-        const finalConfidence = confidenceBase + bonus;
-        
-        const prevSuggestion = suggestedMatches[String(fixtureId)];
-        const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Deplasman');
-        
-        if (finalConfidence >= 62 && !alreadySuggested) {
-          opportunities.push({
-            match: matchData,
-            opportunity: 'Sıradaki Gol Deplasman',
-            confidence: finalConfidence,
-            odds: parseFloat(odds.toFixed(2)),
-            reasoning: reasons.join(', ') || 'Deplasman baskın',
-          });
+        if (confidence >= 72) {
+          // Üst 4.5: hala zor hedef, oran daha yüksek
+          const odds = remainingMinutes >= 30 ? 1.85 : remainingMinutes >= 20 ? 1.65 : 1.40;
+          if (odds < 1.50) continue;
+          const prevSuggestion = suggestedMatches[String(fixtureId)];
+          const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Üst 4.5');
+          
+          if (!alreadySuggested) {
+            opportunities.push({
+              match: matchData,
+              opportunity: 'Üst 4.5 Gol',
+              confidence,
+              odds,
+              reasoning: reasons.join(', ') || `${totalGoals} gol, çılgın maç`,
+            });
+          }
         }
       }
       
-      // ÜST 2.5 GOL - Açık maçlar (sadece 1-2 gol varsa ve tempolu)
-      if (totalGoals >= 1 && totalGoals <= 2 && minute >= 25 && minute <= 60 && totalShotsOn >= 5) {
-        const shotRate = totalShotsOn / minute;
-        const goalRate = totalGoals / minute;
+      // ÜST 2.5 GOL - 2 gol + güçlü baskı (daha iyi oran için)
+      if (totalGoals === 2 && minute >= 30 && minute <= 65 && totalShotsOn >= 5) {
+        let confidence = 55;
+        const reasons: string[] = [];
         
-        // Dakikada 0.1+ isabetli şut = tempolu maç
-        if (shotRate >= 0.10) {
-          const projectedGoals = goalRate * 90;
-          const confidenceBase = 55;
-          let bonus = 0;
-          const reasons: string[] = [];
-          
-          if (projectedGoals >= 3.5) {
-            bonus += 12;
-            reasons.push(`projeksiyon ${projectedGoals.toFixed(1)} gol`);
-          }
-          
-          if (totalShotsOn >= 7) {
-            bonus += 8;
-            reasons.push(`${totalShotsOn} isabetli şut`);
-          }
-          
-          // Mevcut gol avantajı
-          if (totalGoals === 2) {
-            bonus += 5;
-            reasons.push(`${totalGoals} gol, 1 tane daha lazım`);
-          }
-          
-          const finalConfidence = confidenceBase + bonus;
-          const odds = totalGoals === 2 ? 1.55 : 1.85;
-          
+        // Şut baskısı
+        if (totalShotsOn >= 10) { confidence += 18; reasons.push(`${totalShotsOn} isabetli şut`); }
+        else if (totalShotsOn >= 7) { confidence += 12; reasons.push(`${totalShotsOn} isabetli şut`); }
+        else if (totalShotsOn >= 5) { confidence += 6; }
+        
+        // Açık maç
+        if (homeScore > 0 && awayScore > 0) { confidence += 8; reasons.push('KG var'); }
+        
+        // Projeksiyon
+        if (projectedGoals >= 3.5) { confidence += 10; reasons.push(`projeksiyon: ${projectedGoals.toFixed(1)}`); }
+        
+        if (confidence >= 68) {
           const prevSuggestion = suggestedMatches[String(fixtureId)];
           const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Üst 2.5');
           
-          if (finalConfidence >= 65 && !alreadySuggested) {
+          if (!alreadySuggested) {
             opportunities.push({
               match: matchData,
               opportunity: 'Üst 2.5 Gol',
-              confidence: finalConfidence,
-              odds,
-              reasoning: reasons.join(', ') || 'Tempolu maç',
+              confidence,
+              odds: 1.85,
+              reasoning: reasons.join(', ') || '2 gol + baskı',
             });
+          }
+        }
+      }
+      
+      // ===== 2. KART BAHİSLERİ =====
+      // Faul yoğunluğu bazlı akıllı kart tahmini
+      
+      if (minute >= 18 && minute <= 80 && totalFouls >= 6) {
+        const foulRate = totalFouls / minute;
+        const cardRate = totalCards / minute;
+        
+        // Faul bazlı kart öngörüsü (her 7.5 faulde ~1 kart)
+        const foulBasedCardRate = foulRate / 7.5;
+        const blendedCardRate = totalCards > 0 
+          ? (cardRate * 0.4) + (foulBasedCardRate * 0.6)
+          : foulBasedCardRate;
+        const expectedRemainingCards = blendedCardRate * remainingMinutes;
+        
+        // Hedef eşik belirle (mevcut karttan en az 2 fazla)
+        const cardThresholds = [2.5, 3.5, 4.5, 5.5, 6.5];
+        const minGap = remainingMinutes >= 25 ? 2 : 1.5;
+        const targetCardThreshold = cardThresholds.find(t => t >= totalCards + minGap);
+        
+        if (targetCardThreshold) {
+          const cardsNeeded = targetCardThreshold - totalCards + 0.5;
+          
+          // Projeksiyon hedefe ulaşabilir mi
+          if (expectedRemainingCards >= cardsNeeded * 0.65) {
+            let confidence = 48;
+            const reasons: string[] = [];
+            
+            // Projeksiyon bonus
+            const projRatio = expectedRemainingCards / cardsNeeded;
+            if (projRatio >= 1.5) { confidence += 18; }
+            else if (projRatio >= 1.2) { confidence += 12; }
+            else if (projRatio >= 1.0) { confidence += 8; }
+            else if (projRatio >= 0.8) { confidence += 4; }
+            
+            // Faul yoğunluğu (kartların habercisi)
+            if (foulRate >= 0.55) { confidence += 16; reasons.push(`faul temposu: ${(foulRate * 90).toFixed(0)}/maç`); }
+            else if (foulRate >= 0.45) { confidence += 12; reasons.push(`${totalFouls} faul`); }
+            else if (foulRate >= 0.35) { confidence += 7; reasons.push(`${totalFouls} faul`); }
+            else if (foulRate >= 0.25) { confidence += 3; }
+            
+            // Gergin maç (skor farkı az)
+            if (Math.abs(homeScore - awayScore) <= 1) { confidence += 8; reasons.push('gergin skor'); }
+            
+            // 2. yarı bonus
+            if (minute >= 45) { confidence += 6; }
+            
+            // İki takım da kart gördüyse
+            if (homeYellowCards >= 1 && awayYellowCards >= 1) { confidence += 6; reasons.push('iki taraf da kartlı'); }
+            
+            // Kart açığı bonusu: faul/kart oranı yüksekse hakem sonra patlatır
+            const expectedCardsFromFouls = totalFouls / 7.5;
+            if (expectedCardsFromFouls > totalCards + 1.5) { confidence += 8; reasons.push('kart açığı var'); }
+            else if (expectedCardsFromFouls > totalCards + 0.5) { confidence += 4; }
+            
+            // İki takım da foul yapıyorsa
+            if (homeFouls >= 5 && awayFouls >= 5) { confidence += 4; }
+            
+            reasons.unshift(`${totalCards} kart`);
+            
+            if (confidence >= 64) {
+              const difficulty = cardsNeeded / (remainingMinutes / 30);
+              let odds: number;
+              if (difficulty <= 0.8) odds = 1.60;
+              else if (difficulty <= 1.2) odds = 1.80;
+              else if (difficulty <= 1.6) odds = 2.00;
+              else odds = 2.30;
+              if (odds < 1.50) continue; // Oran çok düşük
+              
+              const prevSuggestion = suggestedMatches[String(fixtureId)];
+              const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Kart');
+              
+              if (!alreadySuggested) {
+                opportunities.push({
+                  match: matchData,
+                  opportunity: `Üst ${targetCardThreshold} Kart`,
+                  confidence,
+                  odds,
+                  reasoning: reasons.join(', '),
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      // ===== 3. KORNER BAHİSLERİ =====
+      // Korner temposu + şut baskısına göre
+      
+      if (minute >= 25 && minute <= 80 && totalCorners >= 4) {
+        const cornerRate = totalCorners / minute;
+        const projectedCorners = cornerRate * 90;
+        
+        // Hedef eşik belirle
+        const cornerThresholds = [7.5, 8.5, 9.5, 10.5, 11.5];
+        const minGap = remainingMinutes >= 25 ? 2.5 : 2;
+        const targetCornerThreshold = cornerThresholds.find(t => t >= totalCorners + minGap);
+        
+        if (targetCornerThreshold) {
+          const cornersNeeded = targetCornerThreshold - totalCorners + 0.5;
+          const expectedRemainingCorners = cornerRate * remainingMinutes;
+          
+          if (expectedRemainingCorners >= cornersNeeded * 0.7) {
+            let confidence = 52;
+            const reasons: string[] = [];
+            
+            // Projeksiyon bonus
+            const projRatio = expectedRemainingCorners / cornersNeeded;
+            if (projRatio >= 1.5) { confidence += 16; }
+            else if (projRatio >= 1.2) { confidence += 10; }
+            else if (projRatio >= 1.0) { confidence += 5; }
+            
+            // Korner temposu
+            if (cornerRate >= 0.15) { confidence += 10; reasons.push(`tempo: ${projectedCorners.toFixed(1)}/maç`); }
+            else if (cornerRate >= 0.12) { confidence += 6; }
+            
+            // Şut baskısı (korner potansiyeli)
+            if (totalShots >= 20) { confidence += 10; reasons.push(`${totalShots} şut baskısı`); }
+            else if (totalShots >= 15) { confidence += 6; }
+            else if (totalShots >= 10) { confidence += 3; }
+            
+            // Dengeli korner (iki takım da atakta)
+            if (homeCorners >= 3 && awayCorners >= 3) { confidence += 6; reasons.push('iki taraf da korner alıyor'); }
+            
+            reasons.unshift(`${totalCorners} korner`);
+            
+            if (confidence >= 68) {
+              const difficulty = cornersNeeded / (remainingMinutes / 15);
+              let odds: number;
+              if (difficulty <= 0.7) odds = 1.60;
+              else if (difficulty <= 1.0) odds = 1.80;
+              else if (difficulty <= 1.4) odds = 2.00;
+              else odds = 2.30;
+              if (odds < 1.50) continue; // Oran çok düşük
+              
+              const prevSuggestion = suggestedMatches[String(fixtureId)];
+              const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('Korner');
+              
+              if (!alreadySuggested) {
+                opportunities.push({
+                  match: matchData,
+                  opportunity: `Üst ${targetCornerThreshold} Korner`,
+                  confidence,
+                  odds,
+                  reasoning: reasons.join(', '),
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      // ===== 4. KG VAR (Karşılıklı Gol) =====
+      // 0-0 veya tek taraflı skor + baskı varsa
+      
+      if ((totalGoals === 0 || (homeScore === 0 || awayScore === 0)) && minute >= 30 && minute <= 70) {
+        // Henüz KG yok, olma potansiyeli var mı?
+        if (!(homeScore > 0 && awayScore > 0)) {
+          let confidence = 50;
+          const reasons: string[] = [];
+          
+          // Gol atmayan takımın baskısı
+          const nonScoringTeamShots = homeScore === 0 ? homeShotsOn : awayShotsOn;
+          const nonScoringTeamName = homeScore === 0 ? matchData.homeTeam : matchData.awayTeam;
+          
+          // Gerideki takım şut çekiyor mu
+          if (nonScoringTeamShots >= 4) { confidence += 18; reasons.push(`${nonScoringTeamName} ${nonScoringTeamShots} isabetli şut`); }
+          else if (nonScoringTeamShots >= 2) { confidence += 10; reasons.push(`${nonScoringTeamName} ${nonScoringTeamShots} isabetli şut`); }
+          
+          // Toplam şut yoğunluğu
+          if (totalShotsOn >= 8) { confidence += 10; reasons.push('yoğun şut trafiği'); }
+          else if (totalShotsOn >= 5) { confidence += 5; }
+          
+          // Dakika bonus (erken = daha fazla şans)
+          if (minute <= 50) { confidence += 8; }
+          else if (minute <= 60) { confidence += 4; }
+          
+          // 0-0 ise iki taraf da gol atmalı = daha zor
+          if (totalGoals === 0 && totalShotsOn >= 6) { confidence += 5; reasons.push('iki taraf da baskı yapıyor'); }
+          
+          if (confidence >= 68) {
+            // KG Var oranları: 0-0 daha yüksek (2 gol gerekli), tek taraflı daha düşük
+            const odds = totalGoals === 0 ? 1.85 : 2.05;
+            const prevSuggestion = suggestedMatches[String(fixtureId)];
+            const alreadySuggested = prevSuggestion && prevSuggestion.opportunity.includes('KG Var');
+            
+            if (!alreadySuggested) {
+              opportunities.push({
+                match: matchData,
+                opportunity: 'KG Var',
+                confidence,
+                odds,
+                reasoning: reasons.join(', ') || 'İki taraf da gol potansiyeli',
+              });
+            }
           }
         }
       }
@@ -579,12 +781,16 @@ function formatOpportunityTweet(opportunities: Array<{
   const lines: string[] = [];
   
   // Başlık - veri odaklı
-  const hasNextGoal = opportunities.some(o => o.opportunity.includes('Sıradaki'));
+  const hasCards = opportunities.some(o => o.opportunity.includes('Kart'));
+  const hasCorners = opportunities.some(o => o.opportunity.includes('Korner'));
+  const hasBTTS = opportunities.some(o => o.opportunity.includes('KG'));
   
-  if (hasNextGoal) {
+  if (hasCards || hasCorners) {
     lines.push('📊 CANLI VERİ ANALİZİ');
+  } else if (hasBTTS) {
+    lines.push('🎯 SİSTEM TESPİTİ');
   } else {
-    lines.push('🔍 SİSTEM TESPİTİ');
+    lines.push('🔍 CANLI FIRSAT ANALİZİ');
   }
   lines.push('');
   

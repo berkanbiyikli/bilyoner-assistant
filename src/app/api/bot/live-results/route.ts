@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { isApiCallAllowed, updateRateLimitFromHeaders } from '@/lib/api-football/client';
 import { 
   getActivePicks, 
   settlePick, 
@@ -58,10 +59,12 @@ async function getFixtureFinalScore(fixtureId: number): Promise<{
   isFinished: boolean;
 } | null> {
   try {
+    if (!isApiCallAllowed('/fixtures')) return null;
     const res = await fetch(`${API_BASE}/fixtures?id=${fixtureId}`, {
       headers: { 'x-apisports-key': API_KEY },
       next: { revalidate: 0 },
     });
+    updateRateLimitFromHeaders(res.headers);
     const data = await res.json();
     const fixture = data?.response?.[0];
     

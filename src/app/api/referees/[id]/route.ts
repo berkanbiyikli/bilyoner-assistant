@@ -5,6 +5,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { isApiCallAllowed, updateRateLimitFromHeaders } from '@/lib/api-football/client';
 import type { Referee } from '@/types/api-football';
 
 const API_BASE_URL = process.env.API_FOOTBALL_BASE_URL || 'https://v3.football.api-sports.io';
@@ -64,6 +65,12 @@ async function fetchRefereeStats(refereeId: string): Promise<Referee | null> {
   }
 
   try {
+    // Rate limit kontrolü
+    if (!isApiCallAllowed('/fixtures')) {
+      console.warn('[Referee API] Rate limit - istek engellendi');
+      return null;
+    }
+
     // Hakemin son 30 maçını çek
     // Not: API-Football'da doğrudan referee ID ile arama olmayabilir
     // Bu durumda fixtures endpoint'inden referee adıyla arama yapılır
@@ -76,6 +83,8 @@ async function fetchRefereeStats(refereeId: string): Promise<Referee | null> {
         },
       }
     );
+
+    updateRateLimitFromHeaders(response.headers);
 
     if (!response.ok) {
       console.error(`[Referee API] Fetch error: ${response.status}`);

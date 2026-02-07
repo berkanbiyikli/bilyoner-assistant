@@ -42,7 +42,7 @@ export function HighConfidencePicks({ matches, onAddToCoupon }: HighConfidencePi
       const confidence = prediction.confidence || 0;
       
       // Sadece yüksek güvenilirlikte olanları al
-      if (confidence < 75) return;
+      if (confidence < 65) return;
       
       // Reasoning oluştur
       const reasoning: string[] = [];

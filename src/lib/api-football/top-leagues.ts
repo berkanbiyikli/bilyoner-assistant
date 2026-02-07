@@ -827,54 +827,215 @@ function generateLiveBetSuggestions(
 ): BetSuggestion[] {
   const suggestions: BetSuggestion[] = [];
   const elapsed = fixture.status.elapsed || 0;
-  const currentScore = (fixture.score.home ?? 0) + (fixture.score.away ?? 0);
+  const homeScore = fixture.score.home ?? 0;
+  const awayScore = fixture.score.away ?? 0;
+  const currentScore = homeScore + awayScore;
   
   // Şut analizi
   const homeShots = stats.home.shotsOnGoal || 0;
   const awayShots = stats.away.shotsOnGoal || 0;
   const totalShots = homeShots + awayShots;
+  const remainingMinutes = 90 - elapsed;
+  const goalRate = elapsed > 0 ? currentScore / elapsed : 0;
+  const isOpenMatch = homeScore > 0 && awayScore > 0;
   
-  // Gol beklentisi
+  // === AKILLI ÜST GOL FIRSATI ===
+  
+  // 3+ gol varsa → 3.5 Üst
+  if (currentScore >= 3 && elapsed <= 80 && remainingMinutes >= 10) {
+    let conf = 70;
+    if (goalRate >= 0.06) conf += 10;
+    if (totalShots >= 8) conf += 8;
+    if (isOpenMatch) conf += 7;
+    if (remainingMinutes >= 25) conf += 5;
+    
+    if (conf >= 72) {
+      suggestions.push({
+        type: 'over_under',
+        market: '3.5 Üst',
+        confidence: Math.min(92, conf),
+        reasoning: `${currentScore} gol ${elapsed}' - gol hızı: ${(goalRate * 90).toFixed(1)}/maç, ${totalShots} isabetli şut${isOpenMatch ? ', açık maç' : ''}`,
+        priority: conf >= 85 ? 'high' : 'medium',
+      });
+    }
+  }
+  
+  // 4+ gol varsa → 4.5 Üst
+  if (currentScore >= 4 && elapsed <= 78 && remainingMinutes >= 12) {
+    let conf = 65;
+    if (goalRate >= 0.07) conf += 15;
+    else if (goalRate >= 0.05) conf += 10;
+    if (isOpenMatch && homeScore >= 2 && awayScore >= 2) conf += 12;
+    else if (isOpenMatch) conf += 6;
+    if (totalShots >= 10) conf += 8;
+    if (remainingMinutes >= 20) conf += 5;
+    
+    if (conf >= 72) {
+      suggestions.push({
+        type: 'over_under',
+        market: '4.5 Üst',
+        confidence: Math.min(90, conf),
+        reasoning: `Gol festivali! ${currentScore} gol ${elapsed}', hız: ${(goalRate * 90).toFixed(1)}/maç`,
+        priority: conf >= 82 ? 'high' : 'medium',
+      });
+    }
+  }
+  
+  // 2 gol + güçlü baskı → 3.5 Üst
+  if (currentScore === 2 && elapsed >= 30 && elapsed <= 65 && totalShots >= 6) {
+    let conf = 60;
+    if (isOpenMatch) conf += 8;
+    if (totalShots >= 8) conf += 10;
+    
+    if (conf >= 72) {
+      suggestions.push({
+        type: 'over_under',
+        market: '3.5 Üst',
+        confidence: Math.min(85, conf),
+        reasoning: `2 gol + güçlü baskı: ${totalShots} isab. şut${isOpenMatch ? ', açık maç' : ''}, ${remainingMinutes} dk kaldı`,
+        priority: conf >= 80 ? 'high' : 'medium',
+      });
+    }
+  }
+  
+  // Gol beklentisi (şut baskısı yüksek, skor düşük)
   if (elapsed <= 70 && totalShots >= 8 && currentScore <= 1) {
     suggestions.push({
       type: 'over_under',
-      market: 'Sonraki Gol Var',
+      market: '2.5 Üst',
       confidence: Math.min(80, 50 + totalShots * 3),
       reasoning: `Toplam ${totalShots} isabetli şut, gol beklentisi yüksek`,
       priority: 'high',
     });
   }
   
-  // Baskı analizi
+  // Baskı analizi (düşük skor + güçlü baskı → gol üst)
   const homePossession = stats.home.possession || 50;
   const homeCorners = stats.home.corners || 0;
   const awayCorners = stats.away.corners || 0;
   
-  if (elapsed <= 60 && homePossession >= 65 && homeShots >= 5 && (fixture.score.home ?? 0) === 0) {
+  if (elapsed <= 60 && homePossession >= 65 && homeShots >= 5 && homeScore === 0) {
     suggestions.push({
-      type: 'goal',
-      market: `${fixture.homeTeam.name} Gol Atar`,
+      type: 'over_under',
+      market: currentScore === 0 ? '1.5 Üst' : '2.5 Üst',
       confidence: 70,
-      reasoning: `%${homePossession} top, ${homeShots} isabetli şut ama henüz gol yok`,
+      reasoning: `%${homePossession} top, ${homeShots} isabetli şut ama henüz gol yok - gol bekleniyor`,
       priority: 'high',
     });
   }
   
-  // Korner analizi
-  if (elapsed >= 30 && elapsed <= 70) {
-    const cornerRate = (homeCorners + awayCorners) / (elapsed / 15);
-    if (cornerRate >= 1.5) {
-      const remainingMinutes = 90 - elapsed;
-      const expectedCorners = (homeCorners + awayCorners) + (cornerRate * remainingMinutes / 15);
+  // === AKILLI KORNER FIRSATI (Dakikaya göre akıllı eşik seçimi) ===
+  // Sabit eşikler: 7.5, 8.5, 9.5, 10.5, 11.5
+  // Eşik mevcut kornerden EN AZ 2.5 fazla olmalı
+  if (elapsed >= 25 && elapsed <= 82) {
+    const totalCorners = homeCorners + awayCorners;
+    const cornerRatePerMin = elapsed > 0 ? totalCorners / elapsed : 0;
+    const projectedCorners = cornerRatePerMin * 90;
+    const cornerRemaining = 90 - elapsed;
+    const expectedRemainingCorners = cornerRatePerMin * cornerRemaining;
+    
+    const cornerThresholds = [7.5, 8.5, 9.5, 10.5, 11.5];
+    const cornerMinGap = cornerRemaining >= 25 ? 2.5 : cornerRemaining >= 15 ? 2 : 1.5;
+    const cornerTarget = cornerThresholds.find(t => t >= totalCorners + cornerMinGap);
+    
+    if (cornerTarget) {
+      const cornersNeeded = cornerTarget - totalCorners + 0.5;
+      const canReachCorners = expectedRemainingCorners >= cornersNeeded * 0.7;
       
-      if (expectedCorners >= 10) {
-        suggestions.push({
-          type: 'over_under',
-          market: 'Toplam Korner 9.5 Üst',
-          confidence: Math.min(75, Math.round(cornerRate * 40)),
-          reasoning: `${homeCorners + awayCorners} korner (her 15dk ${cornerRate.toFixed(1)} korner)`,
-          priority: 'medium',
-        });
+      if (canReachCorners) {
+        let conf = 50;
+        
+        const projRatio = expectedRemainingCorners / cornersNeeded;
+        if (projRatio >= 1.5) conf += 18;
+        else if (projRatio >= 1.2) conf += 12;
+        else if (projRatio >= 1.0) conf += 6;
+        
+        if (totalShots >= 20) conf += 12;
+        else if (totalShots >= 15) conf += 8;
+        else if (totalShots >= 10) conf += 4;
+        
+        if (homeCorners >= 3 && awayCorners >= 3) conf += 7;
+        else if (homeCorners >= 2 && awayCorners >= 2) conf += 3;
+        
+        if (cornerRatePerMin >= 0.15) conf += 8;
+        else if (cornerRatePerMin >= 0.12) conf += 5;
+        
+        if (conf >= 70) {
+          const difficulty = cornersNeeded / (cornerRemaining / 15);
+          let estimatedOdds: number;
+          if (difficulty <= 0.7) estimatedOdds = 1.45;
+          else if (difficulty <= 1.0) estimatedOdds = 1.65;
+          else if (difficulty <= 1.4) estimatedOdds = 1.85;
+          else estimatedOdds = 2.15;
+          
+          suggestions.push({
+            type: 'over_under',
+            market: `${cornerTarget} Üst Korner`,
+            confidence: Math.min(88, conf),
+            reasoning: `${totalCorners} korner ${elapsed}' (tempo: ${projectedCorners.toFixed(1)}/maç) - hedef ${cornerTarget}, ${totalShots} şut baskısı`,
+            priority: conf >= 82 ? 'high' : 'medium',
+          });
+        }
+      }
+    }
+  }
+  
+  // === AKILLI KART FIRSATI (Dakikaya göre akıllı eşik seçimi) ===
+  // Sabit eşikler: 2.5, 3.5, 4.5, 5.5, 6.5
+  // Eşik mevcut karttan EN AZ 2 fazla olmalı
+  const totalFouls = (stats.home.fouls || 0) + (stats.away.fouls || 0);
+  const totalCardsAll = (stats.home.yellowCards || 0) + (stats.away.yellowCards || 0) + (stats.home.redCards || 0) + (stats.away.redCards || 0);
+  
+  if (elapsed > 20 && elapsed < 82) {
+    const faulPerMin = totalFouls / elapsed;
+    const cardRatePerMin = totalCardsAll / elapsed;
+    const isCloseDerby = Math.abs(homeScore - awayScore) <= 1;
+    const cardRemaining = 90 - elapsed;
+    const expectedRemainingCards = cardRatePerMin * cardRemaining;
+    
+    const cardThresholds = [2.5, 3.5, 4.5, 5.5, 6.5];
+    const cardMinGap = cardRemaining >= 20 ? 2 : 1.5;
+    const cardTarget = cardThresholds.find(t => t >= totalCardsAll + cardMinGap);
+    
+    if (cardTarget) {
+      const cardsNeeded = cardTarget - totalCardsAll + 0.5;
+      const canReachCards = expectedRemainingCards >= cardsNeeded * 0.7;
+      
+      if (canReachCards) {
+        let conf = 50;
+        
+        const projRatio = expectedRemainingCards / cardsNeeded;
+        if (projRatio >= 1.5) conf += 18;
+        else if (projRatio >= 1.2) conf += 12;
+        else if (projRatio >= 1.0) conf += 6;
+        
+        if (faulPerMin >= 0.55) conf += 15;
+        else if (faulPerMin >= 0.45) conf += 10;
+        else if (faulPerMin >= 0.35) conf += 5;
+        
+        if (isCloseDerby) conf += 8;
+        if (elapsed >= 45) conf += 5;
+        if ((stats.home.yellowCards || 0) >= 1 && (stats.away.yellowCards || 0) >= 1) conf += 5;
+        
+        const expectedCardsByFouls = totalFouls / 8;
+        if (expectedCardsByFouls > totalCardsAll + 1) conf += 8;
+        
+        if (conf >= 70) {
+          const difficulty = cardsNeeded / (cardRemaining / 30);
+          let estimatedOdds: number;
+          if (difficulty <= 0.8) estimatedOdds = 1.45;
+          else if (difficulty <= 1.2) estimatedOdds = 1.65;
+          else if (difficulty <= 1.6) estimatedOdds = 1.85;
+          else estimatedOdds = 2.10;
+          
+          suggestions.push({
+            type: 'over_under',
+            market: `${cardTarget} Üst Kart`,
+            confidence: Math.min(88, conf),
+            reasoning: `${totalCardsAll} kart ${elapsed}' (${totalFouls} faul) - projeksiyon: ${(cardRatePerMin * 90).toFixed(1)} kart/maç${isCloseDerby ? ', gergin maç' : ''}`,
+            priority: conf >= 82 ? 'high' : 'medium',
+          });
+        }
       }
     }
   }

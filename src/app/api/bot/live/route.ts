@@ -69,7 +69,7 @@ function formatLiveOpportunityTweet(opportunities: LiveOpportunity[]): string {
   opportunities.slice(0, 3).forEach((opp, i) => {
     const urgencyEmoji = opp.urgency === 'critical' ? '🔥' : opp.urgency === 'high' ? '⚡' : '📊';
     lines.push(`${i + 1}. ${opp.match.homeTeam} ${opp.match.score} ${opp.match.awayTeam}`);
-    lines.push(`⏱️ ${opp.match.minute}' | ${urgencyEmoji} ${opp.type === 'goal_pressure' ? 'Gol Baskısı' : opp.market}`);
+    lines.push(`⏱️ ${opp.match.minute}' | ${urgencyEmoji} ${opp.market}`);
     lines.push(`🎯 ${opp.pick} @${opp.estimatedOdds.toFixed(2)} | Güven: %${opp.confidence}`);
     lines.push(`📈 ${opp.reasoning}`);
     if (i < Math.min(opportunities.length, 3) - 1) lines.push('');

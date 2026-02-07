@@ -34,18 +34,19 @@ function getRedis(): Redis | null {
 }
 
 // Cache TTL sabitleri (saniye - Redis için)
+// API limitlerini korumak için agresif cache süreler
 export const REDIS_TTL = {
   DAILY_MATCHES: 60,              // 1 dakika (canlı veri)
-  TEAM_STATS: 30 * 60,            // 30 dakika
-  SEASON_STATS: 60 * 60,          // 1 saat
+  TEAM_STATS: 2 * 60 * 60,        // 2 saat (önceki: 30dk) - son 5 maç nadiren değişir
+  SEASON_STATS: 4 * 60 * 60,      // 4 saat (önceki: 1 saat) - sezon istatistikleri yavaş değişir
   REFEREE_STATS: 12 * 60 * 60,    // 12 saat
-  PLAYER_CARDS: 30 * 60,          // 30 dakika
+  PLAYER_CARDS: 4 * 60 * 60,      // 4 saat (önceki: 30dk) - kart istatistikleri yavaş değişir
   FIXTURES: 60,                   // 1 dakika (canlı veri)
   H2H: 24 * 60 * 60,              // 24 saat
   STANDINGS: 60 * 60,             // 1 saat
   ODDS: 5 * 60,                   // 5 dakika
-  PREDICTIONS: 15 * 60,           // 15 dakika
-  MATCH_DETAIL: 10 * 60,          // 10 dakika
+  PREDICTIONS: 30 * 60,           // 30 dakika (önceki: 15dk)
+  MATCH_DETAIL: 30 * 60,          // 30 dakika (önceki: 10dk) - maç öncesi veri yavaş değişir
 };
 
 // Cache key prefix (namespace)

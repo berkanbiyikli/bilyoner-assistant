@@ -3,7 +3,7 @@
  */
 
 // Client
-export { apiFootballFetch, getLastRateLimitInfo, formatDateForApi, getTodayForApi } from './client';
+export { apiFootballFetch, getLastRateLimitInfo, getRateLimitStatus, isApiCallAllowed, updateRateLimitFromHeaders, formatDateForApi, getTodayForApi } from './client';
 
 // Fixtures
 export { 

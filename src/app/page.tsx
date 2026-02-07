@@ -97,15 +97,6 @@ export default function HomePage() {
     return grouped;
   }, [data?.data]);
 
-  const sortedMatches = useMemo(() => {
-    if (!data?.data) return [];
-    return [...data.data].sort((a, b) => {
-      if (a.status.isLive && !b.status.isLive) return -1;
-      if (!a.status.isLive && b.status.isLive) return 1;
-      return a.timestamp - b.timestamp;
-    });
-  }, [data?.data]);
-
   const enrichedFixtures = useMemo(() => {
     if (!data?.data) return [];
     if (!batchDetails) return data.data;
@@ -122,6 +113,15 @@ export default function HomePage() {
       };
     });
   }, [data?.data, batchDetails]);
+
+  const sortedMatches = useMemo(() => {
+    if (!enrichedFixtures.length) return [];
+    return [...enrichedFixtures].sort((a, b) => {
+      if (a.status.isLive && !b.status.isLive) return -1;
+      if (!a.status.isLive && b.status.isLive) return 1;
+      return a.timestamp - b.timestamp;
+    });
+  }, [enrichedFixtures]);
 
   const handleLeagueToggle = (leagueId: number) => {
     setSelectedLeagues(prev => 
@@ -157,13 +157,28 @@ export default function HomePage() {
     if (predictionFilter === 'all') return sortedMatches;
     return sortedMatches.filter(m => {
       const pred = m.prediction;
-      if (!pred) return false;
+      const stats = m.teamStats;
+      const suggestions = m.betSuggestions;
       switch (predictionFilter) {
-        case 'banko': return pred.confidence >= 70;
-        case 'ms1': return pred.winner === m.homeTeam.name;
-        case 'ms2': return pred.winner === m.awayTeam.name;
-        case 'over25': return pred.goalsAdvice?.toLowerCase().includes('over') || pred.goalsAdvice?.toLowerCase().includes('üst');
-        case 'btts': return pred.goalsAdvice?.toLowerCase().includes('btts') || pred.goalsAdvice?.toLowerCase().includes('kg');
+        case 'banko': return (pred?.confidence && pred.confidence >= 70) || suggestions?.some(s => s.confidence >= 70);
+        case 'ms1': return pred?.winner === m.homeTeam.name;
+        case 'ms2': return pred?.winner === m.awayTeam.name;
+        case 'over25': {
+          if (pred?.goalsAdvice?.toLowerCase().includes('over') || pred?.goalsAdvice?.toLowerCase().includes('üst')) return true;
+          if (suggestions?.some(s => s.market.includes('2.5') && s.pick.toLowerCase().includes('üst'))) return true;
+          if (suggestions?.some(s => s.market.includes('2.5') && s.pick.toLowerCase().includes('ust'))) return true;
+          if (stats) {
+            const totalGoals = (typeof stats.homeGoalsScored === 'number' ? stats.homeGoalsScored : 0) + 
+                               (typeof stats.awayGoalsScored === 'number' ? stats.awayGoalsScored : 0);
+            if (totalGoals >= 2.8) return true;
+          }
+          return false;
+        }
+        case 'btts': {
+          if (pred?.goalsAdvice?.toLowerCase().includes('btts') || pred?.goalsAdvice?.toLowerCase().includes('kg')) return true;
+          if (suggestions?.some(s => s.type === 'btts' && s.pick === 'Var')) return true;
+          return false;
+        }
         default: return true;
       }
     });
@@ -189,10 +204,19 @@ export default function HomePage() {
   };
 
   const getSuggestions = (fixture: DailyMatchFixture): BetSuggestion[] | undefined => {
+    // Önce API'den gelen zengin betSuggestions'ı kullan
+    if (fixture.betSuggestions && fixture.betSuggestions.length > 0) {
+      return fixture.betSuggestions;
+    }
+    
     const suggestions: BetSuggestion[] = [];
-    if (fixture.prediction?.confidence && fixture.prediction.confidence >= 55) {
-      const conf = fixture.prediction.confidence;
-      const winner = fixture.prediction.winner;
+    const pred = fixture.prediction;
+    const stats = fixture.teamStats;
+    
+    // 1. Maç Sonucu
+    if (pred?.confidence && pred.confidence >= 55) {
+      const conf = pred.confidence;
+      const winner = pred.winner;
       let pick = 'MS X';
       let odds = 3.20;
       if (winner === fixture.homeTeam.name) {
@@ -209,9 +233,114 @@ export default function HomePage() {
         confidence: conf,
         odds: Number(odds.toFixed(2)),
         value: conf >= 75 ? 'high' : conf >= 65 ? 'medium' : 'low',
-        reasoning: fixture.prediction.advice || winner + ' one cikiyor',
+        reasoning: pred.advice || winner + ' one cikiyor',
       });
     }
+    
+    // 2. Gol bahisleri (Üst/Alt) - teamStats varsa
+    if (stats) {
+      const homeGoals = typeof stats.homeGoalsScored === 'number' ? stats.homeGoalsScored : 0;
+      const awayGoals = typeof stats.awayGoalsScored === 'number' ? stats.awayGoalsScored : 0;
+      const totalAvg = homeGoals + awayGoals;
+      
+      if (totalAvg >= 2.8) {
+        const conf = Math.min(82, 58 + Math.round((totalAvg - 2.5) * 25));
+        suggestions.push({
+          type: 'goals',
+          market: 'U2.5 Gol',
+          pick: 'Ust 2.5',
+          confidence: conf,
+          odds: Number((1 / (conf / 100) * 0.88).toFixed(2)),
+          value: totalAvg >= 3.5 ? 'high' : 'medium',
+          reasoning: `Ev ${homeGoals.toFixed(1)} gol, deplasman ${awayGoals.toFixed(1)} gol atiyor`,
+        });
+      } else if (totalAvg <= 2.0) {
+        const conf = Math.min(78, 55 + Math.round((2.5 - totalAvg) * 30));
+        suggestions.push({
+          type: 'goals',
+          market: 'A2.5 Gol',
+          pick: 'Alt 2.5',
+          confidence: conf,
+          odds: Number((1 / (conf / 100) * 0.88).toFixed(2)),
+          value: totalAvg <= 1.5 ? 'high' : 'medium',
+          reasoning: `Dusuk skorlu maclar (ort. ${totalAvg.toFixed(1)} gol)`,
+        });
+      }
+    }
+    
+    // 3. KG (Her İki Takım da Gol Atar) - goalsAdvice içeriyorsa veya teamStats varsa
+    if (pred?.goalsAdvice) {
+      const advice = pred.goalsAdvice.toLowerCase();
+      if (advice.includes('btts') || advice.includes('kg') || advice.includes('both')) {
+        suggestions.push({
+          type: 'btts',
+          market: 'KG',
+          pick: 'Var',
+          confidence: Math.min(75, (pred.confidence || 60)),
+          odds: 1.80,
+          value: 'medium',
+          reasoning: pred.goalsAdvice,
+        });
+      }
+      if (advice.includes('over') || advice.includes('ust') || advice.includes('üst')) {
+        const existsGoal = suggestions.find(s => s.type === 'goals');
+        if (!existsGoal) {
+          suggestions.push({
+            type: 'goals',
+            market: 'U2.5 Gol',
+            pick: 'Ust 2.5',
+            confidence: Math.min(72, (pred.confidence || 58)),
+            odds: 1.75,
+            value: 'medium',
+            reasoning: pred.goalsAdvice,
+          });
+        }
+      }
+    }
+    
+    // 4. H2H bazlı ek tahminler
+    if (fixture.h2hSummary && fixture.h2hSummary.totalMatches >= 3) {
+      const h2h = fixture.h2hSummary;
+      const drawRate = h2h.draws / h2h.totalMatches;
+      if (drawRate >= 0.4 && !suggestions.find(s => s.pick === 'MS X')) {
+        suggestions.push({
+          type: 'result',
+          market: 'Cift Sans',
+          pick: 'X dahil',
+          confidence: Math.min(70, Math.round(drawRate * 100 + 20)),
+          odds: 1.45,
+          value: 'medium',
+          reasoning: `Son ${h2h.totalMatches} macin ${h2h.draws} tanesi berabere`,
+        });
+      }
+    }
+    
+    // 5. Form bazlı Çift Şans
+    if (pred?.confidence && pred.confidence >= 60 && pred.winner) {
+      const conf = pred.confidence;
+      if (pred.winner === fixture.homeTeam.name) {
+        suggestions.push({
+          type: 'result',
+          market: 'Cift Sans',
+          pick: '1X',
+          confidence: Math.min(85, conf + 12),
+          odds: Number(Math.max(1.20, 1 / ((conf + 12) / 100) * 0.90).toFixed(2)),
+          value: conf >= 70 ? 'high' : 'medium',
+          reasoning: `${fixture.homeTeam.name} favori veya beraberlik`,
+        });
+      } else if (pred.winner === fixture.awayTeam.name) {
+        suggestions.push({
+          type: 'result',
+          market: 'Cift Sans',
+          pick: 'X2',
+          confidence: Math.min(82, conf + 10),
+          odds: Number(Math.max(1.25, 1 / ((conf + 10) / 100) * 0.90).toFixed(2)),
+          value: conf >= 70 ? 'high' : 'medium',
+          reasoning: `${fixture.awayTeam.name} favori veya beraberlik`,
+        });
+      }
+    }
+    
     return suggestions.length > 0 ? suggestions : undefined;
   };
 
@@ -472,13 +601,26 @@ export default function HomePage() {
                         )}>
                           {sortedMatches.filter(m => {
                             const pred = m.prediction;
-                            if (!pred) return false;
+                            const stats = m.teamStats;
+                            const suggestions = m.betSuggestions;
                             switch (filter.key) {
-                              case 'banko': return pred.confidence >= 70;
-                              case 'ms1': return pred.winner === m.homeTeam.name;
-                              case 'ms2': return pred.winner === m.awayTeam.name;
-                              case 'over25': return pred.goalsAdvice?.toLowerCase().includes('over') || pred.goalsAdvice?.toLowerCase().includes('üst');
-                              case 'btts': return pred.goalsAdvice?.toLowerCase().includes('btts') || pred.goalsAdvice?.toLowerCase().includes('kg');
+                              case 'banko': return (pred?.confidence && pred.confidence >= 70) || suggestions?.some(s => s.confidence >= 70);
+                              case 'ms1': return pred?.winner === m.homeTeam.name;
+                              case 'ms2': return pred?.winner === m.awayTeam.name;
+                              case 'over25': {
+                                if (pred?.goalsAdvice?.toLowerCase().includes('over') || pred?.goalsAdvice?.toLowerCase().includes('üst')) return true;
+                                if (suggestions?.some(s => s.market.includes('2.5') && (s.pick.toLowerCase().includes('üst') || s.pick.toLowerCase().includes('ust')))) return true;
+                                if (stats) {
+                                  const tg = (typeof stats.homeGoalsScored === 'number' ? stats.homeGoalsScored : 0) + (typeof stats.awayGoalsScored === 'number' ? stats.awayGoalsScored : 0);
+                                  if (tg >= 2.8) return true;
+                                }
+                                return false;
+                              }
+                              case 'btts': {
+                                if (pred?.goalsAdvice?.toLowerCase().includes('btts') || pred?.goalsAdvice?.toLowerCase().includes('kg')) return true;
+                                if (suggestions?.some(s => s.type === 'btts' && s.pick === 'Var')) return true;
+                                return false;
+                              }
                               default: return true;
                             }
                           }).length}

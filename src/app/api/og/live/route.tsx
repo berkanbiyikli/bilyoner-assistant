@@ -70,22 +70,47 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
   } catch {
     matches = [{
       home: 'Liverpool', away: 'Arsenal', score: '1-0', minute: 55,
-      league: 'Premier League', pick: 'Üst 2.5', odds: 1.85, confidence: 78,
-      reasoning: '7 isabetli şut, tempolu maç',
+      league: 'Premier League', pick: 'Üst 2.5 Gol', odds: 1.85, confidence: 78,
+      reasoning: '7 isabetli şut, xG: 2.1, açık maç',
     }];
   }
   
   if (matches.length === 0) {
     matches = [{
       home: 'Liverpool', away: 'Arsenal', score: '1-0', minute: 55,
-      league: 'Premier League', pick: 'Üst 2.5', odds: 1.85, confidence: 78,
+      league: 'Premier League', pick: 'Üst 2.5 Gol', odds: 1.85, confidence: 78,
       reasoning: 'Demo veri',
     }];
   }
   
-  const title = isResult ? 'SONUÇ' : 'CANLI ANALİZ';
   const displayMatches = matches.slice(0, 3);
+  const matchCount = displayMatches.length;
   
+  function parseReasoning(r: string): string[] {
+    if (!r) return [];
+    return r.split(',').map((s: string) => s.trim()).filter(Boolean).slice(0, 4);
+  }
+  
+  function getConfColor(c: number): string {
+    if (c >= 80) return '#22c55e';
+    if (c >= 70) return '#f59e0b';
+    if (c >= 60) return '#3b82f6';
+    return '#a1a1aa';
+  }
+  
+  function getPickStyle(pick: string): { bg: string; border: string; text: string; icon: string } {
+    const p = (pick || '').toLowerCase();
+    if (p.includes('kart')) return { bg: 'rgba(251,191,36,0.1)', border: '#fbbf24', text: '#fbbf24', icon: '🟨' };
+    if (p.includes('korner')) return { bg: 'rgba(249,115,22,0.1)', border: '#f97316', text: '#fb923c', icon: '🚩' };
+    if (p.includes('kg') || p.includes('karşılıklı')) return { bg: 'rgba(168,85,247,0.1)', border: '#a855f7', text: '#c084fc', icon: '⚽' };
+    return { bg: 'rgba(59,130,246,0.1)', border: '#3b82f6', text: '#60a5fa', icon: '📈' };
+  }
+
+  const titleFontSize = matchCount === 1 ? 26 : 20;
+  const scoreFontSize = matchCount === 1 ? 24 : 18;
+  const oddsFontSize = matchCount === 1 ? 28 : 22;
+  const cardPad = matchCount === 1 ? 28 : matchCount === 2 ? 20 : 16;
+
   return new ImageResponse(
     (
       <div
@@ -94,148 +119,253 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
           flexDirection: 'column',
           width: '1200px',
           height: '630px',
-          backgroundColor: '#09090b',
-          padding: '40px',
+          backgroundColor: '#0a0a0f',
         }}
       >
+        {/* Rainbow top accent */}
+        <div style={{
+          display: 'flex',
+          width: '1200px',
+          height: '4px',
+          backgroundImage: 'linear-gradient(90deg, #ef4444, #f97316, #3b82f6, #8b5cf6, #ec4899)',
+        }} />
+
         {/* Header */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '24px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <span style={{ fontSize: '36px', fontWeight: 700, color: 'white', marginRight: '12px' }}>
-              {isResult ? '📊' : '🔴'}
-            </span>
-            <span style={{ fontSize: '36px', fontWeight: 700, color: 'white' }}>
-              {title}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingTop: 20,
+          paddingBottom: 14,
+          paddingLeft: 40,
+          paddingRight: 40,
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+            <div style={{
+              display: 'flex',
+              width: '12px',
+              height: '12px',
+              borderRadius: '6px',
+              backgroundColor: '#ef4444',
+              marginRight: 12,
+            }} />
+            <span style={{ fontSize: 28, fontWeight: 800, color: 'white' }}>
+              {isResult ? 'SONUÇ ANALİZİ' : 'CANLI VERİ ANALİZİ'}
             </span>
           </div>
-          <span style={{ fontSize: '20px', color: '#71717a' }}>
-            🤖 Bilyoner Bot
-          </span>
+          <span style={{ fontSize: 15, color: '#71717a', fontWeight: 600 }}>Bilyoner Bot</span>
         </div>
-        
-        {/* Matches */}
-        {displayMatches.map((match, i) => {
-          const isWon = match.result === 'won';
-          const isLost = match.result === 'lost';
-          const borderColor = isWon ? '#22c55e' : isLost ? '#ef4444' : '#27272a';
-          const confColor = match.confidence >= 75 ? '#22c55e' : match.confidence >= 60 ? '#eab308' : '#a1a1aa';
-          const oddsStr = typeof match.odds === 'number' ? match.odds.toFixed(2) : String(match.odds);
-          
-          return (
-            <div
-              key={String(i)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: '#18181b',
-                borderRadius: '16px',
-                padding: '20px 24px',
-                marginBottom: '12px',
-                borderLeft: `4px solid ${borderColor}`,
-              }}
-            >
-              {/* Number circle */}
+
+        {/* Cards container */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          paddingLeft: 32,
+          paddingRight: 32,
+          flex: 1,
+        }}>
+          {displayMatches.map((match, idx) => {
+            const won = match.result === 'won';
+            const lost = match.result === 'lost';
+            const confColor = getConfColor(match.confidence);
+            const ps = getPickStyle(match.pick);
+            const oddsText = typeof match.odds === 'number' ? match.odds.toFixed(2) : String(match.odds || '');
+            const reasons = parseReasoning(match.reasoning);
+            const accent = won ? '#22c55e' : lost ? '#ef4444' : ps.border;
+            const scoreParts = (match.score || '0-0').split('-');
+            
+            return (
               <div
+                key={String(idx)}
                 style={{
                   display: 'flex',
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '20px',
-                  backgroundColor: isWon ? '#22c55e' : isLost ? '#ef4444' : '#3b82f6',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontWeight: 700,
-                  fontSize: '18px',
-                  marginRight: '20px',
+                  flexDirection: 'row',
+                  backgroundColor: '#13131a',
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderStyle: 'solid',
+                  borderColor: '#1e1e2a',
+                  marginBottom: 10,
                 }}
               >
-                {isWon ? '✓' : isLost ? '✗' : String(i + 1)}
-              </div>
-
-              {/* Match content */}
-              <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-                <span style={{ color: 'white', fontSize: '22px', fontWeight: 700, marginBottom: '4px' }}>
-                  {match.home} {match.score} {match.away}
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <span style={{ color: '#ef4444', fontSize: '14px', fontWeight: 600, marginRight: '12px' }}>
-                    {match.minute}&apos;
-                  </span>
-                  <span style={{ color: '#71717a', fontSize: '14px', marginRight: '12px' }}>
-                    {match.league}
-                  </span>
-                  <span style={{ color: '#a1a1aa', fontSize: '13px' }}>
-                    {match.reasoning}
-                  </span>
-                </div>
-              </div>
-
-              {/* Pick + Odds */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginLeft: '16px', marginRight: '16px' }}>
-                <div
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: '#3b82f620',
-                    borderRadius: '8px',
-                    border: '1px solid #3b82f6',
-                    color: '#60a5fa',
-                    fontWeight: 700,
-                    fontSize: '15px',
-                    marginBottom: '4px',
-                  }}
-                >
-                  {match.pick}
-                </div>
-                <span style={{ color: '#fbbf24', fontSize: '20px', fontWeight: 700 }}>
-                  @{oddsStr}
-                </span>
-              </div>
-
-              {/* Confidence */}
-              <div
-                style={{
+                {/* Left color accent */}
+                <div style={{
                   display: 'flex',
-                  width: '56px',
-                  height: '56px',
-                  borderRadius: '28px',
-                  border: `3px solid ${confColor}`,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: confColor,
-                  fontWeight: 700,
-                  fontSize: '16px',
-                }}
-              >
-                %{match.confidence}
+                  width: 4,
+                  backgroundColor: accent,
+                  borderTopLeftRadius: 16,
+                  borderBottomLeftRadius: 16,
+                }} />
+
+                {/* Main content */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  flex: 1,
+                  padding: cardPad,
+                }}>
+                  {/* Left - Match details */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flex: 1,
+                    justifyContent: 'center',
+                  }}>
+                    {/* League + Minute */}
+                    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(239,68,68,0.12)',
+                        borderRadius: 6,
+                        paddingTop: 3,
+                        paddingBottom: 3,
+                        paddingLeft: 10,
+                        paddingRight: 10,
+                        marginRight: 10,
+                      }}>
+                        <div style={{ display: 'flex', width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444', marginRight: 5 }} />
+                        <span style={{ color: '#ef4444', fontSize: 13, fontWeight: 700 }}>{match.minute || 0}{'\''}</span>
+                      </div>
+                      <span style={{ color: '#71717a', fontSize: 13, fontWeight: 500 }}>{match.league || ''}</span>
+                    </div>
+                    
+                    {/* Teams + Score */}
+                    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                      <span style={{ color: 'white', fontSize: titleFontSize, fontWeight: 800, marginRight: 14 }}>
+                        {match.home || ''}
+                      </span>
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(255,255,255,0.07)',
+                        borderRadius: 8,
+                        paddingTop: 3,
+                        paddingBottom: 3,
+                        paddingLeft: 12,
+                        paddingRight: 12,
+                        marginRight: 14,
+                      }}>
+                        <span style={{ color: 'white', fontSize: scoreFontSize, fontWeight: 800 }}>{scoreParts[0] || '0'}</span>
+                        <span style={{ color: '#52525b', fontSize: 14, marginLeft: 6, marginRight: 6 }}>-</span>
+                        <span style={{ color: 'white', fontSize: scoreFontSize, fontWeight: 800 }}>{scoreParts[1] || '0'}</span>
+                      </div>
+                      <span style={{ color: 'white', fontSize: titleFontSize, fontWeight: 800 }}>
+                        {match.away || ''}
+                      </span>
+                    </div>
+
+                    {/* Reasoning tags */}
+                    <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}>
+                      {reasons.map((reason, ri) => (
+                        <div
+                          key={String(ri)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            paddingTop: 2,
+                            paddingBottom: 2,
+                            paddingLeft: 10,
+                            paddingRight: 10,
+                            backgroundColor: 'rgba(255,255,255,0.03)',
+                            borderRadius: 6,
+                            borderWidth: 1,
+                            borderStyle: 'solid',
+                            borderColor: 'rgba(255,255,255,0.06)',
+                            marginRight: 6,
+                            marginBottom: 4,
+                          }}
+                        >
+                          <span style={{ color: '#a1a1aa', fontSize: 12, fontWeight: 500 }}>
+                            {reason}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Right - Pick + Odds + Confidence */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    justifyContent: 'center',
+                    marginLeft: 16,
+                  }}>
+                    {/* Pick badge */}
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingTop: 7,
+                      paddingBottom: 7,
+                      paddingLeft: 16,
+                      paddingRight: 16,
+                      backgroundColor: ps.bg,
+                      borderRadius: 10,
+                      borderWidth: 2,
+                      borderStyle: 'solid',
+                      borderColor: ps.border,
+                      marginBottom: 8,
+                    }}>
+                      <span style={{ fontSize: 14, marginRight: 8 }}>{ps.icon}</span>
+                      <span style={{ color: ps.text, fontWeight: 700, fontSize: 15 }}>
+                        {match.pick || ''}
+                      </span>
+                    </div>
+                    
+                    {/* Odds */}
+                    <span style={{ color: '#fbbf24', fontSize: oddsFontSize, fontWeight: 800, marginBottom: 8 }}>
+                      @{oddsText}
+                    </span>
+
+                    {/* Confidence bar */}
+                    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+                      <div style={{
+                        display: 'flex',
+                        width: 72,
+                        height: 5,
+                        backgroundColor: 'rgba(255,255,255,0.06)',
+                        borderRadius: 3,
+                        marginRight: 8,
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          width: Math.round(72 * (match.confidence || 0) / 100),
+                          height: 5,
+                          backgroundColor: confColor,
+                          borderRadius: 3,
+                        }} />
+                      </div>
+                      <span style={{ color: confColor, fontSize: 14, fontWeight: 700 }}>
+                        %{match.confidence || 0}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
 
         {/* Footer */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: 'auto',
-            padding: '12px 20px',
-            backgroundColor: '#18181b',
-            borderRadius: '12px',
-          }}
-        >
-          <span style={{ color: '#a1a1aa', fontSize: '14px' }}>
-            📊 AI Destekli Canlı Analiz
+        <div style={{
+          display: 'flex',
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingTop: 12,
+          paddingBottom: 16,
+          paddingLeft: 40,
+          paddingRight: 40,
+        }}>
+          <span style={{ color: '#52525b', fontSize: 13 }}>
+            Veri analizi ile tespit edildi
           </span>
-          <span style={{ color: '#52525b', fontSize: '14px' }}>
+          <span style={{ color: '#3f3f46', fontSize: 13 }}>
             bilyoner-assistant.vercel.app
           </span>
         </div>

@@ -4,11 +4,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { isApiCallAllowed, updateRateLimitFromHeaders } from '@/lib/api-football/client';
 
 const API_KEY = process.env.API_FOOTBALL_KEY!;
 const BASE_URL = 'https://v3.football.api-sports.io';
 
 async function fetchFromAPI(endpoint: string) {
+  if (!isApiCallAllowed(endpoint)) {
+    throw new Error('Rate limit: API istek limiti aşıldı');
+  }
+  
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     headers: {
       'x-rapidapi-key': API_KEY,
@@ -16,6 +21,8 @@ async function fetchFromAPI(endpoint: string) {
     },
     next: { revalidate: 3600 }, // 1 saat cache
   });
+  
+  updateRateLimitFromHeaders(res.headers);
   
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);

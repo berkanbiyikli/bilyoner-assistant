@@ -1,0 +1,642 @@
+/**
+ * Surprise Coupon Engine - 3 Farklı Strateji ile Günlük Kupon Üretici
+ * 
+ * Saat 13:00 TSİ'de çalışır, 3 adet bağımsız kupon üretir:
+ * 1. GOL KUPONU: Bol gollü maçlar (3.5 Üst, 2.5 Üst, KG Var)
+ * 2. FAVORİ KUPONU: Güçlü takım galibiyet + İY/MS
+ * 3. SÜRPRIZ KUPONU: Yüksek oran value bet'ler (Deplasman, İY/MS, HT/FT)
+ * 
+ * Her kupon maç sayısında bağımsız (2-5 maç arası)
+ * İstatistik bazlı seçim yapar ve gerekçe sunar
+ */
+
+import { getDailyMatches } from '../api-football/daily-matches';
+import type { DailyMatchFixture, BetSuggestion } from '@/types/api-football';
+import { getRealOddsForPrediction } from '../api-football/odds';
+
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+
+// ============ TYPES ============
+
+export interface SurpriseMatch {
+  fixtureId: number;
+  homeTeam: string;
+  awayTeam: string;
+  homeTeamId: number;
+  awayTeamId: number;
+  league: string;
+  leagueId: number;
+  kickoff: Date;
+  prediction: string;         // "3.5 Üst", "MS 1", "İY/MS 1/1" vb.
+  odds: number;
+  confidence: number;         // 0-100
+  reasoning: string;          // İstatistik bazlı gerekçe
+  statLine: string;           // Kısa istatistik satırı (tweet için)
+}
+
+export interface SurpriseCoupon {
+  id: string;
+  strategy: 'gol' | 'favori' | 'surpriz';
+  title: string;
+  emoji: string;
+  description: string;
+  matches: SurpriseMatch[];
+  totalOdds: number;
+  avgConfidence: number;
+}
+
+interface MatchWithDetail {
+  match: DailyMatchFixture;
+  betSuggestions: BetSuggestion[];
+  teamStats?: {
+    homeGoalsScored: number;
+    homeGoalsConceded: number;
+    awayGoalsScored: number;
+    awayGoalsConceded: number;
+    homeCleanSheetRate?: number;
+    awayCleanSheetRate?: number;
+    homeBttsRate?: number;
+    awayBttsRate?: number;
+    homeAvgCards?: number;
+    awayAvgCards?: number;
+  };
+  poissonAnalysis?: {
+    expectedHomeGoals: number;
+    expectedAwayGoals: number;
+    expectedTotalGoals: number;
+    probabilities: {
+      homeWin: number;
+      draw: number;
+      awayWin: number;
+      over15: number;
+      over25: number;
+      over35: number;
+      bttsYes: number;
+    };
+  };
+  h2hSummary?: {
+    totalMatches: number;
+    homeWins: number;
+    awayWins: number;
+    draws: number;
+  };
+}
+
+// ============ DATA FETCHING ============
+
+/**
+ * Tüm yaklaşan maçları detaylarıyla birlikte çeker
+ */
+async function fetchMatchesWithDetails(): Promise<MatchWithDetail[]> {
+  const dailyMatches = await getDailyMatches();
+  if (!dailyMatches || dailyMatches.length === 0) return [];
+
+  const upcomingMatches = dailyMatches.filter(m => m.status.isUpcoming);
+  if (upcomingMatches.length === 0) return [];
+
+  console.log(`[SurpriseEngine] ${upcomingMatches.length} yaklaşan maç bulundu`);
+
+  const results: MatchWithDetail[] = [];
+  const BATCH_SIZE = 3;
+
+  for (let i = 0; i < upcomingMatches.length; i += BATCH_SIZE) {
+    const batch = upcomingMatches.slice(i, i + BATCH_SIZE);
+
+    const batchPromises = batch.map(async (match) => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const params = new URLSearchParams({
+          fixtureId: String(match.id),
+          homeTeamId: String(match.homeTeam.id),
+          awayTeamId: String(match.awayTeam.id),
+          leagueId: String(match.league.id),
+        });
+        if (match.referee?.name) {
+          params.set('referee', match.referee.name);
+        }
+
+        const res = await fetch(`${BASE_URL}/api/match-detail?${params}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) return null;
+        const json = await res.json();
+        const data = json.data || json;
+
+        if (!data.betSuggestions || data.betSuggestions.length === 0) return null;
+
+        return {
+          match,
+          betSuggestions: data.betSuggestions as BetSuggestion[],
+          teamStats: data.teamStats,
+          poissonAnalysis: data.poissonAnalysis,
+          h2hSummary: data.h2hSummary,
+        };
+      } catch {
+        return null;
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    for (const r of batchResults) {
+      if (r) results.push(r);
+    }
+
+    if (i + BATCH_SIZE < upcomingMatches.length) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+  }
+
+  console.log(`[SurpriseEngine] ${results.length} maç detaylı veri alındı`);
+  return results;
+}
+
+// ============ STRATEGY 1: GOL KUPONU ============
+
+function buildGolCoupon(matches: MatchWithDetail[]): SurpriseCoupon | null {
+  const candidates: SurpriseMatch[] = [];
+
+  for (const { match, betSuggestions, teamStats, poissonAnalysis } of matches) {
+    // 3.5 Üst adayları
+    if (poissonAnalysis && poissonAnalysis.probabilities.over35 >= 40) {
+      const over35Sug = betSuggestions.find(s => s.pick === 'Üst 3.5' || s.pick.includes('3.5'));
+      const over25Sug = betSuggestions.find(s => s.pick === 'Üst 2.5');
+      const bttsSug = betSuggestions.find(s => s.pick === 'KG Var');
+
+      const xG = poissonAnalysis.expectedTotalGoals;
+      const avgHome = teamStats ? teamStats.homeGoalsScored : 0;
+      const avgAway = teamStats ? teamStats.awayGoalsScored : 0;
+
+      // 3.5 Üst: xG >= 3.2 ve prob >= 42%
+      if (over35Sug && xG >= 3.2 && over35Sug.odds >= 1.60) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: '3.5 Üst',
+          odds: over35Sug.odds,
+          confidence: Math.round(poissonAnalysis.probabilities.over35),
+          reasoning: `Poisson xG: ${xG.toFixed(1)} | Ev ${avgHome.toFixed(1)} gol/maç, Dep ${avgAway.toFixed(1)} gol/maç`,
+          statLine: `xG ${xG.toFixed(1)} · %${Math.round(poissonAnalysis.probabilities.over35)} olasılık`,
+        });
+        continue;
+      }
+
+      // 2.5 Üst: xG >= 2.5 ve prob >= 55%
+      if (over25Sug && xG >= 2.5 && poissonAnalysis.probabilities.over25 >= 55 && over25Sug.odds >= 1.40) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: '2.5 Üst',
+          odds: over25Sug.odds,
+          confidence: Math.round(poissonAnalysis.probabilities.over25),
+          reasoning: `Poisson xG: ${xG.toFixed(1)} | Her iki takım da gol atabiliyor`,
+          statLine: `xG ${xG.toFixed(1)} · %${Math.round(poissonAnalysis.probabilities.over25)} olasılık`,
+        });
+        continue;
+      }
+
+      // KG Var: btts >= 55%
+      if (bttsSug && poissonAnalysis.probabilities.bttsYes >= 55 && bttsSug.odds >= 1.50) {
+        const bttsRate = teamStats ? ((teamStats.homeBttsRate || 0) + (teamStats.awayBttsRate || 0)) / 2 : 0;
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: 'KG Var',
+          odds: bttsSug.odds,
+          confidence: Math.round(poissonAnalysis.probabilities.bttsYes),
+          reasoning: `KG oranı: %${bttsRate.toFixed(0)} | Her iki takım da ağ buluyor`,
+          statLine: `KG %${Math.round(poissonAnalysis.probabilities.bttsYes)} · xG ${xG.toFixed(1)}`,
+        });
+      }
+    }
+  }
+
+  // En iyi adayları seç (confidence * odds dengesi)
+  const sorted = candidates.sort((a, b) => {
+    const scoreA = a.confidence * 0.6 + (a.odds > 1.80 ? 15 : 0) + (a.prediction === '3.5 Üst' ? 10 : 0);
+    const scoreB = b.confidence * 0.6 + (b.odds > 1.80 ? 15 : 0) + (b.prediction === '3.5 Üst' ? 10 : 0);
+    return scoreB - scoreA;
+  });
+
+  // Farklı liglerden seç, 2-5 maç
+  const selected = pickFromDifferentLeagues(sorted, 2, 5);
+  if (selected.length < 2) return null;
+
+  const totalOdds = selected.reduce((acc, m) => acc * m.odds, 1);
+  const avgConf = selected.reduce((sum, m) => sum + m.confidence, 0) / selected.length;
+
+  return {
+    id: `GOL-${Date.now().toString(36).toUpperCase()}`,
+    strategy: 'gol',
+    title: '⚽ GOL KUPONU',
+    emoji: '⚽',
+    description: 'Bol gollü maçlar · Poisson xG modeline dayalı',
+    matches: selected,
+    totalOdds: Math.round(totalOdds * 100) / 100,
+    avgConfidence: Math.round(avgConf),
+  };
+}
+
+// ============ STRATEGY 2: FAVORİ KUPONU ============
+
+function buildFavoriCoupon(matches: MatchWithDetail[], usedFixtures: Set<number>): SurpriseCoupon | null {
+  const candidates: SurpriseMatch[] = [];
+
+  for (const { match, betSuggestions, poissonAnalysis, h2hSummary } of matches) {
+    if (usedFixtures.has(match.id)) continue;
+
+    if (!poissonAnalysis) continue;
+    const { homeWin, awayWin } = poissonAnalysis.probabilities;
+
+    // Güçlü ev sahibi MS 1
+    if (homeWin >= 55) {
+      const ms1 = betSuggestions.find(s =>
+        s.pick === 'Ev Sahibi' || s.pick === 'MS 1' || s.type === 'result'
+      );
+      if (ms1 && ms1.odds >= 1.30 && ms1.odds <= 2.20) {
+        const h2hNote = h2hSummary
+          ? `H2H: ${h2hSummary.homeWins}G ${h2hSummary.draws}B ${h2hSummary.awayWins}M`
+          : '';
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: 'MS 1',
+          odds: ms1.odds,
+          confidence: Math.round(homeWin),
+          reasoning: `Ev sahibi kazanma: %${Math.round(homeWin)} ${h2hNote}`,
+          statLine: `Ev %${Math.round(homeWin)} · @${ms1.odds.toFixed(2)}`,
+        });
+        continue;
+      }
+    }
+
+    // Güçlü deplasman MS 2
+    if (awayWin >= 50) {
+      const ms2 = betSuggestions.find(s =>
+        s.pick === 'Deplasman' || s.pick === 'MS 2'
+      );
+      if (ms2 && ms2.odds >= 1.40 && ms2.odds <= 2.50) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: 'MS 2',
+          odds: ms2.odds,
+          confidence: Math.round(awayWin),
+          reasoning: `Deplasman kazanma: %${Math.round(awayWin)}`,
+          statLine: `Dep %${Math.round(awayWin)} · @${ms2.odds.toFixed(2)}`,
+        });
+        continue;
+      }
+    }
+
+    // İY/MS - Favori hem ilk yarı hem maç sonu (güçlü baskı)
+    if (homeWin >= 60) {
+      // İY/MS 1/1 olarak puanla
+      const iyOdds = Math.round((1 / (homeWin / 100 * 0.75)) * 1.08 * 100) / 100; // IY/MS hesapla
+      if (iyOdds >= 1.50 && iyOdds <= 3.00) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: 'İY/MS 1/1',
+          odds: iyOdds,
+          confidence: Math.round(homeWin * 0.75),
+          reasoning: `Ev sahibi dominant: %${Math.round(homeWin)} MS kazanma, İY de önde olma olasılığı yüksek`,
+          statLine: `MS %${Math.round(homeWin)} · İY/MS @${iyOdds.toFixed(2)}`,
+        });
+      }
+    }
+  }
+
+  const sorted = candidates.sort((a, b) => {
+    const scoreA = a.confidence * 0.7 + (a.prediction.includes('İY/MS') ? 8 : 0);
+    const scoreB = b.confidence * 0.7 + (b.prediction.includes('İY/MS') ? 8 : 0);
+    return scoreB - scoreA;
+  });
+
+  const selected = pickFromDifferentLeagues(sorted, 2, 4);
+  if (selected.length < 2) return null;
+
+  const totalOdds = selected.reduce((acc, m) => acc * m.odds, 1);
+  const avgConf = selected.reduce((sum, m) => sum + m.confidence, 0) / selected.length;
+
+  return {
+    id: `FAV-${Date.now().toString(36).toUpperCase()}`,
+    strategy: 'favori',
+    title: '🏆 FAVORİ KUPONU',
+    emoji: '🏆',
+    description: 'Güçlü takım galibiyetleri · MS & İY/MS modeli',
+    matches: selected,
+    totalOdds: Math.round(totalOdds * 100) / 100,
+    avgConfidence: Math.round(avgConf),
+  };
+}
+
+// ============ STRATEGY 3: SÜRPRİZ KUPONU ============
+
+function buildSurprizCoupon(matches: MatchWithDetail[], usedFixtures: Set<number>): SurpriseCoupon | null {
+  const candidates: SurpriseMatch[] = [];
+
+  for (const { match, betSuggestions, poissonAnalysis, teamStats } of matches) {
+    if (usedFixtures.has(match.id)) continue;
+    if (!poissonAnalysis) continue;
+
+    const { homeWin, draw: drawProb, awayWin, over35, bttsYes } = poissonAnalysis.probabilities;
+    const xG = poissonAnalysis.expectedTotalGoals;
+
+    // Beraberlik: draw >= 30% ve oran yüksek
+    if (drawProb >= 28) {
+      const drawSug = betSuggestions.find(s => s.pick === 'Beraberlik' || s.pick === 'X');
+      if (drawSug && drawSug.odds >= 2.80 && drawSug.odds <= 4.50) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: 'MS X',
+          odds: drawSug.odds,
+          confidence: Math.round(drawProb),
+          reasoning: `Beraberlik olasılığı: %${Math.round(drawProb)} - Dengeli güç`,
+          statLine: `X %${Math.round(drawProb)} · @${drawSug.odds.toFixed(2)}`,
+        });
+        continue;
+      }
+    }
+
+    // Deplasman sürprizi: awayWin >= 35% ama oran yüksek (2.5+)
+    if (awayWin >= 35 && awayWin < 50) {
+      const ms2 = betSuggestions.find(s => s.pick === 'Deplasman' || s.pick === 'MS 2');
+      if (ms2 && ms2.odds >= 2.50 && ms2.odds <= 5.00) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: 'MS 2 (Sürpriz)',
+          odds: ms2.odds,
+          confidence: Math.round(awayWin),
+          reasoning: `Deplasman value: %${Math.round(awayWin)} olasılık, @${ms2.odds.toFixed(2)} oran`,
+          statLine: `Dep %${Math.round(awayWin)} · @${ms2.odds.toFixed(2)} value`,
+        });
+        continue;
+      }
+    }
+
+    // KG Var + 3.5 Üst combo - çok gollü sürpriz
+    if (bttsYes >= 58 && over35 >= 38 && xG >= 3.0) {
+      const bttsOdds = betSuggestions.find(s => s.pick === 'KG Var')?.odds || 1.70;
+      const over35Odds = betSuggestions.find(s => s.pick === 'Üst 3.5' || s.pick.includes('3.5'))?.odds;
+      if (over35Odds && over35Odds >= 1.80) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: '3.5 Üst',
+          odds: over35Odds,
+          confidence: Math.round(over35),
+          reasoning: `Gol canavarları: xG ${xG.toFixed(1)}, KG %${Math.round(bttsYes)}, 3.5Ü %${Math.round(over35)}`,
+          statLine: `xG ${xG.toFixed(1)} · KG %${Math.round(bttsYes)}`,
+        });
+        continue;
+      }
+    }
+
+    // Karşılıklı gol + Üst combo
+    if (bttsYes >= 55) {
+      const bttsSug = betSuggestions.find(s => s.pick === 'KG Var');
+      if (bttsSug && bttsSug.odds >= 1.60 && bttsSug.odds <= 2.20) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: 'KG Var',
+          odds: bttsSug.odds,
+          confidence: Math.round(bttsYes),
+          reasoning: `xG ${xG.toFixed(1)} - Her iki takım da ağ buluyor`,
+          statLine: `KG %${Math.round(bttsYes)} · xG ${xG.toFixed(1)}`,
+        });
+      }
+    }
+  }
+
+  const sorted = candidates.sort((a, b) => {
+    // Sürpriz kuponu: oran öncelikli sıralama (yüksek oran = iyi)
+    const scoreA = a.odds * 15 + a.confidence * 0.4;
+    const scoreB = b.odds * 15 + b.confidence * 0.4;
+    return scoreB - scoreA;
+  });
+
+  const selected = pickFromDifferentLeagues(sorted, 2, 4);
+  if (selected.length < 2) return null;
+
+  const totalOdds = selected.reduce((acc, m) => acc * m.odds, 1);
+  const avgConf = selected.reduce((sum, m) => sum + m.confidence, 0) / selected.length;
+
+  return {
+    id: `SUR-${Date.now().toString(36).toUpperCase()}`,
+    strategy: 'surpriz',
+    title: '🎲 SÜRPRİZ KUPONU',
+    emoji: '🎲',
+    description: 'Value bet\'ler · Yüksek oran fırsatları',
+    matches: selected,
+    totalOdds: Math.round(totalOdds * 100) / 100,
+    avgConfidence: Math.round(avgConf),
+  };
+}
+
+// ============ HELPERS ============
+
+/**
+ * Farklı liglerden maç seç - min/max arası
+ */
+function pickFromDifferentLeagues(
+  candidates: SurpriseMatch[],
+  min: number,
+  max: number
+): SurpriseMatch[] {
+  const selected: SurpriseMatch[] = [];
+  const usedLeagues = new Set<number>();
+  const usedFixtures = new Set<number>();
+
+  // Önce farklı liglerden
+  for (const c of candidates) {
+    if (selected.length >= max) break;
+    if (usedLeagues.has(c.leagueId) || usedFixtures.has(c.fixtureId)) continue;
+    selected.push(c);
+    usedLeagues.add(c.leagueId);
+    usedFixtures.add(c.fixtureId);
+  }
+
+  // Min'e ulaşılmadıysa aynı ligden de al
+  if (selected.length < min) {
+    for (const c of candidates) {
+      if (selected.length >= min) break;
+      if (usedFixtures.has(c.fixtureId)) continue;
+      selected.push(c);
+      usedFixtures.add(c.fixtureId);
+    }
+  }
+
+  return selected;
+}
+
+/**
+ * Gerçek oranları çek ve güncelle (mümkünse)
+ */
+async function enrichWithRealOdds(coupon: SurpriseCoupon): Promise<SurpriseCoupon> {
+  for (const match of coupon.matches) {
+    try {
+      const realOdds = await getRealOddsForPrediction(match.fixtureId, match.prediction);
+      if (realOdds) {
+        match.odds = realOdds.odds;
+      }
+    } catch {
+      // Hesaplanan oranı kullan
+    }
+  }
+  coupon.totalOdds = Math.round(
+    coupon.matches.reduce((acc, m) => acc * m.odds, 1) * 100
+  ) / 100;
+  return coupon;
+}
+
+// ============ MAIN FUNCTION ============
+
+/**
+ * 3 farklı strateji ile sürpriz kuponlar üret
+ * @returns 0-3 arası kupon (yeterli maç yoksa boş dönebilir)
+ */
+export async function generateSurpriseCoupons(): Promise<SurpriseCoupon[]> {
+  console.log('[SurpriseEngine] 3 strateji ile kupon üretimi başlıyor...');
+
+  const matches = await fetchMatchesWithDetails();
+  if (matches.length < 3) {
+    console.log('[SurpriseEngine] Yeterli maç yok');
+    return [];
+  }
+
+  const coupons: SurpriseCoupon[] = [];
+  const usedFixtures = new Set<number>();
+
+  // 1. Gol Kuponu
+  const golCoupon = buildGolCoupon(matches);
+  if (golCoupon) {
+    const enriched = await enrichWithRealOdds(golCoupon);
+    coupons.push(enriched);
+    enriched.matches.forEach(m => usedFixtures.add(m.fixtureId));
+    console.log(`[SurpriseEngine] ⚽ Gol Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
+  }
+
+  // 2. Favori Kuponu
+  const favoriCoupon = buildFavoriCoupon(matches, usedFixtures);
+  if (favoriCoupon) {
+    const enriched = await enrichWithRealOdds(favoriCoupon);
+    coupons.push(enriched);
+    enriched.matches.forEach(m => usedFixtures.add(m.fixtureId));
+    console.log(`[SurpriseEngine] 🏆 Favori Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
+  }
+
+  // 3. Sürpriz Kuponu
+  const surprizCoupon = buildSurprizCoupon(matches, usedFixtures);
+  if (surprizCoupon) {
+    const enriched = await enrichWithRealOdds(surprizCoupon);
+    coupons.push(enriched);
+    console.log(`[SurpriseEngine] 🎲 Sürpriz Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
+  }
+
+  console.log(`[SurpriseEngine] Toplam ${coupons.length} kupon üretildi`);
+  return coupons;
+}
+
+// ============ TWEET FORMATTING ============
+
+/**
+ * Kupon tweet metni oluştur (istatistikli)
+ */
+export function formatSurpriseCouponTweet(coupon: SurpriseCoupon, index: number): string {
+  const lines: string[] = [];
+
+  lines.push(`${coupon.emoji} ${coupon.title} (${index}/3)`);
+  lines.push(`📊 ${coupon.description}`);
+  lines.push('');
+
+  for (const match of coupon.matches) {
+    const time = formatTimeTR(match.kickoff);
+    lines.push(`⏰ ${time} | ${match.league}`);
+    lines.push(`${match.homeTeam} vs ${match.awayTeam}`);
+    lines.push(`📌 ${match.prediction} @${match.odds.toFixed(2)}`);
+    lines.push(`📈 ${match.statLine}`);
+    lines.push('');
+  }
+
+  lines.push(`💻 Toplam Oran: ${coupon.totalOdds.toFixed(2)}`);
+  lines.push(`🎯 Ort. Güven: %${coupon.avgConfidence}`);
+  lines.push('');
+  lines.push('#VeriAnalizi #Kupon #Bahis');
+
+  return lines.join('\n');
+}
+
+function formatTimeTR(date: Date): string {
+  return date.toLocaleTimeString('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}

@@ -51,7 +51,7 @@ export async function GET(request: Request) {
     if (!liveOnly) {
       // Redis cache kontrol
       const cached = await cacheGet<DailyMatchFixture[]>(cacheKey);
-      if (cached) {
+      if (cached && cached.length > 0) {
         // Cache'den gelen veride canlı maç var mı kontrol et
         const hasLive = cached.some(m => m.status.isLive);
         if (!hasLive) {
@@ -73,10 +73,12 @@ export async function GET(request: Request) {
       ? await getDailyMatchesForLeagues(leagueIds, date)
       : await getDailyMatches(date);
 
-    // Cache'e kaydet (canlı maç yoksa daha uzun TTL)
-    const hasLiveMatches = matches.some(m => m.status.isLive);
-    const ttl = hasLiveMatches ? REDIS_TTL.DAILY_MATCHES : REDIS_TTL.DAILY_MATCHES * 5;
-    cacheSet(cacheKey, matches, ttl).catch(() => {});
+    // Cache'e kaydet (boş sonuçları cache'leme!)
+    if (matches.length > 0) {
+      const hasLiveMatches = matches.some(m => m.status.isLive);
+      const ttl = hasLiveMatches ? REDIS_TTL.DAILY_MATCHES : REDIS_TTL.DAILY_MATCHES * 5;
+      cacheSet(cacheKey, matches, ttl).catch(() => {});
+    }
 
     // Sadece canlı maçlar isteniyorsa filtrele
     if (liveOnly) {

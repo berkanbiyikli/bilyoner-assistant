@@ -11,6 +11,7 @@ import {
   H2HResponse 
 } from '@/types/api-football';
 import { TOP_20_LEAGUE_IDS, getLeaguePriority, isTop20League } from '@/config/league-priorities';
+import { cacheGet, cacheSet, redisCacheKeys, REDIS_TTL } from '@/lib/cache/redis-cache';
 
 // Canlı maç status kodları
 const LIVE_STATUSES = ['1H', '2H', 'HT', 'ET', 'P', 'BT', 'LIVE'];
@@ -132,6 +133,11 @@ export async function getMatchDetail(fixtureId: number, homeTeamId: number, away
  * H2H verilerini çek ve özetle
  */
 async function fetchH2H(homeTeamId: number, awayTeamId: number): Promise<DailyMatchFixture['h2hSummary']> {
+  // Redis cache kontrolü
+  const rKey = redisCacheKeys.h2h(homeTeamId, awayTeamId);
+  const cached = await cacheGet<DailyMatchFixture['h2hSummary']>(rKey);
+  if (cached) return cached;
+  
   try {
     const response = await apiFootballFetch<H2HResponse[]>('/fixtures/headtohead', {
       h2h: `${homeTeamId}-${awayTeamId}`,
@@ -165,13 +171,18 @@ async function fetchH2H(homeTeamId: number, awayTeamId: number): Promise<DailyMa
 
     const lastMatch = matches[0];
 
-    return {
+    const h2hResult = {
       totalMatches: matches.length,
       homeWins,
       awayWins,
       draws,
       lastMatch: `${lastMatch.goals.home}-${lastMatch.goals.away} (${formatTurkeyDate(lastMatch.fixture.date)})`,
     };
+    
+    // Redis cache'e kaydet (24 saat)
+    cacheSet(rKey, h2hResult, REDIS_TTL.H2H).catch(() => {});
+    
+    return h2hResult;
   } catch {
     return undefined;
   }
@@ -184,6 +195,14 @@ async function fetchPrediction(fixtureId: number): Promise<{
   prediction: DailyMatchFixture['prediction'];
   formComparison: DailyMatchFixture['formComparison'];
 } | null> {
+  // Redis cache kontrolü
+  const rKey = redisCacheKeys.predictions(fixtureId);
+  const cached = await cacheGet<{
+    prediction: DailyMatchFixture['prediction'];
+    formComparison: DailyMatchFixture['formComparison'];
+  }>(rKey);
+  if (cached) return cached;
+  
   try {
     const response = await apiFootballFetch<Array<{
       predictions: {
@@ -216,7 +235,7 @@ async function fetchPrediction(fixtureId: number): Promise<{
     const homeForm = data.teams.home.last_5?.form?.split('') || [];
     const awayForm = data.teams.away.last_5?.form?.split('') || [];
 
-    return {
+    const predResult = {
       prediction: {
         winner: data.predictions.winner?.name || null,
         confidence: maxPercent,
@@ -230,6 +249,11 @@ async function fetchPrediction(fixtureId: number): Promise<{
         awayLast5: awayForm,
       },
     };
+    
+    // Redis cache'e kaydet (30 dakika)
+    cacheSet(rKey, predResult, REDIS_TTL.PREDICTIONS).catch(() => {});
+    
+    return predResult;
   } catch {
     return null;
   }

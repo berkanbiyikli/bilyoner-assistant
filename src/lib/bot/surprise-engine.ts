@@ -476,7 +476,7 @@ function buildSurprizCoupon(matches: MatchWithDetail[], _usedFixtures: Set<numbe
     if (homeWin + drawProb >= 62 && homeWin < 55 && drawProb >= 22) {
       const dsCombinedProb = homeWin + drawProb;
       const dsOdds = Math.round((1 / (dsCombinedProb / 100)) * 1.08 * 100) / 100;
-      if (dsOdds >= 1.25 && dsOdds <= 1.80) {
+      if (dsOdds >= 1.35 && dsOdds <= 1.80) {
         candidates.push({
           fixtureId: match.id,
           homeTeam: match.homeTeam.name,
@@ -661,8 +661,26 @@ export async function generateSurpriseCoupons(): Promise<SurpriseCoupon[]> {
   const surprizCoupon = buildSurprizCoupon(matches, new Set<number>());
   if (surprizCoupon) {
     const enriched = await enrichWithRealOdds(surprizCoupon);
-    coupons.push(enriched);
-    console.log(`[SurpriseEngine] 🎲 Sürpriz Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
+    // Post-enrichment: Gerçek oranlar çok düşükse (value yok) maçları çıkar
+    enriched.matches = enriched.matches.filter(m => {
+      if (m.odds < 1.30) {
+        console.log(`[SurpriseEngine] ⚠️ Sürpriz kuponu: ${m.homeTeam} vs ${m.awayTeam} çıkarıldı (oran ${m.odds.toFixed(2)} < 1.30 - value yok)`);
+        return false;
+      }
+      return true;
+    });
+    if (enriched.matches.length >= 1) {
+      enriched.totalOdds = Math.round(
+        enriched.matches.reduce((acc, m) => acc * m.odds, 1) * 100
+      ) / 100;
+      enriched.avgConfidence = Math.round(
+        enriched.matches.reduce((sum, m) => sum + m.confidence, 0) / enriched.matches.length
+      );
+      coupons.push(enriched);
+      console.log(`[SurpriseEngine] 🎲 Sürpriz Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
+    } else {
+      console.log('[SurpriseEngine] ⚠️ Sürpriz Kuponu: enrichment sonrası yeterli maç kalmadı');
+    }
   } else {
     console.log('[SurpriseEngine] 🎲 Sürpriz Kuponu: kriterlere uygun maç bulunamadı');
   }

@@ -38,13 +38,14 @@ export function TrendTracker({ matches, onAddToCoupon }: TrendTrackerProps) {
     const results: TrendMatch[] = [];
     
     matches.forEach((fixture) => {
-      if (!fixture.formComparison || !fixture.teamStats || fixture.status.isFinished) return;
+      if (fixture.status.isFinished) return;
+      if (!fixture.formComparison && !fixture.teamStats) return;
       
       const trends: TrendMatch['trends'] = [];
       const { formComparison, teamStats, homeTeam, awayTeam } = fixture;
       
       // Home team trends
-      if (formComparison.homeLast5) {
+      if (formComparison?.homeLast5) {
         const homeWins = formComparison.homeLast5.filter(r => r === 'W').length;
         const homeLosses = formComparison.homeLast5.filter(r => r === 'L').length;
         
@@ -66,7 +67,7 @@ export function TrendTracker({ matches, onAddToCoupon }: TrendTrackerProps) {
       }
       
       // Away team trends
-      if (formComparison.awayLast5) {
+      if (formComparison?.awayLast5) {
         const awayWins = formComparison.awayLast5.filter(r => r === 'W').length;
         const awayLosses = formComparison.awayLast5.filter(r => r === 'L').length;
         
@@ -127,8 +128,8 @@ export function TrendTracker({ matches, onAddToCoupon }: TrendTrackerProps) {
         }
       }
       
-      // En az 2 trend varsa ekle
-      if (trends.length >= 2) {
+      // En az 1 trend varsa ekle
+      if (trends.length >= 1) {
         // En güçlü trende göre öneri oluştur
         const strongestTrend = trends.sort((a, b) => b.confidence - a.confidence)[0];
         

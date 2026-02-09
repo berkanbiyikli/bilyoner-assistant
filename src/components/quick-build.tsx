@@ -48,7 +48,7 @@ export function QuickBuild({ matches, onBuildCoupon }: QuickBuildProps) {
       strategy: (matches) => {
         // En yüksek güvenli maçlardan 3 tanesini seç
         const eligible = matches
-          .filter(m => !m.status.isFinished && m.prediction?.confidence && m.prediction.confidence >= 70)
+          .filter(m => !m.status.isFinished && m.prediction?.confidence && m.prediction.confidence >= 40)
           .sort((a, b) => (b.prediction?.confidence || 0) - (a.prediction?.confidence || 0))
           .slice(0, 3);
         
@@ -94,7 +94,7 @@ export function QuickBuild({ matches, onBuildCoupon }: QuickBuildProps) {
             !m.status.isFinished && 
             m.timestamp >= eveningTimestamp &&
             m.prediction?.confidence && 
-            m.prediction.confidence >= 65
+            m.prediction.confidence >= 40
           )
           .sort((a, b) => (b.prediction?.confidence || 0) - (a.prediction?.confidence || 0))
           .slice(0, 3);

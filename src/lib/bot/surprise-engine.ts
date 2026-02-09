@@ -606,10 +606,109 @@ export async function generateSurpriseCoupons(): Promise<SurpriseCoupon[]> {
 
 // ============ TWEET FORMATTING ============
 
+/** Twitter karakter limiti */
+const TWEET_MAX = 280;
+
 /**
- * Kupon tweet metni oluştur (istatistikli)
+ * Takım adını kısalt (tweet'e sığdırmak için)
+ */
+function shortName(name: string, maxLen: number = 14): string {
+  if (name.length <= maxLen) return name;
+  // Yaygın kısaltmalar
+  const abbreviations: Record<string, string> = {
+    'Internacional': 'Inter',
+    'Independiente': 'Indep.',
+    'Universidad': 'U.',
+    'Club Atletico': 'CA',
+    'Deportivo': 'Dep.',
+    'Sporting': 'Sport.',
+  };
+  for (const [full, short] of Object.entries(abbreviations)) {
+    if (name.includes(full)) {
+      const shortened = name.replace(full, short);
+      if (shortened.length <= maxLen) return shortened;
+    }
+  }
+  return name.substring(0, maxLen - 1) + '.';
+}
+
+/**
+ * Lig adını kısalt
+ */
+function shortLeague(league: string): string {
+  const map: Record<string, string> = {
+    'Liga Profesional Argentina': 'Liga Pro Argentina',
+    'Premier League': 'PL',
+    'Bundesliga': 'Bundesliga',
+    'La Liga': 'La Liga',
+    'Ligue 1': 'Ligue 1',
+    'Serie A': 'Serie A',
+    'Süper Lig': 'Süper Lig',
+    'Eredivisie': 'Eredivisie',
+    'Primeira Liga': 'Liga Portugal',
+    'Major League Soccer': 'MLS',
+    'Championship': 'Champ.',
+    'Copa Libertadores': 'Libertadores',
+    'Copa Sudamericana': 'Sudamericana',
+    'UEFA Champions League': 'UCL',
+    'UEFA Europa League': 'UEL',
+    'UEFA Europa Conference League': 'UECL',
+  };
+  if (map[league]) return map[league];
+  // Genel kısaltma: 20 karakterden uzunsa kes
+  if (league.length > 20) return league.substring(0, 18) + '.';
+  return league;
+}
+
+/**
+ * Kupon tweet metni oluştur — 280 karakter limitine uyumlu
+ *
+ * Strateji:
+ *  1. Önce tam format dene (statLine ile)
+ *  2. Sığmazsa kısa format (statLine'sız, kısa takım isimleri)
+ *  3. Hâlâ sığmazsa son maçları çıkar (OG image'da zaten tamamı var)
  */
 export function formatSurpriseCouponTweet(coupon: SurpriseCoupon, index: number): string {
+  // --- TRY 1: Tam format ---
+  const full = buildTweetText(coupon, index, { compact: false });
+  if (full.length <= TWEET_MAX) return full;
+
+  // --- TRY 2: Compact format (no statLine, shorter names) ---
+  const compact = buildTweetText(coupon, index, { compact: true });
+  if (compact.length <= TWEET_MAX) return compact;
+
+  // --- TRY 3: Maç sayısını limit dolana kadar düşür ---
+  for (let maxMatches = coupon.matches.length - 1; maxMatches >= 2; maxMatches--) {
+    const trimmedCoupon = {
+      ...coupon,
+      matches: coupon.matches.slice(0, maxMatches),
+    };
+    const txt = buildTweetText(trimmedCoupon, index, {
+      compact: true,
+      note: `+${coupon.matches.length - maxMatches} maç detayda 👇`,
+    });
+    if (txt.length <= TWEET_MAX) return txt;
+  }
+
+  // --- TRY 4: Ultra minimal ---
+  const ultra = buildUltraMinimalTweet(coupon, index);
+  if (ultra.length <= TWEET_MAX) return ultra;
+
+  // Son çare: kırp
+  return ultra.substring(0, TWEET_MAX - 3) + '...';
+}
+
+interface BuildOptions {
+  compact?: boolean;
+  note?: string;
+}
+
+function buildTweetText(
+  coupon: SurpriseCoupon,
+  index: number,
+  opts: BuildOptions = {}
+): string {
+  const { compact = false, note } = opts;
   const lines: string[] = [];
 
   lines.push(`${coupon.emoji} ${coupon.title} (${index}/3)`);
@@ -618,17 +717,47 @@ export function formatSurpriseCouponTweet(coupon: SurpriseCoupon, index: number)
 
   for (const match of coupon.matches) {
     const time = formatTimeTR(match.kickoff);
-    lines.push(`⏰ ${time} | ${match.league}`);
-    lines.push(`${match.homeTeam} vs ${match.awayTeam}`);
+    const league = compact ? shortLeague(match.league) : match.league;
+    const home = compact ? shortName(match.homeTeam, 16) : match.homeTeam;
+    const away = compact ? shortName(match.awayTeam, 16) : match.awayTeam;
+
+    lines.push(`⏰ ${time} | ${league}`);
+    lines.push(`${home} vs ${away}`);
     lines.push(`📌 ${match.prediction} @${match.odds.toFixed(2)}`);
-    lines.push(`📈 ${match.statLine}`);
+    if (!compact) {
+      lines.push(`📈 ${match.statLine}`);
+    }
     lines.push('');
   }
 
-  lines.push(`💻 Toplam Oran: ${coupon.totalOdds.toFixed(2)}`);
-  lines.push(`🎯 Ort. Güven: %${coupon.avgConfidence}`);
+  if (note) {
+    lines.push(note);
+    lines.push('');
+  }
+
+  lines.push(`💻 Oran: ${coupon.totalOdds.toFixed(2)} | 🎯 Güven: %${coupon.avgConfidence}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Ultra minimal format — sadece takım + tahmin, tek satır
+ */
+function buildUltraMinimalTweet(coupon: SurpriseCoupon, index: number): string {
+  const lines: string[] = [];
+
+  lines.push(`${coupon.emoji} ${coupon.title} (${index}/3)`);
   lines.push('');
-  lines.push('#VeriAnalizi #Kupon #Bahis');
+
+  for (const match of coupon.matches) {
+    const time = formatTimeTR(match.kickoff);
+    const home = shortName(match.homeTeam, 12);
+    const away = shortName(match.awayTeam, 12);
+    lines.push(`${time} ${home}-${away} ${match.prediction} @${match.odds.toFixed(2)}`);
+  }
+
+  lines.push('');
+  lines.push(`Oran: ${coupon.totalOdds.toFixed(2)} | Güven: %${coupon.avgConfidence}`);
 
   return lines.join('\n');
 }

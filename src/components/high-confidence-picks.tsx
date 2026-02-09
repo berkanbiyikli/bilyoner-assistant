@@ -41,8 +41,8 @@ export function HighConfidencePicks({ matches, onAddToCoupon }: HighConfidencePi
       const { prediction } = fixture;
       const confidence = prediction.confidence || 0;
       
-      // Sadece yüksek güvenilirlikte olanları al
-      if (confidence < 65) return;
+      // Tahmin olan tüm maçları al (min %40 güven)
+      if (confidence < 40) return;
       
       // Reasoning oluştur
       const reasoning: string[] = [];
@@ -126,8 +126,15 @@ export function HighConfidencePicks({ matches, onAddToCoupon }: HighConfidencePi
     // En yüksek ensemble skorlarına göre sırala
     return results
       .sort((a, b) => b.score - a.score)
-      .slice(0, 3); // Top 3
+      .slice(0, 5); // Top 5
   }, [matches]);
+
+  // Hiç prediction yoksa (data henüz yüklenmemiş veya gerçekten yok)
+  const hasPredictions = matches.some(m => m.prediction?.confidence);
+  
+  if (topPicks.length === 0 && !hasPredictions) {
+    return null;
+  }
   
   if (topPicks.length === 0) {
     return null;
@@ -148,7 +155,7 @@ export function HighConfidencePicks({ matches, onAddToCoupon }: HighConfidencePi
             </p>
           </div>
           <Badge className="bg-white/20 backdrop-blur-sm text-white border-0 font-bold">
-            %85+ Güven
+            Top {topPicks.length}
           </Badge>
         </div>
       </Card>

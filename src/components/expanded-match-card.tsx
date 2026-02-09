@@ -132,14 +132,32 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
   return (
     <Card className={cn(
-      'card-premium transition-all duration-300 overflow-hidden',
+      'card-premium transition-all duration-300 overflow-hidden !py-0 !gap-0',
       status.isLive && 'match-live',
       isExpanded ? 'shadow-lg shadow-primary/5' : ''
     )}>
+      {/* League Bar */}
+      <div className="flex items-center justify-between px-3.5 pt-2.5 pb-0">
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          {league.logo && (
+            <Image src={league.logo} alt={league.name} width={14} height={14} className="object-contain" />
+          )}
+          <span className="font-medium truncate">{league.country} - {league.name}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {referee?.name && (
+            <span className="text-[10px] text-muted-foreground/70 flex items-center gap-1">
+              <AlertTriangle className="h-2.5 w-2.5" />
+              {referee.name}
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Header */}
       <div 
         className={cn(
-          'flex items-center gap-3 p-3.5 cursor-pointer transition-all hover:bg-primary/5',
+          'flex items-center gap-3 px-3.5 py-2.5 cursor-pointer transition-all hover:bg-primary/3',
           status.isLive && 'bg-gradient-to-r from-red-500/8 to-transparent'
         )}
         onClick={() => setIsExpanded(!isExpanded)}
@@ -189,8 +207,8 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
             />
           )}
           <div className={cn(
-            'h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground transition-transform',
-            isExpanded && 'rotate-180'
+            'h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground transition-transform duration-200',
+            isExpanded && 'rotate-180 text-primary'
           )}>
             <ChevronDown className="h-4 w-4" />
           </div>
@@ -199,14 +217,16 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
 
       {/* Expanded Content */}
       {isExpanded && (
-        <CardContent className="pt-0 pb-3 px-3.5 space-y-3 border-t border-primary/10">
+        <CardContent className="pt-0 pb-3 px-3.5 space-y-3 border-t border-border/40">
           {/* Action bar */}
           <div className="flex items-center justify-between pt-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
               {detail?.data?.lineupsAvailable !== undefined && (
                 <LineupBadge available={detail.data.lineupsAvailable} />
               )}
-              {referee?.name && <span>Hakem: {referee.name}</span>}
+              {fixture.date && (
+                <span className="text-[10px] bg-muted/40 px-2 py-0.5 rounded-md">{fixture.date}</span>
+              )}
             </div>
             <FavoriteButton 
               matchId={fixture.id}

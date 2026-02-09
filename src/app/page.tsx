@@ -147,7 +147,7 @@ export default function HomePage() {
   const topPicks = useMemo(() => {
     if (!enrichedFixtures.length) return [];
     return enrichedFixtures
-      .filter(f => f.prediction?.confidence && f.prediction.confidence >= 65 && !f.status.isFinished)
+      .filter(f => f.prediction?.confidence && f.prediction.confidence >= 40 && !f.status.isFinished)
       .sort((a, b) => (b.prediction?.confidence || 0) - (a.prediction?.confidence || 0))
       .slice(0, 5);
   }, [enrichedFixtures]);
@@ -160,7 +160,7 @@ export default function HomePage() {
       const stats = m.teamStats;
       const suggestions = m.betSuggestions;
       switch (predictionFilter) {
-        case 'banko': return (pred?.confidence && pred.confidence >= 70) || suggestions?.some(s => s.confidence >= 70);
+        case 'banko': return (pred?.confidence && pred.confidence >= 55) || suggestions?.some(s => s.confidence >= 55);
         case 'ms1': return pred?.winner === m.homeTeam.name;
         case 'ms2': return pred?.winner === m.awayTeam.name;
         case 'over25': {
@@ -481,6 +481,26 @@ export default function HomePage() {
             {/* Opportunities */}
             {!isLoading && !error && activeTab === 'opportunities' && (
               <div className="space-y-4">
+                {/* Batch loading durumu */}
+                {isBatchLoading && (
+                  <div className="p-5 rounded-2xl bg-gradient-to-br from-primary/5 to-primary/10 border border-primary/15">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
+                        <RefreshCw className="h-5 w-5 text-primary animate-spin" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-bold text-sm">Analizler Yukleniyor</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {data?.stats?.total || 0} mac icin tahmin ve istatistikler hesaplaniyor...
+                        </p>
+                        <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-primary to-purple-500 rounded-full animate-shimmer" style={{width: '60%'}} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Performance Card - Dünün Performansı */}
                 <PerformanceCard period="yesterday" />
                 
@@ -525,6 +545,19 @@ export default function HomePage() {
                 <PremiumLock requiredTier="pro" message="Value bahis analizi Pro uyelerine ozeldir">
                   <ValueDashboard />
                 </PremiumLock>
+
+                {/* Hiçbir öneri yoksa ve yükleme bitmişse */}
+                {!isBatchLoading && enrichedFixtures.length > 0 && !enrichedFixtures.some(f => f.prediction?.confidence && f.prediction.confidence >= 65) && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
+                      <Target className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <h3 className="font-bold text-base mb-1">Henuz Yeterli Veri Yok</h3>
+                    <p className="text-sm text-muted-foreground max-w-xs">
+                      Mac detaylari yüklendikçe öneriler burada görünecek. Maclar sekmesinden maclari açarak da detayları görebilirsiniz.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -604,7 +637,7 @@ export default function HomePage() {
                             const stats = m.teamStats;
                             const suggestions = m.betSuggestions;
                             switch (filter.key) {
-                              case 'banko': return (pred?.confidence && pred.confidence >= 70) || suggestions?.some(s => s.confidence >= 70);
+                              case 'banko': return (pred?.confidence && pred.confidence >= 55) || suggestions?.some(s => s.confidence >= 55);
                               case 'ms1': return pred?.winner === m.homeTeam.name;
                               case 'ms2': return pred?.winner === m.awayTeam.name;
                               case 'over25': {

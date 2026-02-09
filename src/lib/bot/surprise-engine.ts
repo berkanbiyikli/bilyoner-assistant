@@ -655,10 +655,14 @@ export async function generateSurpriseCoupons(): Promise<SurpriseCoupon[]> {
   const favoriCoupon = buildFavoriCoupon(matches, new Set<number>());
   if (favoriCoupon) {
     const enriched = await enrichWithRealOdds(favoriCoupon);
-    // Post-enrichment: Gerçek oranlar çok yüksekse (favori kuponu mantığına aykırı) maçları çıkar
+    // Post-enrichment: Çok düşük veya çok yüksek oranları filtrele
     enriched.matches = enriched.matches.filter(m => {
       if (m.odds > 2.80) {
         console.log(`[SurpriseEngine] ⚠️ Favori kuponu: ${m.homeTeam} vs ${m.awayTeam} çıkarıldı (oran ${m.odds.toFixed(2)} > 2.80)`);
+        return false;
+      }
+      if (m.odds < 1.15) {
+        console.log(`[SurpriseEngine] ⚠️ Favori kuponu: ${m.homeTeam} vs ${m.awayTeam} çıkarıldı (oran ${m.odds.toFixed(2)} < 1.15 - değersiz)`);
         return false;
       }
       return true;

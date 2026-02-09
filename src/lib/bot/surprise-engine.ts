@@ -260,21 +260,20 @@ function buildGolCoupon(matches: MatchWithDetail[]): SurpriseCoupon | null {
 
 // ============ STRATEGY 2: FAVORİ KUPONU ============
 
-function buildFavoriCoupon(matches: MatchWithDetail[], usedFixtures: Set<number>): SurpriseCoupon | null {
+function buildFavoriCoupon(matches: MatchWithDetail[], _usedFixtures: Set<number>): SurpriseCoupon | null {
+  // Favori kuponu MS/İY/MS kullanıyor, Gol kuponu gol marketleri — fixture paylaşımına izin ver
   const candidates: SurpriseMatch[] = [];
 
   for (const { match, betSuggestions, poissonAnalysis, h2hSummary } of matches) {
-    if (usedFixtures.has(match.id)) continue;
-
     if (!poissonAnalysis) continue;
     const { homeWin, awayWin } = poissonAnalysis.probabilities;
 
     // Güçlü ev sahibi MS 1
-    if (homeWin >= 55) {
+    if (homeWin >= 48) {
       const ms1 = betSuggestions.find(s =>
         s.pick === 'Ev Sahibi' || s.pick === 'MS 1' || s.type === 'result'
       );
-      if (ms1 && ms1.odds >= 1.30 && ms1.odds <= 2.20) {
+      if (ms1 && ms1.odds >= 1.20 && ms1.odds <= 2.50) {
         const h2hNote = h2hSummary
           ? `H2H: ${h2hSummary.homeWins}G ${h2hSummary.draws}B ${h2hSummary.awayWins}M`
           : '';
@@ -298,11 +297,11 @@ function buildFavoriCoupon(matches: MatchWithDetail[], usedFixtures: Set<number>
     }
 
     // Güçlü deplasman MS 2
-    if (awayWin >= 50) {
+    if (awayWin >= 45) {
       const ms2 = betSuggestions.find(s =>
         s.pick === 'Deplasman' || s.pick === 'MS 2'
       );
-      if (ms2 && ms2.odds >= 1.40 && ms2.odds <= 2.50) {
+      if (ms2 && ms2.odds >= 1.30 && ms2.odds <= 2.80) {
         candidates.push({
           fixtureId: match.id,
           homeTeam: match.homeTeam.name,
@@ -323,7 +322,7 @@ function buildFavoriCoupon(matches: MatchWithDetail[], usedFixtures: Set<number>
     }
 
     // İY/MS - Favori hem ilk yarı hem maç sonu (güçlü baskı)
-    if (homeWin >= 60) {
+    if (homeWin >= 53) {
       // İY/MS 1/1 olarak puanla
       const iyOdds = Math.round((1 / (homeWin / 100 * 0.75)) * 1.08 * 100) / 100; // IY/MS hesapla
       if (iyOdds >= 1.50 && iyOdds <= 3.00) {
@@ -372,20 +371,19 @@ function buildFavoriCoupon(matches: MatchWithDetail[], usedFixtures: Set<number>
 
 // ============ STRATEGY 3: SÜRPRİZ KUPONU ============
 
-function buildSurprizCoupon(matches: MatchWithDetail[], usedFixtures: Set<number>): SurpriseCoupon | null {
+function buildSurprizCoupon(matches: MatchWithDetail[], _usedFixtures: Set<number>): SurpriseCoupon | null {
   const candidates: SurpriseMatch[] = [];
 
   for (const { match, betSuggestions, poissonAnalysis, teamStats } of matches) {
-    if (usedFixtures.has(match.id)) continue;
     if (!poissonAnalysis) continue;
 
     const { homeWin, draw: drawProb, awayWin, over35, bttsYes } = poissonAnalysis.probabilities;
     const xG = poissonAnalysis.expectedTotalGoals;
 
-    // Beraberlik: draw >= 30% ve oran yüksek
-    if (drawProb >= 28) {
+    // Beraberlik: draw >= 24% ve oran yüksek
+    if (drawProb >= 24) {
       const drawSug = betSuggestions.find(s => s.pick === 'Beraberlik' || s.pick === 'X');
-      if (drawSug && drawSug.odds >= 2.80 && drawSug.odds <= 4.50) {
+      if (drawSug && drawSug.odds >= 2.60 && drawSug.odds <= 5.00) {
         candidates.push({
           fixtureId: match.id,
           homeTeam: match.homeTeam.name,
@@ -405,10 +403,10 @@ function buildSurprizCoupon(matches: MatchWithDetail[], usedFixtures: Set<number
       }
     }
 
-    // Deplasman sürprizi: awayWin >= 35% ama oran yüksek (2.5+)
-    if (awayWin >= 35 && awayWin < 50) {
+    // Deplasman sürprizi: awayWin >= 30% ama oran yüksek (2.3+)
+    if (awayWin >= 30 && awayWin < 50) {
       const ms2 = betSuggestions.find(s => s.pick === 'Deplasman' || s.pick === 'MS 2');
-      if (ms2 && ms2.odds >= 2.50 && ms2.odds <= 5.00) {
+      if (ms2 && ms2.odds >= 2.30 && ms2.odds <= 5.50) {
         candidates.push({
           fixtureId: match.id,
           homeTeam: match.homeTeam.name,
@@ -429,7 +427,7 @@ function buildSurprizCoupon(matches: MatchWithDetail[], usedFixtures: Set<number
     }
 
     // KG Var + 3.5 Üst combo - çok gollü sürpriz
-    if (bttsYes >= 58 && over35 >= 38 && xG >= 3.0) {
+    if (bttsYes >= 52 && over35 >= 32 && xG >= 2.8) {
       const bttsOdds = betSuggestions.find(s => s.pick === 'KG Var')?.odds || 1.70;
       const over35Odds = betSuggestions.find(s => s.pick === 'Üst 3.5' || s.pick.includes('3.5'))?.odds;
       if (over35Odds && over35Odds >= 1.80) {
@@ -453,9 +451,9 @@ function buildSurprizCoupon(matches: MatchWithDetail[], usedFixtures: Set<number
     }
 
     // Karşılıklı gol + Üst combo
-    if (bttsYes >= 55) {
+    if (bttsYes >= 50) {
       const bttsSug = betSuggestions.find(s => s.pick === 'KG Var');
-      if (bttsSug && bttsSug.odds >= 1.60 && bttsSug.odds <= 2.20) {
+      if (bttsSug && bttsSug.odds >= 1.50 && bttsSug.odds <= 2.30) {
         candidates.push({
           fixtureId: match.id,
           homeTeam: match.homeTeam.name,
@@ -470,6 +468,51 @@ function buildSurprizCoupon(matches: MatchWithDetail[], usedFixtures: Set<number
           confidence: Math.round(bttsYes),
           reasoning: `xG ${xG.toFixed(1)} - Her iki takım da ağ buluyor`,
           statLine: `KG %${Math.round(bttsYes)} · xG ${xG.toFixed(1)}`,
+        });
+      }
+    }
+
+    // Çifte Şans 1X - Beraberlik ya da ev sahibi
+    if (homeWin + drawProb >= 62 && homeWin < 55 && drawProb >= 22) {
+      const dsCombinedProb = homeWin + drawProb;
+      const dsOdds = Math.round((1 / (dsCombinedProb / 100)) * 1.08 * 100) / 100;
+      if (dsOdds >= 1.25 && dsOdds <= 1.80) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: '1X',
+          odds: dsOdds,
+          confidence: Math.round(dsCombinedProb),
+          reasoning: `Çifte şans: Ev %${Math.round(homeWin)} + X %${Math.round(drawProb)} = %${Math.round(dsCombinedProb)}`,
+          statLine: `1X %${Math.round(dsCombinedProb)} · @${dsOdds.toFixed(2)}`,
+        });
+      }
+    }
+
+    // 2.5 Alt - Düşük gollü maç sürprizi
+    if (poissonAnalysis.probabilities.over25 < 45 && xG < 2.3) {
+      const altOdds = Math.round((1 / ((100 - poissonAnalysis.probabilities.over25) / 100)) * 1.08 * 100) / 100;
+      if (altOdds >= 1.50 && altOdds <= 2.50) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: '2.5 Alt',
+          odds: altOdds,
+          confidence: Math.round(100 - poissonAnalysis.probabilities.over25),
+          reasoning: `Düşük gol beklentisi: xG ${xG.toFixed(1)} | Alt %${Math.round(100 - poissonAnalysis.probabilities.over25)}`,
+          statLine: `Alt %${Math.round(100 - poissonAnalysis.probabilities.over25)} · xG ${xG.toFixed(1)}`,
         });
       }
     }
@@ -566,32 +609,33 @@ export async function generateSurpriseCoupons(): Promise<SurpriseCoupon[]> {
   console.log('[SurpriseEngine] 3 strateji ile kupon üretimi başlıyor...');
 
   const matches = await fetchMatchesWithDetails();
-  if (matches.length < 3) {
-    console.log('[SurpriseEngine] Yeterli maç yok');
+  if (matches.length < 2) {
+    console.log(`[SurpriseEngine] Yeterli maç yok (${matches.length} maç bulundu)`);
     return [];
   }
 
+  console.log(`[SurpriseEngine] ${matches.length} maç ile kupon üretimi yapılıyor`);
+
   const coupons: SurpriseCoupon[] = [];
-  const usedFixtures = new Set<number>();
 
   // 1. Gol Kuponu
   const golCoupon = buildGolCoupon(matches);
   if (golCoupon) {
     const enriched = await enrichWithRealOdds(golCoupon);
     coupons.push(enriched);
-    enriched.matches.forEach(m => usedFixtures.add(m.fixtureId));
     console.log(`[SurpriseEngine] ⚽ Gol Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
+  } else {
+    console.log('[SurpriseEngine] ⚽ Gol Kuponu: kriterlere uygun maç bulunamadı');
   }
 
-  // 2. Favori Kuponu
-  const favoriCoupon = buildFavoriCoupon(matches, usedFixtures);
+  // 2. Favori Kuponu (MS/İY/MS marketleri — Gol ile fixture paylaşabilir)
+  const favoriCoupon = buildFavoriCoupon(matches, new Set<number>());
   if (favoriCoupon) {
     const enriched = await enrichWithRealOdds(favoriCoupon);
     // Post-enrichment: Gerçek oranlar çok yüksekse (favori kuponu mantığına aykırı) maçları çıkar
     enriched.matches = enriched.matches.filter(m => {
-      // Favori kuponu maçları max 2.50 oran olmalı (gerçek oranlar sonrası)
-      if (m.odds > 2.50) {
-        console.log(`[SurpriseEngine] ⚠️ Favori kuponu: ${m.homeTeam} vs ${m.awayTeam} çıkarıldı (oran ${m.odds.toFixed(2)} > 2.50)`);
+      if (m.odds > 2.80) {
+        console.log(`[SurpriseEngine] ⚠️ Favori kuponu: ${m.homeTeam} vs ${m.awayTeam} çıkarıldı (oran ${m.odds.toFixed(2)} > 2.80)`);
         return false;
       }
       return true;
@@ -605,20 +649,22 @@ export async function generateSurpriseCoupons(): Promise<SurpriseCoupon[]> {
     );
     if (enriched.matches.length >= 2) {
       coupons.push(enriched);
-      enriched.matches.forEach(m => usedFixtures.add(m.fixtureId));
       console.log(`[SurpriseEngine] 🏆 Favori Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
     } else {
       console.log(`[SurpriseEngine] ⚠️ Favori Kuponu: yeterli kaliteli maç kalmadı (${enriched.matches.length} maç)`);
     }
+  } else {
+    console.log('[SurpriseEngine] 🏆 Favori Kuponu: kriterlere uygun maç bulunamadı');
   }
 
   // 3. Sürpriz Kuponu — farklı marketler kullandığı için fixture paylaşımına izin ver
-  //    Sadece aynı market+fixture kombinasyonunu engelle (Gol kuponu gol marketleri, Sürpriz beraberlik/deplasman)
   const surprizCoupon = buildSurprizCoupon(matches, new Set<number>());
   if (surprizCoupon) {
     const enriched = await enrichWithRealOdds(surprizCoupon);
     coupons.push(enriched);
     console.log(`[SurpriseEngine] 🎲 Sürpriz Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
+  } else {
+    console.log('[SurpriseEngine] 🎲 Sürpriz Kuponu: kriterlere uygun maç bulunamadı');
   }
 
   console.log(`[SurpriseEngine] Toplam ${coupons.length} kupon üretildi`);

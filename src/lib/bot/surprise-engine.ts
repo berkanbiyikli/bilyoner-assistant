@@ -482,8 +482,8 @@ function buildSurprizCoupon(matches: MatchWithDetail[], usedFixtures: Set<number
     return scoreB - scoreA;
   });
 
-  const selected = pickFromDifferentLeagues(sorted, 2, 4);
-  if (selected.length < 2) return null;
+  const selected = pickFromDifferentLeagues(sorted, 1, 4);
+  if (selected.length < 1) return null;
 
   const totalOdds = selected.reduce((acc, m) => acc * m.odds, 1);
   const avgConf = selected.reduce((sum, m) => sum + m.confidence, 0) / selected.length;
@@ -587,13 +587,34 @@ export async function generateSurpriseCoupons(): Promise<SurpriseCoupon[]> {
   const favoriCoupon = buildFavoriCoupon(matches, usedFixtures);
   if (favoriCoupon) {
     const enriched = await enrichWithRealOdds(favoriCoupon);
-    coupons.push(enriched);
-    enriched.matches.forEach(m => usedFixtures.add(m.fixtureId));
-    console.log(`[SurpriseEngine] 🏆 Favori Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
+    // Post-enrichment: Gerçek oranlar çok yüksekse (favori kuponu mantığına aykırı) maçları çıkar
+    enriched.matches = enriched.matches.filter(m => {
+      // Favori kuponu maçları max 2.50 oran olmalı (gerçek oranlar sonrası)
+      if (m.odds > 2.50) {
+        console.log(`[SurpriseEngine] ⚠️ Favori kuponu: ${m.homeTeam} vs ${m.awayTeam} çıkarıldı (oran ${m.odds.toFixed(2)} > 2.50)`);
+        return false;
+      }
+      return true;
+    });
+    // Toplam oranı yeniden hesapla
+    enriched.totalOdds = Math.round(
+      enriched.matches.reduce((acc, m) => acc * m.odds, 1) * 100
+    ) / 100;
+    enriched.avgConfidence = Math.round(
+      enriched.matches.reduce((sum, m) => sum + m.confidence, 0) / enriched.matches.length
+    );
+    if (enriched.matches.length >= 2) {
+      coupons.push(enriched);
+      enriched.matches.forEach(m => usedFixtures.add(m.fixtureId));
+      console.log(`[SurpriseEngine] 🏆 Favori Kuponu: ${enriched.matches.length} maç, toplam oran ${enriched.totalOdds}`);
+    } else {
+      console.log(`[SurpriseEngine] ⚠️ Favori Kuponu: yeterli kaliteli maç kalmadı (${enriched.matches.length} maç)`);
+    }
   }
 
-  // 3. Sürpriz Kuponu
-  const surprizCoupon = buildSurprizCoupon(matches, usedFixtures);
+  // 3. Sürpriz Kuponu — farklı marketler kullandığı için fixture paylaşımına izin ver
+  //    Sadece aynı market+fixture kombinasyonunu engelle (Gol kuponu gol marketleri, Sürpriz beraberlik/deplasman)
+  const surprizCoupon = buildSurprizCoupon(matches, new Set<number>());
   if (surprizCoupon) {
     const enriched = await enrichWithRealOdds(surprizCoupon);
     coupons.push(enriched);

@@ -64,6 +64,11 @@ export async function GET(request: NextRequest) {
   const isVercelCron = request.headers.get('x-vercel-cron') === '1';
   const { searchParams } = new URL(request.url);
   const isTestMode = searchParams.get('test') === '1';
+  // Sadece belirli stratejileri tweet at: ?strategies=favori,surpriz
+  const strategiesParam = searchParams.get('strategies');
+  const allowedStrategies = strategiesParam
+    ? new Set(strategiesParam.split(',').map(s => s.trim().toLowerCase()))
+    : null; // null = hepsini at
 
   if (!isVercelCron && !isTestMode && !checkAuth(request)) {
     if (process.env.NODE_ENV !== 'development') {
@@ -81,18 +86,25 @@ export async function GET(request: NextRequest) {
     log('Sürpriz kupon üretimi başlıyor...');
 
     // 3 strateji ile kuponları üret
-    const coupons = await generateSurpriseCoupons();
+    const allCoupons = await generateSurpriseCoupons();
+
+    // strategies param ile filtrele (varsa)
+    const coupons = allowedStrategies
+      ? allCoupons.filter(c => allowedStrategies.has(c.strategy))
+      : allCoupons;
 
     if (coupons.length === 0) {
-      log('Hiç kupon üretilemedi (yeterli maç yok veya kriterlere uygun maç bulunamadı)');
+      log(`Hiç kupon üretilemedi (toplam üretilen: ${allCoupons.length}, filtre: ${strategiesParam || 'yok'})`);
       return NextResponse.json({
         success: false,
         message: 'Kupon üretilemedi',
+        allGenerated: allCoupons.length,
+        filter: strategiesParam || null,
         logs,
       });
     }
 
-    log(`${coupons.length} kupon üretildi`);
+    log(`${allCoupons.length} kupon üretildi${allowedStrategies ? `, ${coupons.length} tanesi filtreye uygun (${strategiesParam})` : ''}`);
 
     // Her kupon için tweet at
     const tweetResults: Array<{

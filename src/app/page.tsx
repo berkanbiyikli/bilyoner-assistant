@@ -234,6 +234,7 @@ export default function HomePage() {
         odds: Number(odds.toFixed(2)),
         value: conf >= 75 ? 'high' : conf >= 65 ? 'medium' : 'low',
         reasoning: pred.advice || winner + ' one cikiyor',
+        oddsSource: 'calculated',
       });
     }
     
@@ -253,6 +254,7 @@ export default function HomePage() {
           odds: Number((1 / (conf / 100) * 0.88).toFixed(2)),
           value: totalAvg >= 3.5 ? 'high' : 'medium',
           reasoning: `Ev ${homeGoals.toFixed(1)} gol, deplasman ${awayGoals.toFixed(1)} gol atiyor`,
+          oddsSource: 'calculated',
         });
       } else if (totalAvg <= 2.0) {
         const conf = Math.min(78, 55 + Math.round((2.5 - totalAvg) * 30));
@@ -264,6 +266,7 @@ export default function HomePage() {
           odds: Number((1 / (conf / 100) * 0.88).toFixed(2)),
           value: totalAvg <= 1.5 ? 'high' : 'medium',
           reasoning: `Dusuk skorlu maclar (ort. ${totalAvg.toFixed(1)} gol)`,
+          oddsSource: 'calculated',
         });
       }
     }
@@ -280,6 +283,7 @@ export default function HomePage() {
           odds: 1.80,
           value: 'medium',
           reasoning: pred.goalsAdvice,
+          oddsSource: 'calculated',
         });
       }
       if (advice.includes('over') || advice.includes('ust') || advice.includes('üst')) {
@@ -293,6 +297,7 @@ export default function HomePage() {
             odds: 1.75,
             value: 'medium',
             reasoning: pred.goalsAdvice,
+            oddsSource: 'calculated',
           });
         }
       }
@@ -311,6 +316,7 @@ export default function HomePage() {
           odds: 1.45,
           value: 'medium',
           reasoning: `Son ${h2h.totalMatches} macin ${h2h.draws} tanesi berabere`,
+          oddsSource: 'calculated',
         });
       }
     }
@@ -327,6 +333,7 @@ export default function HomePage() {
           odds: Number(Math.max(1.20, 1 / ((conf + 12) / 100) * 0.90).toFixed(2)),
           value: conf >= 70 ? 'high' : 'medium',
           reasoning: `${fixture.homeTeam.name} favori veya beraberlik`,
+          oddsSource: 'calculated',
         });
       } else if (pred.winner === fixture.awayTeam.name) {
         suggestions.push({
@@ -337,6 +344,7 @@ export default function HomePage() {
           odds: Number(Math.max(1.25, 1 / ((conf + 10) / 100) * 0.90).toFixed(2)),
           value: conf >= 70 ? 'high' : 'medium',
           reasoning: `${fixture.awayTeam.name} favori veya beraberlik`,
+          oddsSource: 'calculated',
         });
       }
     }

@@ -409,6 +409,8 @@ export interface BetSuggestion {
   odds: number;             // Bahis oranı
   reasoning: string;        // Neden bu öneriyi yapıyoruz
   value?: 'low' | 'medium' | 'high'; // Value bet değerlendirmesi
+  oddsSource?: 'real' | 'calculated'; // Oran kaynağı (gerçek bookmaker vs hesaplanmış)
+  bookmaker?: string;       // Gerçek oran kaynağı (ör. "1xBet")
 }
 
 // İç kullanım için oran olmadan öneri (oran sonra ekleniyor)

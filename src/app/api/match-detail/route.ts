@@ -12,6 +12,7 @@ import { analyzePoissonPrediction, type PoissonAnalysis } from '@/lib/prediction
 import { analyzeValueBet, type ValueBetAnalysis } from '@/lib/prediction/value-bet';
 import { validateWithAPIpredictions } from '@/lib/prediction/engine';
 import type { APIValidationResult } from '@/lib/prediction/types';
+import { fetchRealOdds, type RealOdds } from '@/lib/api-football/odds';
 import {
   teamStatsCache,
   seasonStatsCache,
@@ -601,6 +602,18 @@ export async function GET(request: Request) {
       homePlayerCards,
       awayPlayerCards
     );
+
+    // 🆕 Gerçek bookmaker oranlarını çek ve betSuggestions'a uygula
+    try {
+      const realOdds = await fetchRealOdds(parseInt(fixtureId));
+      if (realOdds.length > 0) {
+        enrichBetSuggestionsWithRealOdds(betSuggestions, realOdds);
+        console.log(`[Match Detail] Gerçek oranlar uygulandı: ${realOdds.length} oran (fixture: ${fixtureId})`);
+      }
+    } catch (oddsError) {
+      console.warn(`[Match Detail] Gerçek oran çekilemedi (fixture: ${fixtureId}):`, oddsError);
+      // Hesaplanmış oranlarla devam et
+    }
 
     // Ağırlıklı istatistikleri hesapla (Sezon %40, Form %60)
     const homeWeightedStats = homeStats ? calculateWeightedStats(homeStats) : null;
@@ -1199,6 +1212,88 @@ function generateBetSuggestions(
     .map(s => ({
       ...s,
       odds: calculateOdds(s.confidence, s.market),
+      oddsSource: 'calculated' as const,
     }))
     .sort((a, b) => b.confidence - a.confidence);
+}
+
+// =====================================
+// GERÇEK ORAN ENTEGRASYONU
+// API-Football bookmaker oranlarını betSuggestions'a uygula
+// =====================================
+
+/**
+ * Bet suggestion pick'ini gerçek oran betType'ına eşle
+ */
+function mapPickToOddsBetType(suggestion: BetSuggestion): string | null {
+  const pick = suggestion.pick.toLowerCase().trim();
+  const market = suggestion.market.toLowerCase().trim();
+
+  // Maç Sonucu (1X2)
+  if (pick === 'ev sahibi' || pick === 'ms 1') return 'home';
+  if (pick === 'beraberlik' || pick === 'ms x') return 'draw';
+  if (pick === 'deplasman' || pick === 'ms 2') return 'away';
+
+  // Over/Under
+  if (pick === 'üst 2.5' || pick === 'ust 2.5') return 'over25';
+  if (pick === 'alt 2.5') return 'under25';
+  if (pick === 'üst 1.5' || pick === 'ust 1.5') return 'over15';
+  if (pick === 'alt 1.5') return 'under15';
+  if (pick === 'üst 3.5' || pick === 'ust 3.5') return 'over35';
+  if (pick === 'alt 3.5') return 'under35';
+
+  // BTTS
+  if (pick === 'var' && market.includes('kg')) return 'btts';
+  if (pick === 'yok' && market.includes('kg')) return 'btts_no';
+
+  // İlk Yarı gol
+  if (pick === 'üst 0.5' && market.includes('iy')) return 'ht_over05';
+  if (pick === 'alt 0.5' && market.includes('iy')) return 'ht_under05';
+  if (pick === 'üst 1.5' && market.includes('iy')) return 'ht_over15';
+  if (pick === 'alt 1.5' && market.includes('iy')) return 'ht_under15';
+
+  // Double Chance
+  if (pick === '1x' || pick === 'x dahil' && market.includes('çift')) return 'home_draw';
+  if (pick === 'x2') return 'draw_away';
+  if (pick === '12') return 'home_away';
+
+  // İY/MS
+  if (pick.includes('1/1') || pick.includes('1-1')) return 'htft_11';
+  if (pick.includes('1/x') || pick.includes('1-x')) return 'htft_1x';
+  if (pick.includes('x/1') || pick.includes('x-1')) return 'htft_x1';
+  if (pick.includes('2/2') || pick.includes('2-2')) return 'htft_22';
+
+  return null;
+}
+
+/**
+ * betSuggestions oranlarını gerçek bookmaker oranlarıyla güncelle
+ * Her suggestion'ın odds kaynağını da işaretle
+ */
+function enrichBetSuggestionsWithRealOdds(
+  suggestions: BetSuggestion[],
+  realOdds: RealOdds[]
+): void {
+  // RealOdds'u betType bazlı map'e çevir (hızlı erişim)
+  const oddsMap = new Map<string, RealOdds>();
+  for (const ro of realOdds) {
+    oddsMap.set(ro.betType, ro);
+  }
+
+  for (const suggestion of suggestions) {
+    const betType = mapPickToOddsBetType(suggestion);
+    if (!betType) {
+      suggestion.oddsSource = 'calculated';
+      continue;
+    }
+
+    const realOdd = oddsMap.get(betType);
+    if (realOdd) {
+      suggestion.odds = realOdd.odds;
+      suggestion.oddsSource = 'real';
+      suggestion.bookmaker = realOdd.bookmaker;
+    } else {
+      suggestion.oddsSource = 'calculated';
+    }
+  }
 }

@@ -91,8 +91,9 @@ function BetSuggestionCard({ suggestion, fixture }: BetSuggestionCardProps) {
         )}>
           %{suggestion.confidence}
         </span>
-        <span className="text-xs font-mono font-bold text-primary/70 flex items-center gap-0.5">
+        <span className="text-xs font-mono font-bold text-primary/70 flex items-center gap-0.5" title={suggestion.oddsSource === 'real' ? `Gerçek oran (${suggestion.bookmaker || '1xBet'})` : 'Model tahmini oran'}>
           {suggestion.odds.toFixed(2)}
+          {suggestion.oddsSource === 'real' && <span className="ml-0.5 text-[8px] text-emerald-500 font-semibold">✓</span>}
           {suggestion.value === 'high' && <ArrowUp className="h-2.5 w-2.5 text-emerald-500" />}
           {suggestion.value === 'low' && <ArrowDown className="h-2.5 w-2.5 text-red-400" />}
         </span>

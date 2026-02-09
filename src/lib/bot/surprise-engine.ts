@@ -266,7 +266,7 @@ function buildFavoriCoupon(matches: MatchWithDetail[], _usedFixtures: Set<number
 
   for (const { match, betSuggestions, poissonAnalysis, h2hSummary } of matches) {
     if (!poissonAnalysis) continue;
-    const { homeWin, awayWin } = poissonAnalysis.probabilities;
+    const { homeWin, awayWin, draw: drawProb } = poissonAnalysis.probabilities;
 
     // Güçlü ev sahibi MS 1
     if (homeWin >= 48) {
@@ -343,11 +343,34 @@ function buildFavoriCoupon(matches: MatchWithDetail[], _usedFixtures: Set<number
         });
       }
     }
+
+    // 1X Çifte Şans - Güvenli favori bahis
+    if (homeWin >= 45 && homeWin + drawProb >= 65) {
+      const dcProb = homeWin + drawProb;
+      const dcOdds = Math.round((1 / (dcProb / 100)) * 1.08 * 100) / 100;
+      if (dcOdds >= 1.15 && dcOdds <= 1.65) {
+        candidates.push({
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeTeamId: match.homeTeam.id,
+          awayTeamId: match.awayTeam.id,
+          league: match.league.name,
+          leagueId: match.league.id,
+          kickoff: new Date(match.timestamp * 1000),
+          prediction: '1X',
+          odds: dcOdds,
+          confidence: Math.round(dcProb),
+          reasoning: `Çifte Şans: Ev %${Math.round(homeWin)} + X %${Math.round(drawProb)} = %${Math.round(dcProb)}`,
+          statLine: `1X %${Math.round(dcProb)} · @${dcOdds.toFixed(2)}`,
+        });
+      }
+    }
   }
 
   const sorted = candidates.sort((a, b) => {
-    const scoreA = a.confidence * 0.7 + (a.prediction.includes('İY/MS') ? 8 : 0);
-    const scoreB = b.confidence * 0.7 + (b.prediction.includes('İY/MS') ? 8 : 0);
+    const scoreA = a.confidence * 0.7 + (a.prediction.includes('İY/MS') ? 8 : 0) + (a.prediction === '1X' ? 5 : 0);
+    const scoreB = b.confidence * 0.7 + (b.prediction.includes('İY/MS') ? 8 : 0) + (b.prediction === '1X' ? 5 : 0);
     return scoreB - scoreA;
   });
 
@@ -472,11 +495,11 @@ function buildSurprizCoupon(matches: MatchWithDetail[], _usedFixtures: Set<numbe
       }
     }
 
-    // Çifte Şans 1X - Beraberlik ya da ev sahibi
-    if (homeWin + drawProb >= 62 && homeWin < 55 && drawProb >= 22) {
-      const dsCombinedProb = homeWin + drawProb;
-      const dsOdds = Math.round((1 / (dsCombinedProb / 100)) * 1.08 * 100) / 100;
-      if (dsOdds >= 1.35 && dsOdds <= 1.80) {
+    // X2 Çifte Şans - Beraberlik ya da deplasman (sürpriz value)
+    if (drawProb + awayWin >= 45 && awayWin >= 22 && drawProb >= 20) {
+      const x2CombinedProb = drawProb + awayWin;
+      const x2Odds = Math.round((1 / (x2CombinedProb / 100)) * 1.08 * 100) / 100;
+      if (x2Odds >= 1.50 && x2Odds <= 3.50) {
         candidates.push({
           fixtureId: match.id,
           homeTeam: match.homeTeam.name,
@@ -486,19 +509,19 @@ function buildSurprizCoupon(matches: MatchWithDetail[], _usedFixtures: Set<numbe
           league: match.league.name,
           leagueId: match.league.id,
           kickoff: new Date(match.timestamp * 1000),
-          prediction: '1X',
-          odds: dsOdds,
-          confidence: Math.round(dsCombinedProb),
-          reasoning: `Çifte şans: Ev %${Math.round(homeWin)} + X %${Math.round(drawProb)} = %${Math.round(dsCombinedProb)}`,
-          statLine: `1X %${Math.round(dsCombinedProb)} · @${dsOdds.toFixed(2)}`,
+          prediction: 'X2',
+          odds: x2Odds,
+          confidence: Math.round(x2CombinedProb),
+          reasoning: `Çifte Şans X2: X %${Math.round(drawProb)} + Dep %${Math.round(awayWin)} = %${Math.round(x2CombinedProb)}`,
+          statLine: `X2 %${Math.round(x2CombinedProb)} · @${x2Odds.toFixed(2)}`,
         });
       }
     }
 
     // 2.5 Alt - Düşük gollü maç sürprizi
-    if (poissonAnalysis.probabilities.over25 < 45 && xG < 2.3) {
+    if (poissonAnalysis.probabilities.over25 < 48 && xG < 2.5) {
       const altOdds = Math.round((1 / ((100 - poissonAnalysis.probabilities.over25) / 100)) * 1.08 * 100) / 100;
-      if (altOdds >= 1.50 && altOdds <= 2.50) {
+      if (altOdds >= 1.40 && altOdds <= 2.80) {
         candidates.push({
           fixtureId: match.id,
           homeTeam: match.homeTeam.name,

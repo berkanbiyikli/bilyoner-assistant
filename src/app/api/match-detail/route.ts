@@ -567,14 +567,18 @@ export async function GET(request: Request) {
     }
 
     // Redis cache kontrolü (tüm response)
+    // noCache=1 parametresi varsa cache'i atla (challenge bot için taze veri)
+    const noCache = searchParams.get('noCache') === '1';
     const cacheKey = redisCacheKeys.matchDetail(parseInt(fixtureId));
-    const cachedResponse = await cacheGet<object>(cacheKey);
-    if (cachedResponse) {
-      return NextResponse.json({
-        success: true,
-        data: cachedResponse,
-        cached: true,
-      });
+    if (!noCache) {
+      const cachedResponse = await cacheGet<object>(cacheKey);
+      if (cachedResponse) {
+        return NextResponse.json({
+          success: true,
+          data: cachedResponse,
+          cached: true,
+        });
+      }
     }
 
     const leagueIdNum = leagueId ? parseInt(leagueId) : 0;
@@ -603,18 +607,6 @@ export async function GET(request: Request) {
       awayPlayerCards
     );
 
-    // 🆕 Gerçek bookmaker oranlarını çek ve betSuggestions'a uygula
-    try {
-      const realOdds = await fetchRealOdds(parseInt(fixtureId));
-      if (realOdds.length > 0) {
-        enrichBetSuggestionsWithRealOdds(betSuggestions, realOdds);
-        console.log(`[Match Detail] Gerçek oranlar uygulandı: ${realOdds.length} oran (fixture: ${fixtureId})`);
-      }
-    } catch (oddsError) {
-      console.warn(`[Match Detail] Gerçek oran çekilemedi (fixture: ${fixtureId}):`, oddsError);
-      // Hesaplanmış oranlarla devam et
-    }
-
     // Ağırlıklı istatistikleri hesapla (Sezon %40, Form %60)
     const homeWeightedStats = homeStats ? calculateWeightedStats(homeStats) : null;
     const awayWeightedStats = awayStats ? calculateWeightedStats(awayStats) : null;
@@ -627,16 +619,16 @@ export async function GET(request: Request) {
         awayGoalsScored: awayWeightedStats.avgGoalsScored,
         homeGoalsConceded: homeWeightedStats.avgGoalsConceded,
         awayGoalsConceded: awayWeightedStats.avgGoalsConceded,
-        homeAdvantage: 1.1, // %10 ev avantajı
+        homeAdvantage: 1.1,
       });
       
-      // 🆕 Poisson bazlı MS tahmini ekle (eğer result tipi yoksa)
+      // Poisson bazlı MS tahmini ekle (eğer result tipi yoksa)
+      // BURADA ekle — gerçek oran enrich'ten ÖNCE — böylece 1xBet oranı alabilir
       const hasResultSuggestion = betSuggestions.some(s => s.type === 'result');
       if (!hasResultSuggestion) {
         const { homeWin, draw, awayWin } = poissonAnalysis.probabilities;
         const maxProb = Math.max(homeWin, draw, awayWin);
         
-        // Sadece yeterince güvenilir tahminleri ekle (%55+)
         if (maxProb >= 55) {
           let pick: string;
           let reasoning: string;
@@ -653,7 +645,6 @@ export async function GET(request: Request) {
             reasoning = `Poisson: Ev %${Math.round(homeWin)}, Beraberlik %${conf}, Deplasman %${Math.round(awayWin)}. xG: ${poissonAnalysis.xg.homeXG.toFixed(1)}-${poissonAnalysis.xg.awayXG.toFixed(1)}`;
           }
           
-          // Olasılıktan oran hesapla (implied odds + margin)
           const impliedOdds = 100 / maxProb;
           const margin = 0.12;
           const odds = Math.max(1.50, Math.min(5.0, impliedOdds * (1 + margin)));
@@ -666,9 +657,24 @@ export async function GET(request: Request) {
             reasoning,
             value: conf >= 65 ? 'high' : 'medium',
             odds: parseFloat(odds.toFixed(2)),
+            oddsSource: 'calculated',
           });
         }
       }
+    }
+
+    // 🆕 Gerçek bookmaker oranlarını çek ve betSuggestions'a uygula
+    // Poisson suggestion'ları da dahil — hepsine gerçek oran ver
+    try {
+      const realOdds = await fetchRealOdds(parseInt(fixtureId));
+      if (realOdds.length > 0) {
+        enrichBetSuggestionsWithRealOdds(betSuggestions, realOdds);
+        console.log(`[Match Detail] Gerçek oranlar uygulandı: ${realOdds.length} oran (fixture: ${fixtureId})`);
+      } else {
+        console.log(`[Match Detail] Gerçek oran bulunamadı (fixture: ${fixtureId})`);
+      }
+    } catch (oddsError) {
+      console.warn(`[Match Detail] Gerçek oran çekilemedi (fixture: ${fixtureId}):`, oddsError);
     }
 
     // API Ensemble Validation (Faz 2)
@@ -1204,6 +1210,103 @@ function generateBetSuggestions(
         existing.reasoning += `. Hakem ${refereeStats.name} kartçı (${refereeStats.averages.yellow_per_match.toFixed(1)} sarı/maç)`;
         existing.value = 'high';
       }
+    }
+  }
+
+  // =====================================
+  // FALLBACK: İstatistikler yoksa prediction'dan öneri üret
+  // API limiti/timeout durumunda en azından temel öneriler gösterilsin
+  // =====================================
+  if (suggestions.length === 0 && matchDetail.prediction) {
+    const pred = matchDetail.prediction;
+    
+    // Maç Sonucu tahmini
+    if (pred.winner && pred.confidence >= 40) {
+      suggestions.push({
+        type: 'result',
+        market: 'Maç Sonucu',
+        pick: pred.winner,
+        confidence: pred.confidence,
+        reasoning: pred.advice || `${pred.winner} favori gösteriliyor`,
+        value: pred.confidence >= 65 ? 'high' : pred.confidence >= 50 ? 'medium' : 'low',
+      });
+    }
+
+    // Gol tahmini (goalsAdvice varsa)
+    if (pred.goalsAdvice) {
+      const advice = pred.goalsAdvice.toLowerCase();
+      if (advice.includes('üst') || advice.includes('over') || advice.includes('yüksek') || advice.includes('gollü')) {
+        suggestions.push({
+          type: 'goals',
+          market: 'Ü2.5 Gol',
+          pick: 'Üst 2.5',
+          confidence: Math.min(70, (pred.confidence || 50) - 5),
+          reasoning: pred.goalsAdvice,
+          value: 'medium',
+        });
+      } else if (advice.includes('alt') || advice.includes('under') || advice.includes('düşük') || advice.includes('golsüz')) {
+        suggestions.push({
+          type: 'goals',
+          market: 'A2.5 Gol',
+          pick: 'Alt 2.5',
+          confidence: Math.min(70, (pred.confidence || 50) - 5),
+          reasoning: pred.goalsAdvice,
+          value: 'medium',
+        });
+      }
+    }
+
+    // Çifte Şans (güven düşükse daha güvenli market)
+    if (pred.winner && pred.confidence >= 35 && pred.confidence < 60) {
+      const dcPick = pred.winner.includes('Ev') || pred.winner === matchDetail.formComparison?.homeLast5?.[0]
+        ? '1X (Ev Sahibi veya Beraberlik)'
+        : 'X2 (Deplasman veya Beraberlik)';
+      suggestions.push({
+        type: 'result',
+        market: 'Çifte Şans',
+        pick: dcPick,
+        confidence: Math.min(75, pred.confidence + 15),
+        reasoning: `${pred.winner} hafif favori, çifte şans daha güvenli`,
+        value: 'medium',
+      });
+    }
+  }
+
+  // H2H özetten ek öneri (suggestions hâlâ boşsa)
+  if (suggestions.length === 0 && matchDetail.h2hSummary) {
+    const h2h = matchDetail.h2hSummary;
+    const total = h2h.totalMatches || 1;
+    const homeWinRate = (h2h.homeWins / total) * 100;
+    const awayWinRate = (h2h.awayWins / total) * 100;
+    const drawRate = (h2h.draws / total) * 100;
+
+    if (homeWinRate >= 60) {
+      suggestions.push({
+        type: 'result',
+        market: 'Maç Sonucu',
+        pick: 'Ev Sahibi',
+        confidence: Math.min(70, Math.round(homeWinRate)),
+        reasoning: `Son ${total} karşılaşmanın ${h2h.homeWins} tanesini ev sahibi kazandı`,
+        value: homeWinRate >= 70 ? 'high' : 'medium',
+      });
+    } else if (awayWinRate >= 60) {
+      suggestions.push({
+        type: 'result',
+        market: 'Maç Sonucu',
+        pick: 'Deplasman',
+        confidence: Math.min(70, Math.round(awayWinRate)),
+        reasoning: `Son ${total} karşılaşmanın ${h2h.awayWins} tanesini deplasman kazandı`,
+        value: awayWinRate >= 70 ? 'high' : 'medium',
+      });
+    } else if (drawRate >= 40) {
+      suggestions.push({
+        type: 'result',
+        market: 'Çifte Şans',
+        pick: '1X',
+        confidence: Math.min(65, 45 + Math.round(drawRate / 3)),
+        reasoning: `Son ${total} karşılaşmanın ${h2h.draws} tanesi berabere`,
+        value: 'medium',
+      });
     }
   }
 

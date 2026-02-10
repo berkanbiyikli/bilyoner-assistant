@@ -459,6 +459,16 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
                 </div>
               )}
 
+              {/* Öneriler boşsa bilgi mesajı */}
+              {detail.data && !detailLoading && (!detail.data.betSuggestions || detail.data.betSuggestions.length === 0) && (
+                <div className="p-3 rounded-xl bg-muted/20 border border-border/30">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    <span className="text-xs">Öneriler yükleniyor veya bu maç için yeterli veri yok. Daha sonra tekrar deneyin.</span>
+                  </div>
+                </div>
+              )}
+
               {/* Team Stats */}
               {detail.data.teamStats && (
                 <div className="grid grid-cols-2 gap-2 text-xs">

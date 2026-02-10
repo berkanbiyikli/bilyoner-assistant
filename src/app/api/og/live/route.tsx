@@ -172,6 +172,7 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
             const ps = getPickStyle(match.pick);
             const oddsText = typeof match.odds === 'number' ? match.odds.toFixed(2) : String(match.odds || '');
             const reasons = parseReasoning(match.reasoning);
+            const isEstimatedOdds = (match.reasoning || '').includes('oran doğrulanamadı');
             const accent = won ? '#22c55e' : lost ? '#ef4444' : ps.border;
             const scoreParts = (match.score || '0-0').split('-');
             
@@ -318,9 +319,14 @@ function renderOpportunity(searchParams: URLSearchParams, isResult: boolean) {
                     </div>
                     
                     {/* Odds */}
-                    <span style={{ color: '#fbbf24', fontSize: oddsFontSize, fontWeight: 800, marginBottom: 8 }}>
-                      @{oddsText}
+                    <span style={{ color: isEstimatedOdds ? '#a1a1aa' : '#fbbf24', fontSize: oddsFontSize, fontWeight: 800, marginBottom: 8 }}>
+                      {isEstimatedOdds ? '~' : '@'}{oddsText}
                     </span>
+                    {isEstimatedOdds && (
+                      <span style={{ color: '#f97316', fontSize: 11, fontWeight: 600, marginBottom: 6 }}>
+                        ⚠️ tahmini oran
+                      </span>
+                    )}
 
                     {/* Confidence bar */}
                     <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>

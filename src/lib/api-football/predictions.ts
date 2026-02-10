@@ -36,18 +36,37 @@ export async function getOdds(fixtureId: number): Promise<OddsResponse | null> {
 }
 
 /**
- * Canlı oranları getir
+ * Canlı oranları getir - önce /odds/live, sonra /odds fallback
  */
 export async function getLiveOdds(fixtureId: number): Promise<OddsResponse | null> {
-  const response = await apiFootballFetch<OddsResponse[]>('/odds/live', {
-    fixture: fixtureId,
-  });
+  // 1. Önce canlı oran endpoint'ini dene
+  try {
+    const liveResponse = await apiFootballFetch<OddsResponse[]>('/odds/live', {
+      fixture: fixtureId,
+    });
 
-  if (response.response.length === 0) {
-    return null;
+    if (liveResponse.response.length > 0) {
+      return liveResponse.response[0];
+    }
+  } catch (e) {
+    console.log(`[Odds] /odds/live başarısız, /odds fallback denenecek: fixture ${fixtureId}`);
   }
 
-  return response.response[0];
+  // 2. Canlı oran yoksa pre-match oranlarına fallback
+  try {
+    const preMatchResponse = await apiFootballFetch<OddsResponse[]>('/odds', {
+      fixture: fixtureId,
+    });
+
+    if (preMatchResponse.response.length > 0) {
+      console.log(`[Odds] Pre-match oranları kullanılıyor: fixture ${fixtureId}`);
+      return preMatchResponse.response[0];
+    }
+  } catch (e) {
+    console.log(`[Odds] /odds da başarısız: fixture ${fixtureId}`);
+  }
+
+  return null;
 }
 
 // === Processed Types ===
@@ -194,6 +213,13 @@ export interface ProcessedOdds {
     awayOrDraw: number | null;
     homeOrAway: number | null;
   } | null;
+  // İlk Yarı Alt/Üst
+  firstHalfOverUnder: {
+    over05: number | null;
+    under05: number | null;
+    over15: number | null;
+    under15: number | null;
+  } | null;
 }
 
 /**
@@ -220,6 +246,9 @@ export function processOdds(odds: OddsResponse, fixtureId: number): ProcessedOdd
   const overUnder35 = findBet('Over/Under 3.5');
   const btts = findBet('Both Teams Score');
   const doubleChance = findBet('Double Chance');
+  // İlk Yarı Alt/Üst oranları
+  const htOverUnder05 = findBet('First Half Over/Under') || findBet('Over/Under First Half');
+  const htOverUnder15 = findBet('First Half Goals Over/Under 1.5');
 
   return {
     fixtureId,
@@ -246,5 +275,11 @@ export function processOdds(odds: OddsResponse, fixtureId: number): ProcessedOdd
       awayOrDraw: getOddValue(doubleChance, 'Draw/Away'),
       homeOrAway: getOddValue(doubleChance, 'Home/Away'),
     } : null,
+    firstHalfOverUnder: {
+      over05: getOddValue(htOverUnder05, 'Over 0.5') || getOddValue(htOverUnder05, 'Over'),
+      under05: getOddValue(htOverUnder05, 'Under 0.5') || getOddValue(htOverUnder05, 'Under'),
+      over15: getOddValue(htOverUnder15, 'Over 1.5') || getOddValue(htOverUnder15, 'Over'),
+      under15: getOddValue(htOverUnder15, 'Under 1.5') || getOddValue(htOverUnder15, 'Under'),
+    },
   };
 }

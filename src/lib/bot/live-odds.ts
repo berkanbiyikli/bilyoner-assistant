@@ -96,7 +96,13 @@ export function getOddsForPick(
 ): number | null {
   const p = pick.toLowerCase();
 
-  // Over/Under Goals
+  // İlk Yarı Over/Under (İY önce kontrol - "iy üst 0.5" gibi)
+  if ((p.includes('iy') || p.includes('İy') || p.includes('ilk yarı')) && (p.includes('üst 0.5') || p.includes('over 0.5'))) return odds.firstHalfOverUnder?.over05 ?? null;
+  if ((p.includes('iy') || p.includes('İy') || p.includes('ilk yarı')) && (p.includes('alt 0.5') || p.includes('under 0.5'))) return odds.firstHalfOverUnder?.under05 ?? null;
+  if ((p.includes('iy') || p.includes('İy') || p.includes('ilk yarı')) && (p.includes('üst 1.5') || p.includes('over 1.5'))) return odds.firstHalfOverUnder?.over15 ?? null;
+  if ((p.includes('iy') || p.includes('İy') || p.includes('ilk yarı')) && (p.includes('alt 1.5') || p.includes('under 1.5'))) return odds.firstHalfOverUnder?.under15 ?? null;
+
+  // Over/Under Goals (Maç Toplam)
   if (p.includes('üst 1.5') || p.includes('over 1.5')) return odds.overUnder?.over15 ?? null;
   if (p.includes('üst 2.5') || p.includes('over 2.5')) return odds.overUnder?.over25 ?? null;
   if (p.includes('üst 3.5') || p.includes('over 3.5')) return odds.overUnder?.over35 ?? null;

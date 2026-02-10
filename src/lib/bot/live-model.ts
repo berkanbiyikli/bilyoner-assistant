@@ -29,6 +29,10 @@ export interface InPlayProbabilities {
   under15: number;
   under25: number;
 
+  // İlk Yarı Over/Under (0-100 %) - sadece 1H'de anlamlı
+  htOver05: number;
+  htOver15: number;
+
   // BTTS (0-100 %)
   btts: number;
   bttsNo: number;
@@ -166,8 +170,16 @@ export function calculateInPlayProbabilities(match: LiveMatch): InPlayProbabilit
   const MAX_REMAINING = 7; // Max remaining goals to consider per team
 
   let over15 = 0, over25 = 0, over35 = 0, over45 = 0;
+  let htOver05 = 0, htOver15 = 0;
   let btts = 0;
   let homeWin = 0, draw = 0, awayWin = 0;
+
+  // İlk yarı kalan xG tahmini (ilk yarı için oran hesabı)
+  const isFirstHalf = match.status === '1H' || minute <= 45;
+  const remainingFirstHalfMin = isFirstHalf ? Math.max(1, 45 - minute) : 0;
+  const htRemainingRatio = isFirstHalf ? remainingFirstHalfMin / Math.max(1, 90 - minute) : 0;
+  const htHomeXG = homeXG * htRemainingRatio;
+  const htAwayXG = awayXG * htRemainingRatio;
 
   for (let hg = 0; hg <= MAX_REMAINING; hg++) {
     const pHome = poissonPMF(hg, homeXG);
@@ -188,10 +200,28 @@ export function calculateInPlayProbabilities(match: LiveMatch): InPlayProbabilit
       // BTTS
       if (finalHome > 0 && finalAway > 0) btts += prob;
 
+      // İlk Yarı Over/Under (kalan ilk yarı xG ile ek Poisson)
+      // NOT: Bu sadece ilk yarıdayken anlamlı - htHomeXG/htAwayXG 0 olur 2H'de
+
       // Match Winner
       if (finalHome > finalAway) homeWin += prob;
       else if (finalHome < finalAway) awayWin += prob;
       else draw += prob;
+    }
+  }
+
+  // İlk Yarı Poisson hesabı (ayrı convolution - sadece kalan ilk yarı xG ile)
+  if (isFirstHalf) {
+    const HT_MAX = 5;
+    for (let hg = 0; hg <= HT_MAX; hg++) {
+      const phHome = poissonPMF(hg, htHomeXG);
+      for (let ag = 0; ag <= HT_MAX; ag++) {
+        const phAway = poissonPMF(ag, htAwayXG);
+        const prob = phHome * phAway;
+        const htTotal = homeScore + awayScore + hg + ag;
+        if (htTotal > 0.5) htOver05 += prob;
+        if (htTotal > 1.5) htOver15 += prob;
+      }
     }
   }
 
@@ -208,6 +238,9 @@ export function calculateInPlayProbabilities(match: LiveMatch): InPlayProbabilit
     over45: round2(over45 * 100),
     under15: round2((1 - over15) * 100),
     under25: round2((1 - over25) * 100),
+
+    htOver05: round2(htOver05 * 100),
+    htOver15: round2(htOver15 * 100),
 
     btts: round2(btts * 100),
     bttsNo: round2((1 - btts) * 100),

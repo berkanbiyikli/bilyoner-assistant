@@ -43,9 +43,6 @@ const MIN_ODDS = 1.50;
 /** Minimum value edge (%) - bunun altında önerme */
 const MIN_VALUE_EDGE = 3;
 
-/** Gerçek oran yokken minimum model olasılığı (%) */
-const MIN_MODEL_PROB_NO_ODDS = 60;
-
 /** Gerçek oran varken minimum model olasılığı (%) */
 const MIN_MODEL_PROB_WITH_ODDS = 40;
 
@@ -159,6 +156,8 @@ function analyzeGoalMarkets(
   const totalShots = stats.homeShotsTotal + stats.awayShotsTotal;
   const estimatedXG = (totalShotsOnTarget * 0.32) + (totalShots * 0.06);
 
+  const isFirstHalf = match.status === '1H' || minute <= 45;
+
   // Kontrol edilecek pazarlar (mevcut skora göre filtrelenir)
   const marketsToCheck: Array<{
     pick: string;
@@ -169,12 +168,32 @@ function analyzeGoalMarkets(
     maxMinute: number;
     skip: boolean;
   }> = [
+    // === İLK YARI PAZARLARI ===
+    {
+      pick: 'İY Üst 0.5',
+      modelProb: modelProbs.htOver05,
+      type: 'xg_value',
+      market: 'İlk Yarı Gol',
+      minMinute: 15,
+      maxMinute: 43,
+      skip: !isFirstHalf || totalGoals >= 1, // İlk yarıda ve henüz gol yoksa
+    },
+    {
+      pick: 'İY Üst 1.5',
+      modelProb: modelProbs.htOver15,
+      type: 'goal_pressure',
+      market: 'İlk Yarı Gol',
+      minMinute: 10,
+      maxMinute: 40,
+      skip: !isFirstHalf || totalGoals >= 2,
+    },
+    // === MAÇ TOPLAM GOL PAZARLARI ===
     {
       pick: 'Üst 1.5 Gol',
       modelProb: modelProbs.over15,
       type: 'goal_pressure',
       market: 'Gol Sayısı',
-      minMinute: 45,
+      minMinute: 30,
       maxMinute: 82,
       skip: totalGoals >= 2,
     },
@@ -244,38 +263,8 @@ function analyzeGoalMarkets(
           action: valueBet.recommendation === 'strong_bet' || valueBet.recommendation === 'bet' ? 'bet' : 'notify',
         });
       }
-    } else if (!realOdds && mkt.modelProb >= MIN_MODEL_PROB_NO_ODDS) {
-      // === ORAN YOK - sadece model çok güvenli ise öner ===
-      const impliedOdds = 100 / mkt.modelProb;
-      const conservativeOdds = round2(impliedOdds * 1.10); // %10 marj ekle
-
-      if (conservativeOdds >= MIN_ODDS) {
-        const reasoning = buildGoalReasoning(match, mkt.modelProb, null, estimatedXG, null);
-        const approxValue = Math.round((mkt.modelProb / 100 * conservativeOdds - 1) * 100);
-
-        opportunities.push({
-          id: generateOpportunityId(),
-          fixtureId: match.fixtureId,
-          match: {
-            homeTeam: match.homeTeam,
-            awayTeam: match.awayTeam,
-            score: `${homeScore}-${awayScore}`,
-            minute,
-          },
-          type: mkt.type,
-          market: mkt.market,
-          pick: mkt.pick,
-          confidence: Math.min(Math.round(mkt.modelProb * 0.90), 88),
-          reasoning: reasoning + ' ⚠️ oran doğrulanamadı',
-          urgency: mkt.modelProb >= 75 ? 'high' : 'medium',
-          estimatedOdds: conservativeOdds,
-          value: Math.max(approxValue, 5),
-          detectedAt: new Date(),
-          expiresAt: new Date(Date.now() + 8 * 60 * 1000),
-          action: mkt.modelProb >= 80 ? 'bet' : 'notify',
-        });
-      }
     }
+    // Gerçek oran yoksa bu pazarı atla - tahmini oran gösterme
   }
 
   return opportunities;
@@ -345,32 +334,8 @@ function analyzeBTTSMarket(
         action: valueBet.recommendation === 'strong_bet' || valueBet.recommendation === 'bet' ? 'bet' : 'notify',
       };
     }
-  } else if (!realOdds && modelProb >= MIN_MODEL_PROB_NO_ODDS) {
-    const conservativeOdds = round2((100 / modelProb) * 1.10);
-    if (conservativeOdds >= MIN_ODDS) {
-      return {
-        id: generateOpportunityId(),
-        fixtureId: match.fixtureId,
-        match: {
-          homeTeam: match.homeTeam,
-          awayTeam: match.awayTeam,
-          score: `${homeScore}-${awayScore}`,
-          minute,
-        },
-        type: 'goal_pressure',
-        market: 'KG Var/Yok',
-        pick: 'Karşılıklı Gol Var',
-        confidence: Math.min(Math.round(modelProb * 0.90), 85),
-        reasoning: `Model: %${modelProb.toFixed(0)}${contextReason ? ' | ' + contextReason : ''} ⚠️ oran doğrulanamadı`,
-        urgency: modelProb >= 75 ? 'high' : 'medium',
-        estimatedOdds: conservativeOdds,
-        value: Math.max(Math.round((modelProb / 100 * conservativeOdds - 1) * 100), 5),
-        detectedAt: new Date(),
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-        action: 'notify',
-      };
-    }
   }
+  // Gerçek oran yoksa KG pazarını atla
 
   return null;
 }
@@ -896,22 +861,48 @@ export function handleRedCardEvent(
  * xG Value Fırsatı Tespiti
  */
 export function detectXGValueOpportunity(
-  liveXG: LiveXGData, homeGoals: number, awayGoals: number, minute: number
+  liveXG: LiveXGData, homeGoals: number, awayGoals: number, minute: number,
+  matchStatus?: string
 ): HunterOpportunity | null {
   if (!liveXG.hasValueOpportunity) return null;
   const isGoldenChance = liveXG.totalXG >= 1.5 && (homeGoals + awayGoals) === 0;
   const totalCurrentGoals = homeGoals + awayGoals;
+  const isFirstHalf = (matchStatus === '1H') || minute <= 45;
+
+  // İlk yarıda ve gol yoksa İY 0.5 Üst, 1 gol varsa İY 1.5 Üst tercih et
+  let market: string;
+  let pick: string;
+  if (isFirstHalf && totalCurrentGoals === 0 && minute >= 15) {
+    // İlk yarıda 0-0 ve xG yüksek → İY 0.5 Üst çok daha mantıklı
+    market = 'İY 0.5 Üst';
+    pick = 'İY Üst 0.5';
+  } else if (isFirstHalf && totalCurrentGoals === 1 && minute <= 35) {
+    // İlk yarıda 1 gol var, erken dakika → İY 1.5 Üst
+    market = 'İY 1.5 Üst';
+    pick = 'İY Üst 1.5';
+  } else if (totalCurrentGoals < 2) {
+    market = '2.5 Üst';
+    pick = 'Üst 2.5';
+  } else if (totalCurrentGoals < 3) {
+    market = '3.5 Üst';
+    pick = 'Üst 3.5';
+  } else {
+    market = '4.5 Üst';
+    pick = 'Üst 4.5';
+  }
+
+  const htSuffix = isFirstHalf && pick.startsWith('İY') ? ' (İlk Yarı)' : '';
 
   return {
     id: `xg-value-${Date.now()}`,
     type: isGoldenChance ? 'golden_chance' : 'xg_value',
     title: liveXG.opportunityMessage || 'xG Value Fırsatı',
-    market: totalCurrentGoals < 2 ? '2.5 Üst' : totalCurrentGoals < 3 ? '3.5 Üst' : '4.5 Üst',
-    pick: totalCurrentGoals < 2 ? 'Üst 2.5' : totalCurrentGoals < 3 ? 'Üst 3.5' : 'Üst 4.5',
+    market,
+    pick,
     confidence: liveXG.confidence || 70,
     value: Math.round(liveXG.xgDifferential * 25),
     urgency: isGoldenChance ? 'critical' : (liveXG.xgDifferential >= 1.2 ? 'high' : 'medium'),
-    reasoning: `xG: ${liveXG.totalXG.toFixed(2)} vs Skor: ${homeGoals + awayGoals}. xG farkı: ${liveXG.xgDifferential.toFixed(2)}`,
+    reasoning: `xG: ${liveXG.totalXG.toFixed(2)} vs Skor: ${homeGoals + awayGoals}. xG farkı: ${liveXG.xgDifferential.toFixed(2)}${htSuffix}`,
     detectedAt: new Date(),
     expiresIn: isGoldenChance ? 180 : 300,
     playSound: isGoldenChance
@@ -993,7 +984,7 @@ export function detectHunterOpportunities(match: LiveMatch): HunterOpportunity[]
   const momentumOpp = detectMomentumSurge(momentum, minute, homeTeam, awayTeam);
   if (momentumOpp) opportunities.push(momentumOpp);
 
-  const xgOpp = detectXGValueOpportunity(liveXG, homeScore, awayScore, minute);
+  const xgOpp = detectXGValueOpportunity(liveXG, homeScore, awayScore, minute, match.status);
   if (xgOpp) opportunities.push(xgOpp);
 
   if (redCardResult.opportunity) opportunities.push(redCardResult.opportunity);
@@ -1007,13 +998,33 @@ export function detectHunterOpportunities(match: LiveMatch): HunterOpportunity[]
   ].filter(Boolean).length;
 
   const goldenTotalGoals = homeScore + awayScore;
+  const isFirstHalf = match.status === '1H' || minute <= 45;
   if (goldenChanceSignals >= 3) {
+    // İlk yarıda ve 0-0 ise İY 0.5 Üst, değilse normal mantık
+    let goldenMarket: string;
+    let goldenPick: string;
+    if (isFirstHalf && goldenTotalGoals === 0) {
+      goldenMarket = 'İY 0.5 Üst';
+      goldenPick = 'İY Üst 0.5';
+    } else if (isFirstHalf && goldenTotalGoals === 1 && minute <= 35) {
+      goldenMarket = 'İY 1.5 Üst';
+      goldenPick = 'İY Üst 1.5';
+    } else if (goldenTotalGoals >= 3) {
+      goldenMarket = '3.5 Üst';
+      goldenPick = 'Üst 3.5';
+    } else if (goldenTotalGoals >= 2) {
+      goldenMarket = '2.5 Üst';
+      goldenPick = 'Üst 2.5';
+    } else {
+      goldenMarket = '1.5 Üst';
+      goldenPick = 'Üst 1.5';
+    }
     opportunities.push({
       id: `golden-${Date.now()}`,
       type: 'golden_chance',
       title: '🏆 ALTIN FIRSAT - ÇOKLU SİNYAL!',
-      market: goldenTotalGoals >= 3 ? '3.5 Üst' : goldenTotalGoals >= 2 ? '2.5 Üst' : 'Üst 1.5 Gol',
-      pick: goldenTotalGoals >= 3 ? 'Üst 3.5' : goldenTotalGoals >= 2 ? 'Üst 2.5' : 'Üst 1.5',
+      market: goldenMarket,
+      pick: goldenPick,
       confidence: 90,
       value: 40,
       urgency: 'critical',

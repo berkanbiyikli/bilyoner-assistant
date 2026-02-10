@@ -503,7 +503,9 @@ function formatOpportunityTweet(opportunities: Array<{
     lines.push(`${i + 1}. ${home} ${match.homeScore}-${match.awayScore} ${away}`);
     lines.push(`⏱️ ${match.minute}' | ${match.league}`);
     lines.push(`🎯 Model Çıktısı: ${opportunity} @${odds.toFixed(2)}`);
-    lines.push(`📈 Veri: ${reasoning}`);
+    // Oran doğrulanamadıysa belirt
+    const isEstimated = reasoning.includes('oran doğrulanamadı');
+    lines.push(`📈 Veri: ${isEstimated ? `Model: %${confidence} ⚠️ oran doğrulanamadı` : reasoning}`);
     
     if (i < opportunities.length - 1) lines.push('');
   });

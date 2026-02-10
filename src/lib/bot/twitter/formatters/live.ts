@@ -28,15 +28,16 @@ export function formatLiveOpportunityTweet(
     `📍 ${opportunity.match.minute}' | Skor: ${opportunity.match.score}`
   );
   lines.push('');
-  // Oran gösterimi: gerçek vs tahmin
-  const isEstimatedOdds = opportunity.reasoning?.includes('oran doğrulanamadı');
-  const oddsPrefix = isEstimatedOdds ? '~' : '@';
   lines.push(`🎯 ${opportunity.market}: ${opportunity.pick}`);
-  lines.push(
-    `📊 Oran: ${oddsPrefix}${opportunity.estimatedOdds.toFixed(2)} | Güven: %${opportunity.confidence}`
-  );
-  if (isEstimatedOdds) {
-    lines.push('⚠️ Tahmini oran (doğrulanamadı)');
+  // Canlı oran varsa göster, yoksa sadece güven
+  if (opportunity.estimatedOdds > 0) {
+    lines.push(
+      `📊 Oran: @${opportunity.estimatedOdds.toFixed(2)} | Güven: %${opportunity.confidence}`
+    );
+  } else {
+    lines.push(
+      `📊 Güven: %${opportunity.confidence} | 📈 İstatistik Bazlı`
+    );
   }
 
   if (opportunity.reasoning) {
@@ -80,11 +81,15 @@ export function formatLiveSummaryTweet(
     lines.push(
       `${i + 1}. ${emoji} ${opp.match.homeTeam} vs ${opp.match.awayTeam}`
     );
-    const isEstimated = opp.reasoning?.includes('oran doğrulanamadı');
-    const oddsPrefix = isEstimated ? '~' : '@';
-    lines.push(
-      `   ${opp.match.minute}' | ${opp.market} ${oddsPrefix}${opp.estimatedOdds.toFixed(2)}`
-    );
+    if (opp.estimatedOdds > 0) {
+      lines.push(
+        `   ${opp.match.minute}' | ${opp.market} @${opp.estimatedOdds.toFixed(2)}`
+      );
+    } else {
+      lines.push(
+        `   ${opp.match.minute}' | ${opp.market} | %${opp.confidence} güven`
+      );
+    }
   });
 
   if (opportunities.length > 3) {

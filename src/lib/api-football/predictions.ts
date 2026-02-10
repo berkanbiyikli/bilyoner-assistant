@@ -36,37 +36,18 @@ export async function getOdds(fixtureId: number): Promise<OddsResponse | null> {
 }
 
 /**
- * Canlı oranları getir - önce /odds/live, sonra /odds fallback
+ * Canlı oranları getir (sadece /odds/live - canlı oran yoksa null döner)
  */
 export async function getLiveOdds(fixtureId: number): Promise<OddsResponse | null> {
-  // 1. Önce canlı oran endpoint'ini dene
-  try {
-    const liveResponse = await apiFootballFetch<OddsResponse[]>('/odds/live', {
-      fixture: fixtureId,
-    });
+  const response = await apiFootballFetch<OddsResponse[]>('/odds/live', {
+    fixture: fixtureId,
+  });
 
-    if (liveResponse.response.length > 0) {
-      return liveResponse.response[0];
-    }
-  } catch (e) {
-    console.log(`[Odds] /odds/live başarısız, /odds fallback denenecek: fixture ${fixtureId}`);
+  if (response.response.length === 0) {
+    return null;
   }
 
-  // 2. Canlı oran yoksa pre-match oranlarına fallback
-  try {
-    const preMatchResponse = await apiFootballFetch<OddsResponse[]>('/odds', {
-      fixture: fixtureId,
-    });
-
-    if (preMatchResponse.response.length > 0) {
-      console.log(`[Odds] Pre-match oranları kullanılıyor: fixture ${fixtureId}`);
-      return preMatchResponse.response[0];
-    }
-  } catch (e) {
-    console.log(`[Odds] /odds da başarısız: fixture ${fixtureId}`);
-  }
-
-  return null;
+  return response.response[0];
 }
 
 // === Processed Types ===

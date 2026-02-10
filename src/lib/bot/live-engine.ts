@@ -471,20 +471,11 @@ function analyzeCardOpportunity(match: LiveMatch): LiveOpportunity | null {
 
   if (stats.homeFouls >= 5 && stats.awayFouls >= 5) confidence += 4;
 
-  // Kart için daha yüksek eşik (oran doğrulanamıyor)
+  // Kart için daha yüksek eşik (canlı kart oranı API'de yok)
   if (confidence < 70) return null;
 
-  // Oran tahmini (heuristik)
-  const difficulty = cardsNeeded / (remainingMinutes / 30);
-  let estimatedOdds: number;
-  if (difficulty <= 0.8) estimatedOdds = 1.60;
-  else if (difficulty <= 1.2) estimatedOdds = 1.80;
-  else if (difficulty <= 1.6) estimatedOdds = 2.00;
-  else estimatedOdds = 2.30;
-  if (estimatedOdds < MIN_ODDS) return null;
-
-  const value = ((100 / confidence) / estimatedOdds - 1) * 100;
-  if (value < 6) return null;
+  // Canlı kart oranı yok - sadece istatistik bazlı değerlendirme
+  const value = Math.max(0, confidence - 60);
 
   const projectedTotal = totalCards + expectedRemainingCards;
 
@@ -496,9 +487,9 @@ function analyzeCardOpportunity(match: LiveMatch): LiveOpportunity | null {
     market: 'Kart Sayısı',
     pick: `Üst ${targetThreshold} Kart`,
     confidence: Math.min(confidence, 88),
-    reasoning: `${totalCards} kart ${minute}' (${totalFouls} faul, tempo: ${(foulRate * 90).toFixed(0)}/maç) - projeksiyon: ${projectedTotal.toFixed(1)} kart${isTenseMatch ? ', gergin maç' : ''} ⚠️ tahmini oran`,
+    reasoning: `${totalCards} kart ${minute}' (${totalFouls} faul, tempo: ${(foulRate * 90).toFixed(0)}/maç) - projeksiyon: ${projectedTotal.toFixed(1)} kart${isTenseMatch ? ', gergin maç' : ''}`,
     urgency: confidence >= 80 ? 'high' : 'medium',
-    estimatedOdds,
+    estimatedOdds: 0,
     value: Math.round(value),
     detectedAt: new Date(),
     action: confidence >= 78 ? 'bet' : 'notify',
@@ -547,19 +538,11 @@ function analyzeCornerOpportunity(match: LiveMatch): LiveOpportunity | null {
   if (cornerRate >= 0.15) confidence += 8;
   else if (cornerRate >= 0.12) confidence += 5;
 
-  // Korner için de yüksek eşik
+  // Korner için de yüksek eşik (canlı korner oranı API'de yok)
   if (confidence < 72) return null;
 
-  const difficulty = cornersNeeded / (remainingMinutes / 15);
-  let estimatedOdds: number;
-  if (difficulty <= 0.7) estimatedOdds = 1.60;
-  else if (difficulty <= 1.0) estimatedOdds = 1.80;
-  else if (difficulty <= 1.4) estimatedOdds = 2.00;
-  else estimatedOdds = 2.30;
-  if (estimatedOdds < MIN_ODDS) return null;
-
-  const value = ((100 / confidence) / estimatedOdds - 1) * 100;
-  if (value < 8) return null;
+  // Canlı korner oranı yok - sadece istatistik bazlı değerlendirme
+  const value = Math.max(0, confidence - 60);
 
   return {
     id: generateOpportunityId(),
@@ -569,9 +552,9 @@ function analyzeCornerOpportunity(match: LiveMatch): LiveOpportunity | null {
     market: 'Korner Sayısı',
     pick: `Üst ${targetThreshold} Korner`,
     confidence: Math.min(confidence, 88),
-    reasoning: `${totalCorners} korner ${minute}' (tempo: ${(cornerRate * 90).toFixed(1)}/maç) - hedef ${targetThreshold}, ${totalShots} şut ⚠️ tahmini oran`,
+    reasoning: `${totalCorners} korner ${minute}' (tempo: ${(cornerRate * 90).toFixed(1)}/maç) - hedef ${targetThreshold}, ${totalShots} şut`,
     urgency: confidence >= 82 ? 'high' : 'medium',
-    estimatedOdds,
+    estimatedOdds: 0,
     value: Math.round(value),
     detectedAt: new Date(),
     action: confidence >= 78 ? 'bet' : 'notify',

@@ -24,7 +24,7 @@ const DAILY_SOFT_STOP = 500;       // Bu sayının altında sadece kritik istekl
 const MINUTE_COOLDOWN_MS = 65000;  // Dakikalık limit aşımında bekleme süresi (65s)
 
 // Kritik endpoint'ler (soft-stop'ta bile çalışır)
-const CRITICAL_ENDPOINTS = ['/fixtures', '/odds'];
+const CRITICAL_ENDPOINTS = ['/fixtures'];
 
 // Rate limit durumu (sunucu memory'sinde tutulur)
 let lastRateLimitInfo: RateLimitInfo | null = null;

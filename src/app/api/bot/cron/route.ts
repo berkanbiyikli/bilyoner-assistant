@@ -502,10 +502,14 @@ function formatOpportunityTweet(opportunities: Array<{
     
     lines.push(`${i + 1}. ${home} ${match.homeScore}-${match.awayScore} ${away}`);
     lines.push(`⏱️ ${match.minute}' | ${match.league}`);
-    lines.push(`🎯 Model Çıktısı: ${opportunity} @${odds.toFixed(2)}`);
-    // Oran doğrulanamadıysa belirt
-    const isEstimated = reasoning.includes('oran doğrulanamadı');
-    lines.push(`📈 Veri: ${isEstimated ? `Model: %${confidence} ⚠️ oran doğrulanamadı` : reasoning}`);
+    // Oran varsa göster, yoksa sadece pick
+    if (odds > 0) {
+      lines.push(`🎯 Model Çıktısı: ${opportunity} @${odds.toFixed(2)}`);
+    } else {
+      lines.push(`🎯 Model Çıktısı: ${opportunity}`);
+    }
+    // İstatistik bazlı veri
+    lines.push(`📈 Veri: ${reasoning}`);
     
     if (i < opportunities.length - 1) lines.push('');
   });

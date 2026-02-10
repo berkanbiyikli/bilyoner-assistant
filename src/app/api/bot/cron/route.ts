@@ -334,7 +334,7 @@ async function scanLiveOpportunities(): Promise<Array<{
       const status = fixture.fixture?.status?.short || '';
       const leagueId = fixture.league?.id || 0;
       
-      if (!isTop20League(leagueId)) continue;
+      // Tüm ligler kabul (filtre kaldırıldı)
       if (minute >= 85 || status === 'HT' || status === 'FT') continue;
       if (minute < 15) continue;
       
@@ -650,12 +650,14 @@ export async function GET(request: NextRequest) {
       const prevOppTweetTime = await getCronState<number>(REDIS_KEY_OPP_TWEET_TIME, 0);
       
       const isNewOpportunity = oppSnapshot !== prevOppSnapshot;
-      const MIN_OPPORTUNITY_INTERVAL = 15 * 60 * 1000; // Minimum 15 dk arası
+      const MIN_OPPORTUNITY_INTERVAL = 8 * 60 * 1000; // Minimum 8 dk arası
       const canTweetOpportunity = Date.now() - prevOppTweetTime >= MIN_OPPORTUNITY_INTERVAL;
       
-      // Duplicate check: live route zaten tweet attıysa atma
-      const tweetedFixtures = (await cacheGet<number[]>(REDIS_KEY_TWEETED_FIXTURES)) || [];
-      const uniqueOpportunities = opportunities.filter(o => !tweetedFixtures.includes(o.match.fixtureId));
+      // Duplicate check: live route zaten tweet attıysa atma (market bazlı)
+      const tweetedFixtures = (await cacheGet<string[]>(REDIS_KEY_TWEETED_FIXTURES)) || [];
+      const uniqueOpportunities = opportunities.filter(o => 
+        !tweetedFixtures.some(t => t === `${o.match.fixtureId}:${o.opportunity}` || t === String(o.match.fixtureId))
+      );
       
       if (isNewOpportunity && canTweetOpportunity && uniqueOpportunities.length > 0) {
         const tweetText = formatOpportunityTweet(uniqueOpportunities);
@@ -710,15 +712,15 @@ export async function GET(request: NextRequest) {
             source: 'cron-bot',
           };
           await saveLivePick(pick);
-          // Fixture'ı tweeted olarak işaretle (duplicate prevention)
-          tweetedFixtures.push(opp.match.fixtureId);
+          // Fixture:market'ı tweeted olarak işaretle (duplicate prevention)
+          tweetedFixtures.push(`${opp.match.fixtureId}:${opp.opportunity}`);
         }
-        await cacheSet(REDIS_KEY_TWEETED_FIXTURES, tweetedFixtures, 3600);
+        await cacheSet(REDIS_KEY_TWEETED_FIXTURES, tweetedFixtures, 7200); // 2 saat TTL
         log(`${uniqueOpportunities.length} pick kaydedildi (takip için)`);
       } else if (!isNewOpportunity) {
         log('Aynı fırsatlar, tweet atılmadı');
       } else if (!canTweetOpportunity) {
-        log('Son fırsat tweetinden 15 dk geçmedi, bekleniyor');
+        log('Son fırsat tweetinden 8 dk geçmedi, bekleniyor');
       }
     } else {
       log('Şu an uygun fırsat yok');

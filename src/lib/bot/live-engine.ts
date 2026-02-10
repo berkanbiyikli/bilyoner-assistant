@@ -41,13 +41,13 @@ import type { ProcessedOdds } from '../api-football/predictions';
 const MIN_ODDS = 1.50;
 
 /** Minimum value edge (%) - bunun altında önerme */
-const MIN_VALUE_EDGE = 5;
+const MIN_VALUE_EDGE = 3;
 
 /** Gerçek oran yokken minimum model olasılığı (%) */
-const MIN_MODEL_PROB_NO_ODDS = 70;
+const MIN_MODEL_PROB_NO_ODDS = 60;
 
 /** Gerçek oran varken minimum model olasılığı (%) */
-const MIN_MODEL_PROB_WITH_ODDS = 45;
+const MIN_MODEL_PROB_WITH_ODDS = 40;
 
 // Fırsat ID üreteci
 let opportunityCounter = 0;
@@ -265,14 +265,14 @@ function analyzeGoalMarkets(
           type: mkt.type,
           market: mkt.market,
           pick: mkt.pick,
-          confidence: Math.min(Math.round(mkt.modelProb * 0.85), 85),
+          confidence: Math.min(Math.round(mkt.modelProb * 0.90), 88),
           reasoning: reasoning + ' ⚠️ oran doğrulanamadı',
-          urgency: 'medium',
+          urgency: mkt.modelProb >= 75 ? 'high' : 'medium',
           estimatedOdds: conservativeOdds,
-          value: approxValue,
+          value: Math.max(approxValue, 5),
           detectedAt: new Date(),
           expiresAt: new Date(Date.now() + 8 * 60 * 1000),
-          action: 'notify',
+          action: mkt.modelProb >= 80 ? 'bet' : 'notify',
         });
       }
     }
@@ -360,11 +360,11 @@ function analyzeBTTSMarket(
         type: 'goal_pressure',
         market: 'KG Var/Yok',
         pick: 'Karşılıklı Gol Var',
-        confidence: Math.min(Math.round(modelProb * 0.85), 82),
+        confidence: Math.min(Math.round(modelProb * 0.90), 85),
         reasoning: `Model: %${modelProb.toFixed(0)}${contextReason ? ' | ' + contextReason : ''} ⚠️ oran doğrulanamadı`,
-        urgency: 'medium',
+        urgency: modelProb >= 75 ? 'high' : 'medium',
         estimatedOdds: conservativeOdds,
-        value: Math.round((modelProb / 100 * conservativeOdds - 1) * 100),
+        value: Math.max(Math.round((modelProb / 100 * conservativeOdds - 1) * 100), 5),
         detectedAt: new Date(),
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         action: 'notify',

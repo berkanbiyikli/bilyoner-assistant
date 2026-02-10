@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
   try {
     // Bugünün maçlarını al
     const matches = await getDailyMatches();
-    const topMatches = matches?.filter(m => isTop20League(m.league.id) && m.status.isUpcoming) || [];
+    const topMatches = matches?.filter(m => m.status.isUpcoming) || [];
     
     // Dinamik istatistik üret
     const generatedStats: DeepStatsData[] = [];

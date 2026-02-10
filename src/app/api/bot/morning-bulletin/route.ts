@@ -62,9 +62,8 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    // Top ligleri filtrele
+    // Tüm liglerdeki maçlar (filtre kaldırıldı)
     const topMatches = matches
-      .filter(m => isTop20League(m.league.id))
       .filter(m => m.status.isUpcoming);
     
     console.log(`[MorningBulletin] ${topMatches.length} top lig maçı için analiz başlıyor...`);

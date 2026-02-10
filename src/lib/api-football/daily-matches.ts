@@ -32,13 +32,11 @@ export async function getDailyMatches(date?: Date): Promise<DailyMatchFixture[]>
       timezone: 'Europe/Istanbul',
     });
     
-    // Top 20 ligleri filtrele
-    const filteredFixtures = response.response.filter(fixture => 
-      isTop20League(fixture.league.id)
-    );
+    // Tüm maçları al (lig filtresi kaldırıldı - tüm ligler gösterilecek)
+    const allFixtures = response.response;
     
     // Maçları işle ve DailyMatchFixture'a dönüştür
-    const processedMatches = filteredFixtures.map(processDailyFixture);
+    const processedMatches = allFixtures.map(processDailyFixture);
     
     // Sırala: Önce lig önceliği, sonra canlı maçlar üstte, son olarak zamana göre
     return processedMatches.sort((a, b) => {

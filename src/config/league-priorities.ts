@@ -37,16 +37,27 @@ export const LEAGUE_HOME_ADVANTAGE: Record<number, number> = {
   // 🌍 Diğer Avrupa Ligleri
   94: 1.16,   // Primeira Liga (Portekiz)
   88: 1.14,   // Eredivisie (Hollanda)
+  89: 1.16,   // Eerste Divisie (Hollanda 2. Lig)
   144: 1.15,  // Jupiler Pro League (Belçika)
   179: 1.18,  // Scottish Premiership
+  180: 1.16,  // Scottish Championship
   197: 1.22,  // Super League (Yunanistan)
+  188: 1.18,  // Austrian Bundesliga (Avusturya)
+  345: 1.16,  // Czech First League (Çekya)
+  210: 1.20,  // HNL (Hırvatistan)
+  286: 1.22,  // SuperLiga (Sırbistan)
+  283: 1.24,  // Liga I (Romanya)
+  333: 1.20,  // Premier League (Ukrayna)
+  271: 1.18,  // NB I (Macaristan)
   
   // 🌎 Güney Amerika (Yüksek ev avantajı)
   71: 1.30,   // Serie A (Brezilya)
   128: 1.32,  // Liga Profesional (Arjantin)
   
-  // 🇸🇦 Suudi Arabistan
+  // 🇸🇦 Suudi Arabistan & Diğer
   307: 1.20,  // Saudi Pro League
+  253: 1.16,  // MLS (ABD)
+  262: 1.22,  // Liga MX (Meksika)
 };
 
 /** Varsayılan ev avantajı (listeye dahil olmayanlar için) */
@@ -103,6 +114,8 @@ export const LEAGUE_PRIORITIES: Record<number, number> = {
   137: 88,   // Coppa Italia (İtalya)
   81: 87,    // DFB Pokal (Almanya)
   66: 86,    // Coupe de France (Fransa)
+  90: 82,    // KNVB Beker (Hollanda Kupası)
+  96: 81,    // Taça de Portugal (Portekiz Kupası)
   
   // 🇪🇸 İspanya Alt Ligler
   141: 74,   // La Liga 2
@@ -118,6 +131,7 @@ export const LEAGUE_PRIORITIES: Record<number, number> = {
   
   // 🌍 Diğer Avrupa
   179: 50,   // Scottish Premiership
+  180: 40,   // Scottish Championship
   197: 49,   // Superliga (Yunanistan)
   218: 48,   // Allsvenskan (İsveç)
   103: 47,   // Eliteserien (Norveç)
@@ -125,8 +139,18 @@ export const LEAGUE_PRIORITIES: Record<number, number> = {
   207: 45,   // Super League (İsviçre)
   235: 44,   // Premier Liga (Rusya - askıya alındı ama olabilir)
   106: 43,   // Ekstraklasa (Polonya)
+  188: 52,   // Austrian Bundesliga (Avusturya)
+  345: 48,   // Czech First League (Çekya)
+  210: 47,   // HNL (Hırvatistan)
+  286: 46,   // SuperLiga (Sırbistan)
+  283: 45,   // Liga I (Romanya)
+  333: 50,   // Premier League (Ukrayna)
+  271: 44,   // NB I (Macaristan)
   
-  // 🇺🇸 Amerika
+  // 🇳🇱 Hollanda Alt Lig
+  89: 55,    // Eerste Divisie (Hollanda 2. Lig)
+  
+  // 🇸 Amerika
   253: 42,   // MLS
   262: 41,   // Liga MX (Meksika)
   
@@ -164,7 +188,7 @@ export const LEAGUE_CATEGORIES = {
   TOP_5: [39, 140, 135, 78, 61],
   TURKEY: [203, 204, 206],
   UEFA: [2, 3, 848],
-  CUPS: [45, 48, 143, 137, 81, 66],  // 🏆 Lig Kupaları
+  CUPS: [45, 48, 143, 137, 81, 66, 90, 96],  // 🏆 Lig Kupaları
   INTERNATIONAL: [1, 4, 9, 6],
 } as const;
 
@@ -188,14 +212,23 @@ export const TOP_20_LEAGUES = [
   // 🌍 Diğer Önemli Avrupa Ligleri
   { id: 94, name: 'Primeira Liga', country: 'Portugal', flag: '🇵🇹' },
   { id: 88, name: 'Eredivisie', country: 'Netherlands', flag: '🇳🇱' },
+  { id: 89, name: 'Eerste Divisie', country: 'Netherlands', flag: '🇳🇱' },
   { id: 144, name: 'Jupiler Pro League', country: 'Belgium', flag: '🇧🇪' },
   { id: 179, name: 'Scottish Premiership', country: 'Scotland', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿' },
+  { id: 180, name: 'Scottish Championship', country: 'Scotland', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿' },
   { id: 197, name: 'Super League', country: 'Greece', flag: '🇬🇷' },
+  { id: 188, name: 'Bundesliga', country: 'Austria', flag: '🇦🇹' },
   { id: 207, name: 'Super League', country: 'Switzerland', flag: '🇨🇭' },
   { id: 218, name: 'Allsvenskan', country: 'Sweden', flag: '🇸🇪' },
   { id: 119, name: 'Superligaen', country: 'Denmark', flag: '🇩🇰' },
   { id: 103, name: 'Eliteserien', country: 'Norway', flag: '🇳🇴' },
   { id: 106, name: 'Ekstraklasa', country: 'Poland', flag: '🇵🇱' },
+  { id: 345, name: 'First League', country: 'Czech Republic', flag: '🇨🇿' },
+  { id: 210, name: 'HNL', country: 'Croatia', flag: '🇭🇷' },
+  { id: 286, name: 'SuperLiga', country: 'Serbia', flag: '🇷🇸' },
+  { id: 283, name: 'Liga I', country: 'Romania', flag: '🇷🇴' },
+  { id: 333, name: 'Premier League', country: 'Ukraine', flag: '🇺🇦' },
+  { id: 271, name: 'NB I', country: 'Hungary', flag: '🇭🇺' },
   
   // � Lig Kupaları
   { id: 45, name: 'FA Cup', country: 'England', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
@@ -204,9 +237,13 @@ export const TOP_20_LEAGUES = [
   { id: 137, name: 'Coppa Italia', country: 'Italy', flag: '🇮🇹' },
   { id: 81, name: 'DFB Pokal', country: 'Germany', flag: '🇩🇪' },
   { id: 66, name: 'Coupe de France', country: 'France', flag: '🇫🇷' },
+  { id: 90, name: 'KNVB Beker', country: 'Netherlands', flag: '🇳🇱' },
+  { id: 96, name: 'Taça de Portugal', country: 'Portugal', flag: '🇵🇹' },
   
-  // �🌏 Diğer Kıtalar
+  // 🌏 Diğer Kıtalar
   { id: 307, name: 'Saudi Pro League', country: 'Saudi Arabia', flag: '🇸🇦' },
+  { id: 253, name: 'MLS', country: 'USA', flag: '🇺🇸' },
+  { id: 262, name: 'Liga MX', country: 'Mexico', flag: '🇲🇽' },
   { id: 71, name: 'Serie A', country: 'Brazil', flag: '🇧🇷' },
   { id: 128, name: 'Liga Profesional', country: 'Argentina', flag: '🇦🇷' },
 ] as const;
@@ -266,13 +303,35 @@ export const BILYONER_LEAGUES: number[] = [
   
   // Diğer Popüler Avrupa Ligleri
   94,   // Primeira Liga (Portekiz)
+  96,   // Taça de Portugal (Portekiz Kupası)
   88,   // Eredivisie (Hollanda)
+  89,   // Eerste Divisie (Hollanda 2. Lig)
+  90,   // KNVB Beker (Hollanda Kupası)
   144,  // Jupiler Pro League (Belçika)
   179,  // Scottish Premiership
+  180,  // Scottish Championship
+  188,  // Austrian Bundesliga (Avusturya)
+  197,  // Super League (Yunanistan)
+  207,  // Super League (İsviçre)
+  218,  // Allsvenskan (İsveç)
+  103,  // Eliteserien (Norveç)
+  119,  // Superligaen (Danimarka)
+  106,  // Ekstraklasa (Polonya)
+  345,  // Czech First League (Çekya)
+  210,  // HNL (Hırvatistan)
+  286,  // SuperLiga (Sırbistan)
+  283,  // Liga I (Romanya)
+  333,  // Premier League (Ukrayna)
+  271,  // NB I (Macaristan)
   
   // Güney Amerika
   71,   // Serie A (Brezilya)
   128,  // Liga Profesional (Arjantin)
+  
+  // Diğer
+  307,  // Saudi Pro League
+  253,  // MLS (ABD)
+  262,  // Liga MX (Meksika)
   
   // Uluslararası
   1,    // World Cup

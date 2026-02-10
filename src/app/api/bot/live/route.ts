@@ -27,7 +27,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 // Spam önleme - Redis tabanlı (Vercel cold start'a dayanıklı)
-const LIVE_TWEET_COOLDOWN = 15 * 60 * 1000; // 15 dk arası
+const LIVE_TWEET_COOLDOWN = 8 * 60 * 1000; // 8 dk arası (eskiden 15 dk)
 const REDIS_KEY_LIVE_TWEET_TIME = 'bot:live:lastTweetTime';
 const REDIS_KEY_LIVE_TWEET_SNAPSHOT = 'bot:live:lastSnapshot';
 const REDIS_KEY_TWEETED_FIXTURES = 'bot:live:tweetedFixtures'; // Duplicate prevention
@@ -44,16 +44,18 @@ async function getLastLiveTweetSnapshot(): Promise<string> {
 async function setLastLiveTweetSnapshot(snapshot: string): Promise<void> {
   await cacheSet(REDIS_KEY_LIVE_TWEET_SNAPSHOT, snapshot, 3600);
 }
-// Fixture bazlı duplicate tweet önleme (cron + live arası)
-async function isFixtureAlreadyTweeted(fixtureId: number): Promise<boolean> {
-  const tweeted = (await cacheGet<number[]>(REDIS_KEY_TWEETED_FIXTURES)) || [];
-  return tweeted.includes(fixtureId);
+// Fixture + market bazlı duplicate tweet önleme (cron + live arası)
+async function isFixtureAlreadyTweeted(fixtureId: number, market?: string): Promise<boolean> {
+  const tweeted = (await cacheGet<string[]>(REDIS_KEY_TWEETED_FIXTURES)) || [];
+  const key = market ? `${fixtureId}:${market}` : String(fixtureId);
+  return tweeted.some(t => t === key || t === String(fixtureId));
 }
-async function markFixtureTweeted(fixtureId: number): Promise<void> {
-  const tweeted = (await cacheGet<number[]>(REDIS_KEY_TWEETED_FIXTURES)) || [];
-  if (!tweeted.includes(fixtureId)) {
-    tweeted.push(fixtureId);
-    await cacheSet(REDIS_KEY_TWEETED_FIXTURES, tweeted, 3600); // 1 saat TTL
+async function markFixtureTweeted(fixtureId: number, market?: string): Promise<void> {
+  const tweeted = (await cacheGet<string[]>(REDIS_KEY_TWEETED_FIXTURES)) || [];
+  const key = market ? `${fixtureId}:${market}` : String(fixtureId);
+  if (!tweeted.includes(key)) {
+    tweeted.push(key);
+    await cacheSet(REDIS_KEY_TWEETED_FIXTURES, tweeted, 7200); // 2 saat TTL
   }
 }
 
@@ -121,8 +123,8 @@ export async function GET(request: NextRequest) {
     // Canlı maçları getir
     const liveFixtures = await getLiveFixtures();
     
-    // Top 20 ligleri filtrele
-    const topLeagueMatches = liveFixtures.filter(f => isTop20League(f.league.id));
+    // Tüm liglerdeki canlı maçlar (filtre kaldırıldı)
+    const topLeagueMatches = liveFixtures;
     
     if (topLeagueMatches.length === 0) {
       return NextResponse.json({
@@ -157,7 +159,7 @@ export async function GET(request: NextRequest) {
     // Yüksek güvenli fırsat varsa tweet at
     let tweetSent = false;
     let savedPicks: string[] = [];
-    const tweetableOpportunities = bestOpportunities.filter(o => o.confidence >= 75);
+    const tweetableOpportunities = bestOpportunities.filter(o => o.confidence >= 60);
     
     if (tweetableOpportunities.length > 0) {
       const oppSnapshot = tweetableOpportunities.map(o => 
@@ -170,10 +172,10 @@ export async function GET(request: NextRequest) {
       const canTweet = Date.now() - lastTweetTime >= LIVE_TWEET_COOLDOWN;
       const useMock = process.env.TWITTER_MOCK === 'true';
       
-      // Duplicate fixture check: cron veya live zaten tweet attıysa atma
+      // Duplicate fixture+market check: cron veya live zaten tweet attıysa atma
       const uniqueOpportunities = [];
       for (const opp of tweetableOpportunities) {
-        if (!(await isFixtureAlreadyTweeted(opp.fixtureId))) {
+        if (!(await isFixtureAlreadyTweeted(opp.fixtureId, opp.market))) {
           uniqueOpportunities.push(opp);
         }
       }
@@ -236,7 +238,7 @@ export async function GET(request: NextRequest) {
             const saved = await saveLivePick(pick);
             if (saved) {
               savedPicks.push(`${opp.match.homeTeam} vs ${opp.match.awayTeam}: ${opp.pick}`);
-              await markFixtureTweeted(opp.fixtureId);
+              await markFixtureTweeted(opp.fixtureId, opp.market);
             }
           }
         }

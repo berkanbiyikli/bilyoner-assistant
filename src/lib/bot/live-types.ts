@@ -336,8 +336,8 @@ export const DEFAULT_LIVE_BOT_CONFIG: LiveBotConfig = {
   minMinuteToWatch: 5,
   maxMinuteToWatch: 85,
   
-  minConfidence: 65,
-  minValue: 10,
+  minConfidence: 55,
+  minValue: 3,
   
   autoBetEnabled: false,        // Başlangıçta kapalı
   autoBetMinConfidence: 80,
@@ -345,7 +345,7 @@ export const DEFAULT_LIVE_BOT_CONFIG: LiveBotConfig = {
   maxActiveBets: 3,
   
   tweetOpportunities: true,
-  tweetMinConfidence: 75,
+  tweetMinConfidence: 60,
 };
 
 // ============ CANLI BAHİS TİPLERİ ============

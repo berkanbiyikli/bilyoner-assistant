@@ -24,8 +24,8 @@ export async function GET() {
     // Canlı maçları getir (cache'siz)
     const fixtures = await getLiveFixtures();
     
-    // Top 20 ligleri filtrele
-    const topLeagueFixtures = fixtures.filter(f => isTop20League(f.league.id));
+    // Tüm liglerdeki canlı maçlar (filtre kaldırıldı)
+    const topLeagueFixtures = fixtures;
     
     // Her maç için istatistikleri SIRAYLA çek (rate limit'e takılmamak için)
     // Max 10 maç — her biri ayrı API call

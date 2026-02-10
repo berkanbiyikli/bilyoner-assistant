@@ -72,9 +72,8 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    // Top ligleri filtrele ve sırala
+    // Tüm ligleri sırala (filtre kaldırıldı)
     const topMatches = matches
-      .filter(m => isTop20League(m.league.id))
       .filter(m => m.status.isUpcoming)
       .sort((a, b) => {
         const priorityA = LEAGUE_PRIORITY[a.league.id] || 99;

@@ -1,7 +1,7 @@
 ﻿'use client';
 
 /**
- * Coupon Sidebar - Desktop kupon paneli
+ * Coupon Sidebar - Desktop kupon paneli (Bankroll entegreli)
  */
 
 import { useState } from 'react';
@@ -14,11 +14,12 @@ import { Input } from '@/components/ui/input';
 import { 
   useCouponStore, useCouponSelections, useCouponCount 
 } from '@/lib/coupon/store';
-import { CATEGORY_INFO, type SystemType } from '@/lib/coupon/types';
+import { useBankrollStore, calculateKelly } from '@/lib/bankroll';
+import { CATEGORY_INFO, type SystemType, type CombinationResult } from '@/lib/coupon/types';
 import { cn } from '@/lib/utils';
 import { 
   ShoppingCart, X, Trash2, ChevronUp, ChevronDown,
-  Ticket, Copy, Check, Sparkles
+  Ticket, Copy, Check, Sparkles, Wallet, TrendingUp, Shield
 } from 'lucide-react';
 
 const SYSTEM_TYPES: { value: SystemType; label: string; minSelections: number }[] = [
@@ -224,13 +225,115 @@ export function CouponSidebar() {
           </div>
         </div>
 
-        {/* CTA */}
-        <button className="w-full flex items-center justify-center gap-2 h-9 rounded-xl gradient-primary text-white text-xs font-semibold shadow-sm shadow-primary/20 hover:opacity-90 transition-opacity">
-          <Sparkles className="h-3.5 w-3.5" />
-          Kuponu Onayla
-        </button>
+        {/* CTA - Bankroll Entegreli */}
+        <CouponBankrollAction selections={selections} result={result} systemType={systemType} stakePerCombination={stakePerCombination} />
       </div>
     </Card>
+  );
+}
+
+/** Kupon onaylama + bankroll'a kaydetme */
+function CouponBankrollAction({ selections, result, systemType, stakePerCombination }: {
+  selections: ReturnType<typeof useCouponSelections>;
+  result: CombinationResult;
+  systemType: SystemType;
+  stakePerCombination: number;
+}) {
+  const { currentBalance, placeBet, isWithinLimits, riskLimits } = useBankrollStore();
+  const { clearCoupon } = useCouponStore();
+  const [confirmed, setConfirmed] = useState(false);
+  
+  const totalStake = result.totalStake;
+  const limitCheck = isWithinLimits(totalStake);
+  
+  // Kelly önerisi (kombine için toplam oran üzerinden)
+  const totalOdds = selections.reduce((acc, s) => acc * s.odds, 1);
+  const avgConfidence = selections.length > 0 
+    ? selections.reduce((sum, s) => sum + s.confidence, 0) / selections.length 
+    : 50;
+  
+  const kellyResult = calculateKelly({
+    odds: totalOdds,
+    probability: avgConfidence / 100,
+    bankroll: currentBalance,
+    kellyFraction: riskLimits.kellyFraction,
+    maxBetPercentage: riskLimits.maxBetPercentage,
+    maxSingleBet: riskLimits.maxSingleBet,
+  });
+
+  const handleConfirm = () => {
+    if (!limitCheck.allowed || currentBalance <= 0) return;
+    
+    // Kuponu bankroll'a kaydet
+    const matchNames = selections.map(s => `${s.homeTeam} vs ${s.awayTeam}`).join(', ');
+    const picks = selections.map(s => s.pick).join(' + ');
+    
+    placeBet({
+      fixtureId: selections.length === 1 ? selections[0].fixtureId : undefined,
+      homeTeam: selections.length === 1 ? selections[0].homeTeam : 'Kombine Kupon',
+      awayTeam: selections.length === 1 ? selections[0].awayTeam : `${selections.length} maç`,
+      pick: selections.length === 1 ? selections[0].pick : picks,
+      odds: systemType === 'full' ? totalOdds : totalOdds,
+      amount: totalStake,
+      confidence: Math.round(avgConfidence),
+    });
+    
+    setConfirmed(true);
+    setTimeout(() => {
+      clearCoupon();
+      setConfirmed(false);
+    }, 2000);
+  };
+
+  if (confirmed) {
+    return (
+      <div className="flex items-center justify-center gap-2 h-9 rounded-xl bg-green-500/10 border border-green-500/30 text-green-500 text-xs font-semibold">
+        <Check className="h-3.5 w-3.5" />
+        Kasaya kaydedildi!
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Bankroll info */}
+      {currentBalance > 0 && (
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground bg-muted/30 rounded-lg px-2.5 py-1.5">
+          <span className="flex items-center gap-1">
+            <Wallet className="h-3 w-3" />
+            Kasa: ₺{currentBalance.toLocaleString('tr-TR')}
+          </span>
+          {kellyResult.isValueBet && kellyResult.suggestedAmount > 0 && (
+            <span className="flex items-center gap-1 text-primary font-semibold">
+              <TrendingUp className="h-3 w-3" />
+              Kelly: ₺{kellyResult.suggestedAmount.toFixed(0)}
+            </span>
+          )}
+        </div>
+      )}
+      
+      {/* Limit uyarısı */}
+      {!limitCheck.allowed && totalStake > 0 && (
+        <div className="flex items-center gap-1 text-[10px] text-red-500 bg-red-500/10 rounded-lg px-2.5 py-1.5">
+          <Shield className="h-3 w-3 shrink-0" />
+          {limitCheck.reason}
+        </div>
+      )}
+      
+      <button 
+        onClick={handleConfirm}
+        disabled={!limitCheck.allowed && currentBalance > 0}
+        className={cn(
+          "w-full flex items-center justify-center gap-2 h-9 rounded-xl text-xs font-semibold shadow-sm transition-opacity",
+          !limitCheck.allowed && currentBalance > 0
+            ? 'bg-muted text-muted-foreground cursor-not-allowed'
+            : 'gradient-primary text-white shadow-primary/20 hover:opacity-90'
+        )}
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        {currentBalance > 0 ? 'Kuponu Onayla & Kasaya Kaydet' : 'Kuponu Onayla'}
+      </button>
+    </div>
   );
 }
 

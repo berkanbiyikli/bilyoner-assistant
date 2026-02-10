@@ -16,6 +16,7 @@ import {
   Wallet, Calculator, Shield, BarChart3, Plus 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAutoSettle } from '@/hooks/useAutoSettle';
 
 type TabKey = 'overview' | 'bet' | 'calculator' | 'performance';
 
@@ -28,6 +29,7 @@ const TABS = [
 
 export default function BankrollPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const { pendingCount } = useAutoSettle();
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 pb-24 pt-4">
@@ -59,6 +61,11 @@ export default function BankrollPage() {
               <tab.icon className="h-3.5 w-3.5 shrink-0" />
               <span className="hidden sm:inline">{tab.label}</span>
               <span className="sm:hidden">{tab.label}</span>
+              {tab.key === 'bet' && pendingCount > 0 && (
+                <span className="ml-1 bg-amber-500/20 text-amber-500 text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
+                  {pendingCount}
+                </span>
+              )}
             </button>
           );
         })}

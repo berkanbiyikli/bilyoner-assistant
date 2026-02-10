@@ -1,5 +1,5 @@
 ﻿/**
- * Coupon FAB + Panel - Mobil kupon
+ * Coupon FAB + Panel - Mobil kupon (Bankroll entegreli)
  */
 
 'use client';
@@ -16,11 +16,13 @@ import {
   useCouponIsOpen,
   useCouponCount 
 } from '@/lib/coupon/store';
+import { useBankrollStore, calculateKelly } from '@/lib/bankroll';
 import { CATEGORY_INFO, type SystemType } from '@/lib/coupon/types';
 import { cn } from '@/lib/utils';
 import { 
   ShoppingCart, X, Trash2, Calculator,
-  ChevronUp, ChevronDown, Ticket, AlertCircle
+  ChevronUp, ChevronDown, Ticket, AlertCircle,
+  Wallet, TrendingUp, Shield, Check, Sparkles
 } from 'lucide-react';
 
 const SYSTEM_TYPES: { value: SystemType; label: string; minSelections: number }[] = [
@@ -237,10 +239,11 @@ function CouponPanel() {
                 <Trash2 className="h-3.5 w-3.5" />
                 Temizle
               </button>
-              <button className="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-xl gradient-primary text-white text-xs font-semibold shadow-sm shadow-primary/20 hover:opacity-90 transition-opacity">
-                <Calculator className="h-3.5 w-3.5" />
-                Onayla
-              </button>
+              <MobileCouponConfirmButton 
+                selections={selections} 
+                result={result} 
+                systemType={systemType}
+              />
             </div>
           </div>
         )}
@@ -296,5 +299,89 @@ export function AddToCouponButton({
         <span className="flex items-center gap-1"><ShoppingCart className="h-3 w-3" />Ekle</span>
       )}
     </button>
+  );
+}
+
+/** Mobil kupon onaylama + bankroll */
+function MobileCouponConfirmButton({ selections, result, systemType }: {
+  selections: ReturnType<typeof useCouponSelections>;
+  result: { totalStake: number; potentialWin: number };
+  systemType: SystemType;
+}) {
+  const { currentBalance, placeBet, isWithinLimits, riskLimits } = useBankrollStore();
+  const { clearCoupon, setOpen } = useCouponStore();
+  const [confirmed, setConfirmed] = useState(false);
+  
+  const totalStake = result.totalStake;
+  const limitCheck = isWithinLimits(totalStake);
+  const totalOdds = selections.reduce((acc, s) => acc * s.odds, 1);
+  const avgConfidence = selections.length > 0 
+    ? selections.reduce((sum, s) => sum + s.confidence, 0) / selections.length 
+    : 50;
+
+  const handleConfirm = () => {
+    if (!limitCheck.allowed && currentBalance > 0) return;
+    
+    if (currentBalance > 0) {
+      const picks = selections.map(s => s.pick).join(' + ');
+      placeBet({
+        fixtureId: selections.length === 1 ? selections[0].fixtureId : undefined,
+        homeTeam: selections.length === 1 ? selections[0].homeTeam : 'Kombine Kupon',
+        awayTeam: selections.length === 1 ? selections[0].awayTeam : `${selections.length} maç`,
+        pick: selections.length === 1 ? selections[0].pick : picks,
+        odds: systemType === 'full' ? totalOdds : totalOdds,
+        amount: totalStake,
+        confidence: Math.round(avgConfidence),
+      });
+    }
+    
+    setConfirmed(true);
+    setTimeout(() => {
+      clearCoupon();
+      setOpen(false);
+      setConfirmed(false);
+    }, 1500);
+  };
+
+  if (confirmed) {
+    return (
+      <div className="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-xl bg-green-500/10 border border-green-500/30 text-green-500 text-xs font-semibold">
+        <Check className="h-3.5 w-3.5" />
+        Kaydedildi!
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 space-y-1.5">
+      {/* Kasa bilgisi */}
+      {currentBalance > 0 && (
+        <div className="flex items-center justify-between text-[9px] text-muted-foreground px-1">
+          <span className="flex items-center gap-1">
+            <Wallet className="h-2.5 w-2.5" />
+            ₺{currentBalance.toLocaleString('tr-TR')}
+          </span>
+          {!limitCheck.allowed && (
+            <span className="text-red-500 flex items-center gap-0.5">
+              <Shield className="h-2.5 w-2.5" />
+              Limit aşımı
+            </span>
+          )}
+        </div>
+      )}
+      <button 
+        onClick={handleConfirm}
+        disabled={!limitCheck.allowed && currentBalance > 0}
+        className={cn(
+          "w-full flex items-center justify-center gap-1.5 h-10 rounded-xl text-xs font-semibold shadow-sm transition-opacity",
+          !limitCheck.allowed && currentBalance > 0
+            ? 'bg-muted text-muted-foreground cursor-not-allowed'
+            : 'gradient-primary text-white shadow-primary/20 hover:opacity-90'
+        )}
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        {currentBalance > 0 ? 'Onayla & Kaydet' : 'Onayla'}
+      </button>
+    </div>
   );
 }

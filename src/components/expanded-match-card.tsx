@@ -19,6 +19,7 @@ import type { DailyMatchFixture, BetSuggestion } from '@/types/api-football';
 import { ChevronDown, ChevronUp, TrendingUp, Target, Zap, AlertTriangle, BarChart3, DollarSign, Plus, Check, ArrowUp, ArrowDown, ShieldAlert, Brain } from 'lucide-react';
 import { cn, formatTurkeyDate, formatTurkeyTime } from '@/lib/utils';
 import { useCouponStore } from '@/lib/coupon/store';
+import { useBankrollStore, calculateKelly } from '@/lib/bankroll';
 import type { RiskCategory } from '@/lib/coupon/types';
 
 interface BetSuggestionCardProps {
@@ -28,7 +29,21 @@ interface BetSuggestionCardProps {
 
 function BetSuggestionCard({ suggestion, fixture }: BetSuggestionCardProps) {
   const { addSelection, isInCoupon } = useCouponStore();
+  const { currentBalance } = useBankrollStore();
   const inCoupon = isInCoupon(fixture.id, suggestion.market);
+  
+  // Kelly hesabı
+  const kellyAmount = currentBalance > 0 ? (() => {
+    const kelly = calculateKelly({
+      odds: suggestion.odds,
+      probability: suggestion.confidence / 100,
+      bankroll: currentBalance,
+      kellyFraction: 0.25,
+      maxBetPercentage: 10,
+      maxSingleBet: null,
+    });
+    return kelly.suggestedAmount > 0 ? kelly.suggestedAmount : null;
+  })() : null;
   
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -81,6 +96,11 @@ function BetSuggestionCard({ suggestion, fixture }: BetSuggestionCardProps) {
       </span>
       <div className="flex-1 min-w-0 relative">
         <span className="font-semibold text-xs">{suggestion.market}: {suggestion.pick}</span>
+        {kellyAmount && (
+          <span className="ml-1.5 text-[9px] font-medium text-primary/60" title="Kelly önerisi">
+            ₺{kellyAmount >= 1000 ? `${(kellyAmount/1000).toFixed(1)}K` : Math.round(kellyAmount)}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2 shrink-0 relative">
         <span className={cn(

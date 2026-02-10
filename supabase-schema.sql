@@ -112,6 +112,94 @@ CREATE OR REPLACE TRIGGER on_profile_updated
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 -- =============================================
+-- 4. Bankroll Transactions (kasa hareketleri)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS public.bankroll_transactions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('deposit', 'withdraw', 'bet', 'win', 'loss', 'bonus')),
+  amount NUMERIC(12,2) NOT NULL,
+  balance_after NUMERIC(12,2) NOT NULL,
+  description TEXT,
+  fixture_id INTEGER,
+  prediction_id UUID REFERENCES public.user_predictions(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 5. Bankroll Settings (kasa ayarları)
+CREATE TABLE IF NOT EXISTS public.bankroll_settings (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL UNIQUE,
+  initial_balance NUMERIC(12,2) NOT NULL DEFAULT 1000,
+  current_balance NUMERIC(12,2) NOT NULL DEFAULT 1000,
+  currency TEXT NOT NULL DEFAULT 'TRY',
+  -- Risk Limits
+  daily_loss_limit NUMERIC(12,2) DEFAULT 200,
+  weekly_loss_limit NUMERIC(12,2) DEFAULT 500,
+  max_bet_percentage NUMERIC(5,2) DEFAULT 5.00,
+  max_single_bet NUMERIC(12,2) DEFAULT 500,
+  kelly_fraction NUMERIC(4,2) DEFAULT 0.25,
+  -- Streak tracking
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  best_streak INTEGER NOT NULL DEFAULT 0,
+  worst_streak INTEGER NOT NULL DEFAULT 0,
+  -- Stats
+  total_bets INTEGER NOT NULL DEFAULT 0,
+  total_won INTEGER NOT NULL DEFAULT 0,
+  total_lost INTEGER NOT NULL DEFAULT 0,
+  total_void INTEGER NOT NULL DEFAULT 0,
+  total_staked NUMERIC(12,2) NOT NULL DEFAULT 0,
+  total_returns NUMERIC(12,2) NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 6. Daily Snapshots (günlük P&L snapshot)
+CREATE TABLE IF NOT EXISTS public.bankroll_daily_snapshots (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  date DATE NOT NULL,
+  opening_balance NUMERIC(12,2) NOT NULL,
+  closing_balance NUMERIC(12,2) NOT NULL,
+  total_staked NUMERIC(12,2) NOT NULL DEFAULT 0,
+  total_returns NUMERIC(12,2) NOT NULL DEFAULT 0,
+  bets_placed INTEGER NOT NULL DEFAULT 0,
+  bets_won INTEGER NOT NULL DEFAULT 0,
+  bets_lost INTEGER NOT NULL DEFAULT 0,
+  profit_loss NUMERIC(12,2) NOT NULL DEFAULT 0,
+  roi NUMERIC(6,2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, date)
+);
+
+-- RLS for bankroll tables
+ALTER TABLE public.bankroll_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bankroll_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bankroll_daily_snapshots ENABLE ROW LEVEL SECURITY;
+
+-- Bankroll Transactions RLS
+CREATE POLICY "Users can view own transactions" ON public.bankroll_transactions
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own transactions" ON public.bankroll_transactions
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- Bankroll Settings RLS
+CREATE POLICY "Users can view own settings" ON public.bankroll_settings
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own settings" ON public.bankroll_settings
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own settings" ON public.bankroll_settings
+  FOR UPDATE USING (auth.uid() = user_id);
+
+-- Daily Snapshots RLS
+CREATE POLICY "Users can view own snapshots" ON public.bankroll_daily_snapshots
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own snapshots" ON public.bankroll_daily_snapshots
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own snapshots" ON public.bankroll_daily_snapshots
+  FOR UPDATE USING (auth.uid() = user_id);
+
+-- =============================================
 -- Indexes
 -- =============================================
 
@@ -119,3 +207,6 @@ CREATE INDEX IF NOT EXISTS idx_user_favorites_user_id ON public.user_favorites(u
 CREATE INDEX IF NOT EXISTS idx_user_predictions_user_id ON public.user_predictions(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_predictions_result ON public.user_predictions(result);
 CREATE INDEX IF NOT EXISTS idx_profiles_subscription ON public.profiles(subscription_tier);
+CREATE INDEX IF NOT EXISTS idx_bankroll_transactions_user_id ON public.bankroll_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_bankroll_transactions_created ON public.bankroll_transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_bankroll_snapshots_user_date ON public.bankroll_daily_snapshots(user_id, date);

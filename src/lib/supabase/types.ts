@@ -85,6 +85,123 @@ export interface Database {
           result?: 'pending' | 'won' | 'lost' | 'void';
         };
       };
+      bankroll_transactions: {
+        Row: {
+          id: string;
+          user_id: string;
+          type: 'deposit' | 'withdraw' | 'bet' | 'win' | 'loss' | 'bonus';
+          amount: number;
+          balance_after: number;
+          description: string | null;
+          fixture_id: number | null;
+          prediction_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          type: 'deposit' | 'withdraw' | 'bet' | 'win' | 'loss' | 'bonus';
+          amount: number;
+          balance_after: number;
+          description?: string | null;
+          fixture_id?: number | null;
+          prediction_id?: string | null;
+        };
+        Update: {};
+      };
+      bankroll_settings: {
+        Row: {
+          id: string;
+          user_id: string;
+          initial_balance: number;
+          current_balance: number;
+          currency: string;
+          daily_loss_limit: number | null;
+          weekly_loss_limit: number | null;
+          max_bet_percentage: number;
+          max_single_bet: number | null;
+          kelly_fraction: number;
+          current_streak: number;
+          best_streak: number;
+          worst_streak: number;
+          total_bets: number;
+          total_won: number;
+          total_lost: number;
+          total_void: number;
+          total_staked: number;
+          total_returns: number;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          initial_balance?: number;
+          current_balance?: number;
+          currency?: string;
+          daily_loss_limit?: number | null;
+          weekly_loss_limit?: number | null;
+          max_bet_percentage?: number;
+          max_single_bet?: number | null;
+          kelly_fraction?: number;
+        };
+        Update: {
+          initial_balance?: number;
+          current_balance?: number;
+          daily_loss_limit?: number | null;
+          weekly_loss_limit?: number | null;
+          max_bet_percentage?: number;
+          max_single_bet?: number | null;
+          kelly_fraction?: number;
+          current_streak?: number;
+          best_streak?: number;
+          worst_streak?: number;
+          total_bets?: number;
+          total_won?: number;
+          total_lost?: number;
+          total_void?: number;
+          total_staked?: number;
+          total_returns?: number;
+          updated_at?: string;
+        };
+      };
+      bankroll_daily_snapshots: {
+        Row: {
+          id: string;
+          user_id: string;
+          date: string;
+          opening_balance: number;
+          closing_balance: number;
+          total_staked: number;
+          total_returns: number;
+          bets_placed: number;
+          bets_won: number;
+          bets_lost: number;
+          profit_loss: number;
+          roi: number;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          date: string;
+          opening_balance: number;
+          closing_balance: number;
+          total_staked?: number;
+          total_returns?: number;
+          bets_placed?: number;
+          bets_won?: number;
+          bets_lost?: number;
+          profit_loss?: number;
+          roi?: number;
+        };
+        Update: {
+          closing_balance?: number;
+          total_staked?: number;
+          total_returns?: number;
+          bets_placed?: number;
+          bets_won?: number;
+          bets_lost?: number;
+          profit_loss?: number;
+          roi?: number;
+        };
+      };
     };
     Views: {};
     Functions: {};
@@ -99,6 +216,9 @@ export interface Database {
 export type Profile = Database['public']['Tables']['profiles']['Row'];
 export type UserFavorite = Database['public']['Tables']['user_favorites']['Row'];
 export type UserPrediction = Database['public']['Tables']['user_predictions']['Row'];
+export type BankrollTransaction = Database['public']['Tables']['bankroll_transactions']['Row'];
+export type BankrollSettings = Database['public']['Tables']['bankroll_settings']['Row'];
+export type BankrollDailySnapshot = Database['public']['Tables']['bankroll_daily_snapshots']['Row'];
 
 // Subscription tier configs
 export const TIER_CONFIG = {

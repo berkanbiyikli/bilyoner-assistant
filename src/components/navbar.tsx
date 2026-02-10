@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useDailyMatches } from '@/hooks/useDailyMatches';
-import { Home, Radio, Zap } from 'lucide-react';
+import { Home, Radio, Zap, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AuthButton } from '@/components/auth-button';
 
@@ -25,6 +25,7 @@ export function Navbar() {
   const navItems = [
     { href: '/', label: 'Maclar', icon: Home },
     { href: '/live', label: 'Canli', icon: Radio, badge: liveCount > 0 ? liveCount : undefined },
+    { href: '/bankroll', label: 'Kasa', icon: Wallet },
   ];
 
   return (

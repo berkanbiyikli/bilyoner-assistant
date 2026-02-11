@@ -182,16 +182,24 @@ async function handleNewCoupon(
   // Tweet at
   const useMock = process.env.TWITTER_MOCK === 'true';
   let tweetId: string | undefined;
+  let tweetError: string | undefined;
   
   if (isTestMode) {
     log('Test modu - tweet atılmadı');
   } else if (useMock) {
+    log('⚠️ MOCK MOD AKTİF - gerçek tweet atılmıyor! (TWITTER_MOCK=true)');
     await mockTweet(formatNewCouponTweet(newCoupon, state.balance));
   } else {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://bilyoner-assistant.vercel.app';
     const imageUrl = `${baseUrl}/api/og/coupon?id=${newCoupon.id}`;
     const result = await tweetNewCoupon(newCoupon, state.balance, imageUrl);
-    tweetId = result?.tweetId;
+    if (result?.success && result?.tweetId) {
+      tweetId = result.tweetId;
+      log(`✅ Kupon tweeti gönderildi: ${tweetId}`);
+    } else {
+      tweetError = result?.error || 'Tweet gönderilemedi (unknown error)';
+      log(`❌ Tweet gönderilemedi: ${tweetError}`);
+    }
   }
   
   // Tweet ID'yi kupona ekle
@@ -210,11 +218,19 @@ async function handleNewCoupon(
   await saveBankrollState(state);
   
   log(`Bahis yerleştirildi, kalan kasa: ${state.balance.toFixed(2)} TL`);
-  log('Kupon tweeti gönderildi');
   
   return NextResponse.json({
     success: true,
-    message: 'Yeni kupon oluşturuldu ve tweet atıldı',
+    message: tweetId 
+      ? 'Yeni kupon oluşturuldu ve tweet atıldı' 
+      : useMock 
+        ? 'Kupon oluşturuldu (MOCK mod - gerçek tweet atılmadı)' 
+        : tweetError 
+          ? `Kupon oluşturuldu ama tweet gönderilemedi: ${tweetError}`
+          : 'Kupon oluşturuldu (tweet atılmadı)',
+    mock: useMock,
+    tweetSent: !!tweetId,
+    tweetError: tweetError || undefined,
     coupon: {
       id: newCoupon.id,
       tweetId,
@@ -322,8 +338,14 @@ ${liveUpdates.join('\n')}
     const quoteTweetId = state.activeCoupon.tweetId || REFERENCE_TWEET_ID;
     
     if (!useMock && quoteTweetId && !isTestMode) {
-      await sendQuoteTweet(tweetText, quoteTweetId);
-      log('Canlı güncelleme tweeti atıldı');
+      const result = await sendQuoteTweet(tweetText, quoteTweetId);
+      if (result?.success) {
+        log('✅ Canlı güncelleme tweeti atıldı');
+      } else {
+        log(`❌ Canlı güncelleme tweeti gönderilemedi: ${result?.error || 'unknown'}`);
+      }
+    } else if (useMock) {
+      log('⚠️ MOCK MOD - canlı güncelleme tweeti atılmadı');
     } else if (isTestMode) {
       log('Test modu - tweet atılmadı');
     }
@@ -477,6 +499,8 @@ async function handleCheckResult(
   
   if (isTestMode) {
     log('Test modu - tweetler atılmadı');
+  } else if (useMock) {
+    log('⚠️ MOCK MOD - sonuç tweetleri atılmadı (TWITTER_MOCK=true)');
   } else if (!useMock) {
     const { formatDailyReportTweet } = await import('@/lib/bot/twitter');
     const { sendTweet } = await import('@/lib/bot/twitter');

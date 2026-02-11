@@ -38,7 +38,7 @@ export function TrendTracker({ matches, onAddToCoupon }: TrendTrackerProps) {
     const results: TrendMatch[] = [];
     
     matches.forEach((fixture) => {
-      if (fixture.status.isFinished) return;
+      if (fixture.status.isFinished || fixture.status.isLive) return;
       if (!fixture.formComparison && !fixture.teamStats) return;
       
       const trends: TrendMatch['trends'] = [];

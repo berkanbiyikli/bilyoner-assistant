@@ -36,7 +36,8 @@ export function HighConfidencePicks({ matches, onAddToCoupon }: HighConfidencePi
     const results: ConfidencePick[] = [];
     
     matches.forEach((fixture) => {
-      if (!fixture.prediction || fixture.status.isFinished) return;
+      // Sadece upcoming maçlar ve tahmin olan maçlar
+      if (!fixture.prediction || fixture.status.isFinished || fixture.status.isLive) return;
       
       const { prediction } = fixture;
       const confidence = prediction.confidence || 0;
@@ -75,6 +76,43 @@ export function HighConfidencePicks({ matches, onAddToCoupon }: HighConfidencePi
         }
       }
       
+      // TeamStats kullanarak gol istatistikleri
+      if (fixture.teamStats) {
+        const ts = fixture.teamStats;
+        const homeGoals = typeof ts.homeGoalsScored === 'number' ? ts.homeGoalsScored : 0;
+        const awayGoals = typeof ts.awayGoalsScored === 'number' ? ts.awayGoalsScored : 0;
+        const totalAvg = homeGoals + awayGoals;
+        
+        if (totalAvg >= 3.0) {
+          reasoning.push(`Maç ort. ${totalAvg.toFixed(1)} gol (yüksek)`);
+          models.push('Stats');
+        } else if (totalAvg <= 1.8) {
+          reasoning.push(`Düşük goller (ort. ${totalAvg.toFixed(1)})`);
+          models.push('Stats');
+        }
+        
+        // Clean sheet analizi
+        if (ts.homeCleanSheets >= 3 || ts.awayCleanSheets >= 3) {
+          const team = ts.homeCleanSheets >= 3 ? fixture.homeTeam : fixture.awayTeam;
+          reasoning.push(`${team.name.split(' ')[0]} güçlü defans`);
+        }
+      }
+      
+      // BetSuggestions - API'den gelen önerilerle uyum
+      if (fixture.betSuggestions && fixture.betSuggestions.length > 0) {
+        const highConfSuggestions = fixture.betSuggestions.filter(s => s.confidence >= 60);
+        if (highConfSuggestions.length >= 2) {
+          models.push('Ensemble');
+          reasoning.push(`${highConfSuggestions.length} farklı bahiste yüksek güven`);
+        }
+        
+        // Value bet varsa ekle
+        const valueBet = fixture.betSuggestions.find(s => s.value === 'high');
+        if (valueBet) {
+          reasoning.push(`Value: ${valueBet.market} ${valueBet.pick}`);
+        }
+      }
+      
       // API Prediction varsa ensemble güçlendir
       if (prediction.advice?.toLowerCase().includes('yüksek güven')) {
         models.push('Ensemble');
@@ -84,18 +122,26 @@ export function HighConfidencePicks({ matches, onAddToCoupon }: HighConfidencePi
       // Ensemble score: Kaç model aynı fikirde?
       const ensembleScore = models.length * 20 + confidence;
       
-      // Recommendation
+      // API'den gelen betSuggestions varsa en iyi öneriyi kullan
       let market = 'Maç Sonucu';
       let pick = 'MS X';
       let odds = 3.20;
       
-      const winner = prediction.winner;
-      if (winner === fixture.homeTeam.name) {
-        pick = 'MS 1';
-        odds = 1.30 + (100 - confidence) / 50;
-      } else if (winner === fixture.awayTeam.name) {
-        pick = 'MS 2';
-        odds = 1.50 + (100 - confidence) / 45;
+      if (fixture.betSuggestions && fixture.betSuggestions.length > 0) {
+        // En yüksek güvenli API önerisini al
+        const bestSuggestion = [...fixture.betSuggestions].sort((a, b) => b.confidence - a.confidence)[0];
+        market = bestSuggestion.market;
+        pick = bestSuggestion.pick;
+        odds = bestSuggestion.odds;
+      } else {
+        const winner = prediction.winner;
+        if (winner === fixture.homeTeam.name) {
+          pick = 'MS 1';
+          odds = 1.30 + (100 - confidence) / 50;
+        } else if (winner === fixture.awayTeam.name) {
+          pick = 'MS 2';
+          odds = 1.50 + (100 - confidence) / 45;
+        }
       }
       
       // Gol tahmini varsa ekle

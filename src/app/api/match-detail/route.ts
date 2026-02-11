@@ -665,13 +665,18 @@ export async function GET(request: Request) {
 
     // 🆕 Gerçek bookmaker oranlarını çek ve betSuggestions'a uygula
     // Poisson suggestion'ları da dahil — hepsine gerçek oran ver
+    let oddsAvailable = false;
+    let oddsBookmaker: string | null = null;
+    let enrichedOddsCount = 0;
     try {
       const realOdds = await fetchRealOdds(parseInt(fixtureId));
       if (realOdds.length > 0) {
-        enrichBetSuggestionsWithRealOdds(betSuggestions, realOdds);
-        console.log(`[Match Detail] Gerçek oranlar uygulandı: ${realOdds.length} oran (fixture: ${fixtureId})`);
+        enrichedOddsCount = enrichBetSuggestionsWithRealOdds(betSuggestions, realOdds);
+        oddsAvailable = enrichedOddsCount > 0;
+        oddsBookmaker = realOdds[0]?.bookmaker || null;
+        console.log(`[Match Detail] Gerçek oranlar uygulandı: ${realOdds.length} oran, ${enrichedOddsCount} eşleşme (fixture: ${fixtureId}, bookmaker: ${oddsBookmaker})`);
       } else {
-        console.log(`[Match Detail] Gerçek oran bulunamadı (fixture: ${fixtureId})`);
+        console.log(`[Match Detail] Gerçek oran bulunamadı (fixture: ${fixtureId}) — tüm oranlar hesaplanmış`);
       }
     } catch (oddsError) {
       console.warn(`[Match Detail] Gerçek oran çekilemedi (fixture: ${fixtureId}):`, oddsError);
@@ -818,6 +823,13 @@ export async function GET(request: Request) {
         deviation: apiValidation.deviation,
         message: apiValidation.message,
       } : null,
+      // Gerçek oran durumu
+      oddsInfo: {
+        available: oddsAvailable,
+        bookmaker: oddsBookmaker,
+        enrichedCount: enrichedOddsCount,
+        totalSuggestions: betSuggestions.length,
+      },
     };
 
     // Redis cache'e kaydet - SADECE anlamlı veri varsa
@@ -1327,66 +1339,80 @@ function generateBetSuggestions(
 
 /**
  * Bet suggestion pick'ini gerçek oran betType'ına eşle
+ * Tüm Türkçe varyasyonları kapsar
  */
 function mapPickToOddsBetType(suggestion: BetSuggestion): string | null {
   const pick = suggestion.pick.toLowerCase().trim();
   const market = suggestion.market.toLowerCase().trim();
 
-  // Maç Sonucu (1X2)
-  if (pick === 'ev sahibi' || pick === 'ms 1') return 'home';
-  if (pick === 'beraberlik' || pick === 'ms x') return 'draw';
-  if (pick === 'deplasman' || pick === 'ms 2') return 'away';
+  // Maç Sonucu (1X2) — tüm varyasyonlar
+  if (pick === 'ev sahibi' || pick === 'ms 1' || pick === '1' || pick === 'home') return 'home';
+  if (pick === 'beraberlik' || pick === 'ms x' || pick === 'x' || pick === 'draw') return 'draw';
+  if (pick === 'deplasman' || pick === 'ms 2' || pick === '2' || pick === 'away') return 'away';
 
-  // Over/Under
-  if (pick === 'üst 2.5' || pick === 'ust 2.5') return 'over25';
-  if (pick === 'alt 2.5') return 'under25';
-  if (pick === 'üst 1.5' || pick === 'ust 1.5') return 'over15';
-  if (pick === 'alt 1.5') return 'under15';
-  if (pick === 'üst 3.5' || pick === 'ust 3.5') return 'over35';
-  if (pick === 'alt 3.5') return 'under35';
+  // Over/Under 2.5
+  if (pick === 'üst 2.5' || pick === 'ust 2.5' || pick === 'ü2.5' || pick === 'over 2.5') return 'over25';
+  if (pick === 'alt 2.5' || pick === 'a2.5' || pick === 'under 2.5') return 'under25';
+  // Over/Under 1.5
+  if (pick === 'üst 1.5' || pick === 'ust 1.5' || pick === 'ü1.5' || pick === 'over 1.5') return 'over15';
+  if (pick === 'alt 1.5' || pick === 'a1.5' || pick === 'under 1.5') return 'under15';
+  // Over/Under 3.5
+  if (pick === 'üst 3.5' || pick === 'ust 3.5' || pick === 'ü3.5' || pick === 'over 3.5') return 'over35';
+  if (pick === 'alt 3.5' || pick === 'a3.5' || pick === 'under 3.5') return 'under35';
 
-  // BTTS
-  if (pick === 'var' && market.includes('kg')) return 'btts';
-  if (pick === 'yok' && market.includes('kg')) return 'btts_no';
+  // BTTS (Karşılıklı Gol)
+  if ((pick === 'var' || pick === 'evet') && (market.includes('kg') || market.includes('karşılıklı') || market.includes('btts'))) return 'btts';
+  if ((pick === 'yok' || pick === 'hayır') && (market.includes('kg') || market.includes('karşılıklı') || market.includes('btts'))) return 'btts_no';
 
   // İlk Yarı gol
-  if (pick === 'üst 0.5' && market.includes('iy')) return 'ht_over05';
-  if (pick === 'alt 0.5' && market.includes('iy')) return 'ht_under05';
-  if (pick === 'üst 1.5' && market.includes('iy')) return 'ht_over15';
-  if (pick === 'alt 1.5' && market.includes('iy')) return 'ht_under15';
+  if ((pick === 'üst 0.5' || pick === 'ust 0.5' || pick === 'ü0.5') && market.includes('iy')) return 'ht_over05';
+  if ((pick === 'alt 0.5' || pick === 'a0.5') && market.includes('iy')) return 'ht_under05';
+  if ((pick === 'üst 1.5' || pick === 'ust 1.5' || pick === 'ü1.5') && market.includes('iy')) return 'ht_over15';
+  if ((pick === 'alt 1.5' || pick === 'a1.5') && market.includes('iy')) return 'ht_under15';
 
-  // Double Chance
-  if (pick === '1x' || pick === 'x dahil' && market.includes('çift')) return 'home_draw';
-  if (pick === 'x2') return 'draw_away';
-  if (pick === '12') return 'home_away';
+  // Double Chance — FIX: parantezler ile doğru operator önceliği
+  if (pick === '1x' || (pick === 'x dahil' && market.includes('çift')) || pick === 'ev/beraberlik') return 'home_draw';
+  if (pick === 'x2' || pick === 'beraberlik/deplasman') return 'draw_away';
+  if (pick === '12' || pick === 'ev/deplasman') return 'home_away';
 
-  // İY/MS
+  // İY/MS (HT/FT)
   if (pick.includes('1/1') || pick.includes('1-1')) return 'htft_11';
   if (pick.includes('1/x') || pick.includes('1-x')) return 'htft_1x';
+  if (pick.includes('1/2') || pick.includes('1-2')) return 'htft_12';
   if (pick.includes('x/1') || pick.includes('x-1')) return 'htft_x1';
+  if (pick.includes('x/x') || pick.includes('x-x')) return 'htft_xx';
+  if (pick.includes('x/2') || pick.includes('x-2')) return 'htft_x2';
+  if (pick.includes('2/1') || pick.includes('2-1')) return 'htft_21';
+  if (pick.includes('2/x') || pick.includes('2-x')) return 'htft_2x';
   if (pick.includes('2/2') || pick.includes('2-2')) return 'htft_22';
 
+  console.warn(`[mapPickToOddsBetType] Eşleşmeyen pick: "${suggestion.pick}" (market: "${suggestion.market}")`);
   return null;
 }
 
 /**
  * betSuggestions oranlarını gerçek bookmaker oranlarıyla güncelle
  * Her suggestion'ın odds kaynağını da işaretle
+ * @returns Gerçek oran uygulanan suggestion sayısı
  */
 function enrichBetSuggestionsWithRealOdds(
   suggestions: BetSuggestion[],
   realOdds: RealOdds[]
-): void {
+): number {
   // RealOdds'u betType bazlı map'e çevir (hızlı erişim)
   const oddsMap = new Map<string, RealOdds>();
   for (const ro of realOdds) {
     oddsMap.set(ro.betType, ro);
   }
 
+  let enrichedCount = 0;
+  const unmappedPicks: string[] = [];
+
   for (const suggestion of suggestions) {
     const betType = mapPickToOddsBetType(suggestion);
     if (!betType) {
       suggestion.oddsSource = 'calculated';
+      unmappedPicks.push(`${suggestion.pick} (${suggestion.market})`);
       continue;
     }
 
@@ -1395,8 +1421,16 @@ function enrichBetSuggestionsWithRealOdds(
       suggestion.odds = realOdd.odds;
       suggestion.oddsSource = 'real';
       suggestion.bookmaker = realOdd.bookmaker;
+      enrichedCount++;
     } else {
       suggestion.oddsSource = 'calculated';
     }
   }
+
+  if (unmappedPicks.length > 0) {
+    console.warn(`[enrichOdds] Eşleştirilemeyen pick'ler (${unmappedPicks.length}):`, unmappedPicks.join(', '));
+  }
+  console.log(`[enrichOdds] ${enrichedCount}/${suggestions.length} suggestion'a gerçek oran uygulandı`);
+  
+  return enrichedCount;
 }

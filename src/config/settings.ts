@@ -6,8 +6,8 @@
 export const config = {
   // API Polling Ayarları
   polling: {
-    liveMatchInterval: 60000, // 60 saniye - canlı maç güncelleme
-    fixturesInterval: 300000, // 5 dakika - günün maçları güncelleme
+    liveMatchInterval: 60000, // 60 saniye - canlı maç güncelleme (sadece /live sayfası)
+    fixturesInterval: 600000, // 10 dakika - günün maçları güncelleme (stabil tutmak için)
     oddsInterval: 180000, // 3 dakika - oran güncelleme
   },
 

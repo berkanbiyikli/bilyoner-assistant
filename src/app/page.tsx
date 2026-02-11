@@ -25,13 +25,12 @@ import type { DailyMatchFixture, BetSuggestion } from '@/types/api-football';
 import { 
   Calendar, Star, Filter, ChevronLeft, ChevronRight, RefreshCw,
   Zap, Target, Ticket, TrendingUp, X, SlidersHorizontal,
-  Trophy, Activity, Flame, Shield, ArrowUp, ArrowDown, Sparkles,
-  AlertTriangle, Users
+  Trophy, Flame, Shield, Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type TabKey = 'opportunities' | 'matches' | 'coupons';
-type PredictionFilter = 'all' | 'ms1' | 'ms2' | 'over25' | 'btts' | 'banko';
+type PredictionFilter = 'all' | 'over25' | 'btts' | 'banko' | 'doubleChance' | 'corners';
 
 const TABS: { key: TabKey; label: string; icon: typeof Zap; desc: string }[] = [
   { key: 'opportunities', label: 'Oneriler', icon: Flame, desc: 'AI tahminleri' },
@@ -42,10 +41,9 @@ const TABS: { key: TabKey; label: string; icon: typeof Zap; desc: string }[] = [
 const PREDICTION_FILTERS: { key: PredictionFilter; label: string; icon?: typeof Zap }[] = [
   { key: 'all', label: 'Tumu' },
   { key: 'banko', label: 'Banko', icon: Shield },
-  { key: 'ms1', label: 'MS 1', icon: ArrowUp },
-  { key: 'ms2', label: 'MS 2', icon: ArrowDown },
   { key: 'over25', label: '2.5 Ust', icon: TrendingUp },
   { key: 'btts', label: 'KG Var', icon: Target },
+  { key: 'doubleChance', label: 'Cift Sans', icon: Zap },
 ];
 
 export default function HomePage() {
@@ -82,17 +80,15 @@ export default function HomePage() {
   const matchesByLeague = useMemo(() => {
     if (!data?.data) return new Map<number, DailyMatchFixture[]>();
     const grouped = new Map<number, DailyMatchFixture[]>();
+    // Sadece upcoming maçları grupla (canlı ve bitmiş hariç)
     for (const match of data.data) {
+      if (!match.status.isUpcoming) continue;
       const leagueId = match.league.id;
       if (!grouped.has(leagueId)) grouped.set(leagueId, []);
       grouped.get(leagueId)!.push(match);
     }
     for (const [, matches] of grouped) {
-      matches.sort((a, b) => {
-        if (a.status.isLive && !b.status.isLive) return -1;
-        if (!a.status.isLive && b.status.isLive) return 1;
-        return a.timestamp - b.timestamp;
-      });
+      matches.sort((a, b) => a.timestamp - b.timestamp);
     }
     return grouped;
   }, [data?.data]);
@@ -114,14 +110,17 @@ export default function HomePage() {
     });
   }, [data?.data, batchDetails]);
 
+  // Sadece upcoming (henüz başlamamış) maçlar - canlı ve bitmiş maçları filtrele
+  const upcomingFixtures = useMemo(() => {
+    return enrichedFixtures.filter(f => f.status.isUpcoming);
+  }, [enrichedFixtures]);
+
   const sortedMatches = useMemo(() => {
-    if (!enrichedFixtures.length) return [];
-    return [...enrichedFixtures].sort((a, b) => {
-      if (a.status.isLive && !b.status.isLive) return -1;
-      if (!a.status.isLive && b.status.isLive) return 1;
+    if (!upcomingFixtures.length) return [];
+    return [...upcomingFixtures].sort((a, b) => {
       return a.timestamp - b.timestamp;
     });
-  }, [enrichedFixtures]);
+  }, [upcomingFixtures]);
 
   const handleLeagueToggle = (leagueId: number) => {
     setSelectedLeagues(prev => 
@@ -143,14 +142,14 @@ export default function HomePage() {
 
   const isToday = selectedDate.toDateString() === new Date().toDateString();
 
-  // Günün Bankosu - yüksek güvenli tahminler
+  // Günün Bankosu - yüksek güvenli tahminler (sadece upcoming)
   const topPicks = useMemo(() => {
-    if (!enrichedFixtures.length) return [];
-    return enrichedFixtures
-      .filter(f => f.prediction?.confidence && f.prediction.confidence >= 40 && !f.status.isFinished)
+    if (!upcomingFixtures.length) return [];
+    return upcomingFixtures
+      .filter(f => f.prediction?.confidence && f.prediction.confidence >= 40)
       .sort((a, b) => (b.prediction?.confidence || 0) - (a.prediction?.confidence || 0))
       .slice(0, 5);
-  }, [enrichedFixtures]);
+  }, [upcomingFixtures]);
 
   // Quick prediction filter
   const filteredMatches = useMemo(() => {
@@ -161,8 +160,6 @@ export default function HomePage() {
       const suggestions = m.betSuggestions;
       switch (predictionFilter) {
         case 'banko': return (pred?.confidence && pred.confidence >= 55) || suggestions?.some(s => s.confidence >= 55);
-        case 'ms1': return pred?.winner === m.homeTeam.name;
-        case 'ms2': return pred?.winner === m.awayTeam.name;
         case 'over25': {
           if (pred?.goalsAdvice?.toLowerCase().includes('over') || pred?.goalsAdvice?.toLowerCase().includes('üst')) return true;
           if (suggestions?.some(s => s.market.includes('2.5') && s.pick.toLowerCase().includes('üst'))) return true;
@@ -177,6 +174,11 @@ export default function HomePage() {
         case 'btts': {
           if (pred?.goalsAdvice?.toLowerCase().includes('btts') || pred?.goalsAdvice?.toLowerCase().includes('kg')) return true;
           if (suggestions?.some(s => s.type === 'btts' && s.pick === 'Var')) return true;
+          return false;
+        }
+        case 'doubleChance': {
+          if (suggestions?.some(s => s.market.includes('Cift Sans') || s.market.includes('Çift Şans'))) return true;
+          if (pred?.confidence && pred.confidence >= 60 && pred.winner) return true;
           return false;
         }
         default: return true;
@@ -382,15 +384,9 @@ export default function HomePage() {
             {data?.stats && (
               <div className="hidden sm:flex items-center gap-6">
                 <div className="text-center">
-                  <div className="text-2xl font-black">{data.stats.total}</div>
-                  <div className="text-[10px] uppercase tracking-wider opacity-80">Mac</div>
+                  <div className="text-2xl font-black">{data.stats.upcoming || sortedMatches.length}</div>
+                  <div className="text-[10px] uppercase tracking-wider opacity-80">Yaklaşan</div>
                 </div>
-                {data.stats.live > 0 && (
-                  <div className="text-center">
-                    <div className="text-2xl font-black text-red-300 animate-pulse">{data.stats.live}</div>
-                    <div className="text-[10px] uppercase tracking-wider opacity-80">Canli</div>
-                  </div>
-                )}
                 <div className="text-center">
                   <div className="text-2xl font-black">{data.stats.leagues}</div>
                   <div className="text-[10px] uppercase tracking-wider opacity-80">Lig</div>
@@ -514,7 +510,7 @@ export default function HomePage() {
                 
                 {/* High Confidence Picks - Radarına Takılanlar */}
                 <HighConfidencePicks 
-                  matches={enrichedFixtures}
+                  matches={upcomingFixtures}
                   onAddToCoupon={(fixtureId, pick) => {
                     console.log('Kupona eklendi:', fixtureId, pick);
                   }}
@@ -522,7 +518,7 @@ export default function HomePage() {
                 
                 {/* Quick Build - Kombine Sihirbazı */}
                 <QuickBuild 
-                  matches={enrichedFixtures}
+                  matches={upcomingFixtures}
                   onBuildCoupon={(coupon) => {
                     console.log('Kupon oluşturuldu:', coupon);
                   }}
@@ -530,7 +526,7 @@ export default function HomePage() {
                 
                 {/* Trend Tracker - Seri Yakalayanlar */}
                 <TrendTracker 
-                  matches={enrichedFixtures}
+                  matches={upcomingFixtures}
                   onAddToCoupon={(fixtureId, pick) => {
                     console.log('Kupona eklendi:', fixtureId, pick);
                   }}
@@ -542,7 +538,7 @@ export default function HomePage() {
                 {/* High Odds Picks - Oran Avcısı (PRO) */}
                 <PremiumLock requiredTier="pro" message="Yuksek oranli tahminler Pro uyelerine ozeldir">
                   <HighOddsPicks 
-                    matches={enrichedFixtures}
+                    matches={upcomingFixtures}
                     onAddToCoupon={(fixtureId, pick) => {
                       console.log('Kupona eklendi:', fixtureId, pick);
                     }}
@@ -555,7 +551,7 @@ export default function HomePage() {
                 </PremiumLock>
 
                 {/* Hiçbir öneri yoksa ve yükleme bitmişse */}
-                {!isBatchLoading && enrichedFixtures.length > 0 && !enrichedFixtures.some(f => f.prediction?.confidence && f.prediction.confidence >= 65) && (
+                {!isBatchLoading && upcomingFixtures.length > 0 && !upcomingFixtures.some(f => f.prediction?.confidence && f.prediction.confidence >= 65) && (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
                       <Target className="h-6 w-6 text-muted-foreground" />
@@ -646,8 +642,6 @@ export default function HomePage() {
                             const suggestions = m.betSuggestions;
                             switch (filter.key) {
                               case 'banko': return (pred?.confidence && pred.confidence >= 55) || suggestions?.some(s => s.confidence >= 55);
-                              case 'ms1': return pred?.winner === m.homeTeam.name;
-                              case 'ms2': return pred?.winner === m.awayTeam.name;
                               case 'over25': {
                                 if (pred?.goalsAdvice?.toLowerCase().includes('over') || pred?.goalsAdvice?.toLowerCase().includes('üst')) return true;
                                 if (suggestions?.some(s => s.market.includes('2.5') && (s.pick.toLowerCase().includes('üst') || s.pick.toLowerCase().includes('ust')))) return true;
@@ -660,6 +654,11 @@ export default function HomePage() {
                               case 'btts': {
                                 if (pred?.goalsAdvice?.toLowerCase().includes('btts') || pred?.goalsAdvice?.toLowerCase().includes('kg')) return true;
                                 if (suggestions?.some(s => s.type === 'btts' && s.pick === 'Var')) return true;
+                                return false;
+                              }
+                              case 'doubleChance': {
+                                if (suggestions?.some(s => s.market.includes('Cift Sans') || s.market.includes('Çift Şans'))) return true;
+                                if (pred?.confidence && pred.confidence >= 60 && pred.winner) return true;
                                 return false;
                               }
                               default: return true;
@@ -690,7 +689,7 @@ export default function HomePage() {
                       <div key={match.id} className="animate-fade-in" style={{ animationDelay: i < 10 ? i * 50 + 'ms' : '0ms' }}>
                         <ExpandedMatchCard 
                           fixture={match}
-                          defaultExpanded={match.status.isLive}
+                          defaultExpanded={false}
                         />
                       </div>
                     ))}
@@ -715,7 +714,7 @@ export default function HomePage() {
                   )}
                 </div>
                 <CouponCategoryTabs 
-                  fixtures={enrichedFixtures}
+                  fixtures={upcomingFixtures}
                   getSuggestions={getSuggestions}
                   isLoading={isBatchLoading}
                 />

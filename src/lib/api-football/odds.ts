@@ -45,9 +45,13 @@ const BET_TYPE_MAP: Record<string, { betId: number; betName: string; valueName: 
   'ht_under15': { betId: 6, betName: 'Goals Over/Under First Half', valueName: 'Under 1.5' },
 };
 
-// Tercih edilen bahis siteleri (sırasıyla)
+// Tercih edilen bahis siteleri (sırasıyla - ilk bulunan kullanılır)
 const PREFERRED_BOOKMAKERS = [
-  '1xBet',       // Sadece 1xBet oranları
+  '1xBet',       // 1. öncelik
+  'Bet365',      // 2. öncelik
+  'Bwin',        // 3. öncelik
+  'Unibet',      // 4. öncelik
+  'William Hill', // 5. öncelik
 ];
 
 interface OddsValue {

@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -141,15 +141,11 @@ interface ExpandedMatchCardProps {
 
 export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCardProps) {
   const { status, homeTeam, awayTeam, score, time, referee, league } = fixture;
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded ?? status.isLive);
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded ?? false);
   
   const { data: detail, isLoading: detailLoading } = useMatchDetail(
     fixture.id, homeTeam.id, awayTeam.id, league.id, referee?.name, isExpanded
   );
-
-  useEffect(() => {
-    if (status.isLive && !isExpanded) setIsExpanded(true);
-  }, [status.isLive, isExpanded]);
 
   return (
     <Card className={cn(

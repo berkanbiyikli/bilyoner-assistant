@@ -151,12 +151,10 @@ export function useDailyMatches(date?: Date, leagueIds?: number[]) {
       
       return data;
     },
-    staleTime: 60000, // 1 dakika
-    refetchInterval: (query) => {
-      // Canlı maç varsa daha sık güncelle
-      const hasLive = query.state.data?.data?.some((m: DailyMatchFixture) => m.status.isLive);
-      return hasLive ? config.polling.liveMatchInterval : config.polling.fixturesInterval;
-    },
+    staleTime: 300000, // 5 dakika - sık refetch'i engelle
+    refetchInterval: config.polling.fixturesInterval, // Sabit interval (canlı maçlar /live sayfasında)
+    refetchOnWindowFocus: false, // Pencere odaklanınca refetch yapma
+    structuralSharing: true, // Veri değişmediyse referansı koru
   });
 }
 
@@ -265,13 +263,15 @@ export function useBatchMatchDetails(
   enabled: boolean = false,
   maxMatches: number = 20
 ) {
-  // Bitmiş maçları filtrele, sadece upcoming ve live maçları al
-  const eligibleFixtures = fixtures.filter(f => !f.status.isFinished);
+  // Sadece henüz başlamamış (upcoming) maçları al - canlı/bitmiş maçlar hariç
+  const eligibleFixtures = fixtures.filter(f => f.status.isUpcoming);
   // Sadece ilk N maçı al (API limitleri için)
   const limitedFixtures = eligibleFixtures.slice(0, maxMatches);
+  // Stabil query key - sadece fixture ID'leri değiştiğinde refetch et
+  const fixtureIds = limitedFixtures.map(f => f.id).sort().join(',');
   
   return useQuery<Map<number, MatchDetailResponse['data']>>({
-    queryKey: ['batch-match-details', limitedFixtures.map(f => f.id).join(',')],
+    queryKey: ['batch-match-details', fixtureIds],
     queryFn: async () => {
       const detailsMap = new Map<number, MatchDetailResponse['data']>();
       
@@ -318,7 +318,8 @@ export function useBatchMatchDetails(
       
       return detailsMap;
     },
-    staleTime: 300000, // 5 dakika
+    staleTime: 600000, // 10 dakika - batch detayları sık değişmez
+    refetchOnWindowFocus: false,
     enabled: enabled && limitedFixtures.length > 0,
   });
 }

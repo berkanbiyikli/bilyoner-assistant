@@ -668,18 +668,28 @@ export async function GET(request: Request) {
     let oddsAvailable = false;
     let oddsBookmaker: string | null = null;
     let enrichedOddsCount = 0;
+    let realOddsData: RealOdds[] = [];
     try {
-      const realOdds = await fetchRealOdds(parseInt(fixtureId));
-      if (realOdds.length > 0) {
-        enrichedOddsCount = enrichBetSuggestionsWithRealOdds(betSuggestions, realOdds);
+      realOddsData = await fetchRealOdds(parseInt(fixtureId));
+      if (realOddsData.length > 0) {
+        enrichedOddsCount = enrichBetSuggestionsWithRealOdds(betSuggestions, realOddsData);
         oddsAvailable = enrichedOddsCount > 0;
-        oddsBookmaker = realOdds[0]?.bookmaker || null;
-        console.log(`[Match Detail] Gerçek oranlar uygulandı: ${realOdds.length} oran, ${enrichedOddsCount} eşleşme (fixture: ${fixtureId}, bookmaker: ${oddsBookmaker})`);
+        oddsBookmaker = realOddsData[0]?.bookmaker || null;
+        console.log(`[Match Detail] Gerçek oranlar uygulandı: ${realOddsData.length} oran, ${enrichedOddsCount} eşleşme (fixture: ${fixtureId}, bookmaker: ${oddsBookmaker})`);
       } else {
         console.log(`[Match Detail] Gerçek oran bulunamadı (fixture: ${fixtureId}) — tüm oranlar hesaplanmış`);
       }
     } catch (oddsError) {
       console.warn(`[Match Detail] Gerçek oran çekilemedi (fixture: ${fixtureId}):`, oddsError);
+    }
+
+    // 🆕 FALLBACK: Stats/prediction yoksa bile, gerçek oranlardan temel öneriler oluştur
+    if (betSuggestions.length === 0 && realOddsData.length > 0) {
+      console.log(`[Match Detail] Stats/prediction boş, gerçek oranlardan fallback öneriler oluşturuluyor (fixture: ${fixtureId})`);
+      const fallbackSuggestions = generateSuggestionsFromOdds(realOddsData);
+      betSuggestions.push(...fallbackSuggestions);
+      oddsAvailable = true;
+      oddsBookmaker = realOddsData[0]?.bookmaker || null;
     }
 
     // API Ensemble Validation (Faz 2)
@@ -1336,6 +1346,115 @@ function generateBetSuggestions(
 // GERÇEK ORAN ENTEGRASYONU
 // API-Football bookmaker oranlarını betSuggestions'a uygula
 // =====================================
+
+/**
+ * Stats/prediction hiç yoksa, sadece gerçek oranlardan temel öneriler oluştur
+ * Bu sayede en düşük profilli liglerde bile öneri gösterilebilir
+ */
+function generateSuggestionsFromOdds(realOdds: RealOdds[]): BetSuggestion[] {
+  const suggestions: BetSuggestion[] = [];
+  const oddsMap = new Map<string, RealOdds>();
+  for (const ro of realOdds) {
+    oddsMap.set(ro.betType, ro);
+  }
+
+  const bookmaker = realOdds[0]?.bookmaker || 'Bookmaker';
+
+  // O/U 2.5 — Oranlardan güven hesapla
+  const over25 = oddsMap.get('over25');
+  const under25 = oddsMap.get('under25');
+  if (over25 && under25) {
+    // Düşük oranlı taraf daha olası
+    const isFavorOver = over25.odds < under25.odds;
+    const favorOdds = isFavorOver ? over25 : under25;
+    const impliedProb = Math.min(85, Math.round((1 / favorOdds.odds) * 100));
+    suggestions.push({
+      type: 'goals',
+      market: isFavorOver ? 'Ü2.5 Gol' : 'A2.5 Gol',
+      pick: isFavorOver ? 'Üst 2.5' : 'Alt 2.5',
+      confidence: impliedProb,
+      odds: favorOdds.odds,
+      reasoning: `${bookmaker} oranlarına göre: Ü2.5 @${over25.odds} / A2.5 @${under25.odds}`,
+      value: impliedProb >= 60 ? 'medium' : 'low',
+      oddsSource: 'real',
+      bookmaker: bookmaker,
+    });
+  }
+
+  // BTTS
+  const btts = oddsMap.get('btts');
+  const bttsNo = oddsMap.get('btts_no');
+  if (btts && bttsNo) {
+    const isFavorBtts = btts.odds < bttsNo.odds;
+    const favorOdds = isFavorBtts ? btts : bttsNo;
+    const impliedProb = Math.min(80, Math.round((1 / favorOdds.odds) * 100));
+    suggestions.push({
+      type: 'btts',
+      market: 'KG',
+      pick: isFavorBtts ? 'Var' : 'Yok',
+      confidence: impliedProb,
+      odds: favorOdds.odds,
+      reasoning: `${bookmaker}: KG Var @${btts.odds} / KG Yok @${bttsNo.odds}`,
+      value: impliedProb >= 60 ? 'medium' : 'low',
+      oddsSource: 'real',
+      bookmaker: bookmaker,
+    });
+  }
+
+  // 1X2 — En düşük oranlı favori
+  const home = oddsMap.get('home');
+  const draw = oddsMap.get('draw');
+  const away = oddsMap.get('away');
+  if (home && draw && away) {
+    const options = [
+      { pick: 'Ev Sahibi', odds: home.odds, label: 'MS 1' },
+      { pick: 'Beraberlik', odds: draw.odds, label: 'MS X' },
+      { pick: 'Deplasman', odds: away.odds, label: 'MS 2' },
+    ];
+    const favorite = options.reduce((a, b) => a.odds < b.odds ? a : b);
+    const impliedProb = Math.min(80, Math.round((1 / favorite.odds) * 100));
+    
+    if (impliedProb >= 40) {
+      suggestions.push({
+        type: 'result',
+        market: 'Maç Sonucu',
+        pick: favorite.pick,
+        confidence: impliedProb,
+        odds: favorite.odds,
+        reasoning: `${bookmaker}: ${options.map(o => `${o.label} @${o.odds}`).join(' / ')}`,
+        value: impliedProb >= 60 ? 'medium' : 'low',
+        oddsSource: 'real',
+        bookmaker: bookmaker,
+      });
+    }
+
+    // Double Chance — güven düşükse
+    if (impliedProb < 55) {
+      const homeDraw = oddsMap.get('home_draw');
+      const drawAway = oddsMap.get('draw_away');
+      if (homeDraw || drawAway) {
+        const dc = (homeDraw && drawAway) 
+          ? (homeDraw.odds < drawAway.odds ? homeDraw : drawAway)
+          : (homeDraw || drawAway)!;
+        const dcPick = dc === homeDraw ? '1X' : 'X2';
+        const dcImplied = Math.min(85, Math.round((1 / dc.odds) * 100));
+        suggestions.push({
+          type: 'result',
+          market: 'Çifte Şans',
+          pick: dcPick,
+          confidence: dcImplied,
+          odds: dc.odds,
+          reasoning: `${bookmaker} çifte şans oranı: @${dc.odds}`,
+          value: dcImplied >= 65 ? 'medium' : 'low',
+          oddsSource: 'real',
+          bookmaker: bookmaker,
+        });
+      }
+    }
+  }
+
+  return suggestions.sort((a, b) => b.confidence - a.confidence);
+}
 
 /**
  * Bet suggestion pick'ini gerçek oran betType'ına eşle

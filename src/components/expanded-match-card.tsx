@@ -460,7 +460,7 @@ export function ExpandedMatchCard({ fixture, defaultExpanded }: ExpandedMatchCar
                 <div className="p-3 rounded-xl bg-muted/20 border border-border/30">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    <span className="text-xs">Öneriler yükleniyor veya bu maç için yeterli veri yok. Daha sonra tekrar deneyin.</span>
+                    <span className="text-xs">Bu maç için henüz yeterli istatistik ve oran verisi bulunamadı.</span>
                   </div>
                 </div>
               )}

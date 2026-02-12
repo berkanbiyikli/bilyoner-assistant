@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { MatchCard } from "@/components/match-card";
 import { LeagueFilter } from "@/components/league-filter";
 import { CouponSidebar } from "@/components/coupon-sidebar";
+import { SystemPerformanceWidget } from "@/components/system-performance";
 import { MatchCardSkeleton } from "@/components/skeletons";
 import { useAppStore } from "@/lib/store";
 import type { MatchPrediction } from "@/types";
@@ -74,6 +75,9 @@ export function PredictionsPage() {
 
         {/* League Filter */}
         <LeagueFilter predictions={predictions} />
+
+        {/* System Performance */}
+        <SystemPerformanceWidget />
 
         {/* Predictions */}
         <div className="space-y-3">

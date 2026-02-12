@@ -345,3 +345,19 @@ export interface ValueBet {
   confidence: number;
   kellyStake: number; // as percentage of bankroll
 }
+
+// ---- Calibration (Self-Learning) ----
+export interface CalibrationData {
+  heuristicWeight: number;      // 0.0 – 1.0 (default 0.4)
+  simWeight: number;             // 0.0 – 1.0 (default 0.6)
+  calibrationError: number;      // MAE: ortalama mutlak hata (confidence vs actual)
+  sampleSize: number;            // Kaç kayıttan hesaplandı
+  bandErrors: {
+    band: string;
+    predictedWinRate: number;    // Ortalama confidence %
+    actualWinRate: number;       // Gerçekleşen kazanma %
+    error: number;               // |predicted - actual|
+    improvement: string;         // "↑ arttır" | "↓ azalt" | "✓ iyi"
+  }[];
+  lastUpdated: string;
+}

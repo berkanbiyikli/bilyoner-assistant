@@ -3,8 +3,9 @@
 // Tahmin doğruluk analizi ve feedback loop
 // ============================================
 
-import type { ValidationStats, ValidationRecord } from "@/types";
+import type { ValidationStats, ValidationRecord, CalibrationData } from "@/types";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { getCached, setCache } from "@/lib/cache";
 
 /**
  * Settle edilen bir maçın validasyon kaydını oluştur
@@ -279,4 +280,151 @@ function emptyStats(): ValidationStats {
       last30Days: { won: 0, lost: 0, roi: 0 },
     },
   };
+}
+
+// ============================================
+// Self-Calibrating Confidence Weights
+// Tarihsel veriden optimal heuristic/sim ağırlıklarını hesapla
+// ============================================
+
+const DEFAULT_HEURISTIC_WEIGHT = 0.4;
+const DEFAULT_SIM_WEIGHT = 0.6;
+const CALIBRATION_CACHE_KEY = "calibration-weights";
+const CALIBRATION_CACHE_TTL = 6 * 3600; // 6 saat
+
+/**
+ * Kalibrasyon verisi hesapla:
+ * Her confidence band'inde predicted vs actual win rate karşılaştırması
+ * Eğer confidence band'ler sistematik olarak over/under-confident ise
+ * ağırlıkları ayarla
+ */
+export async function calculateCalibration(): Promise<CalibrationData> {
+  const cached = getCached<CalibrationData>(CALIBRATION_CACHE_KEY);
+  if (cached) return cached;
+
+  const supabase = createAdminSupabase();
+  const { data: records } = await supabase
+    .from("validation_records")
+    .select("*")
+    .in("result", ["won", "lost"])
+    .order("kickoff", { ascending: false });
+
+  const all = records || [];
+  if (all.length < 30) {
+    // Yeterli veri yok, default weights
+    return {
+      heuristicWeight: DEFAULT_HEURISTIC_WEIGHT,
+      simWeight: DEFAULT_SIM_WEIGHT,
+      calibrationError: 0,
+      sampleSize: all.length,
+      bandErrors: [],
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+
+  // Confidence band analizi — 10'luk aralıklarla
+  const bands = [
+    { band: "45-55", min: 45, max: 55, midpoint: 50 },
+    { band: "55-65", min: 55, max: 65, midpoint: 60 },
+    { band: "65-75", min: 65, max: 75, midpoint: 70 },
+    { band: "75-85", min: 75, max: 85, midpoint: 80 },
+    { band: "85-95", min: 85, max: 95, midpoint: 90 },
+  ];
+
+  const bandErrors: CalibrationData["bandErrors"] = [];
+  let totalCalibError = 0;
+  let bandCount = 0;
+
+  for (const { band, min, max } of bands) {
+    const filtered = all.filter((r) => r.confidence >= min && r.confidence < max);
+    if (filtered.length < 5) continue;
+
+    const predictedWinRate = filtered.reduce((sum, r) => sum + r.confidence, 0) / filtered.length;
+    const actualWinRate = (filtered.filter((r) => r.result === "won").length / filtered.length) * 100;
+    const error = Math.abs(predictedWinRate - actualWinRate);
+
+    totalCalibError += error;
+    bandCount++;
+
+    let improvement = "✓ iyi";
+    if (predictedWinRate > actualWinRate + 5) improvement = "↓ over-confident";
+    else if (predictedWinRate < actualWinRate - 5) improvement = "↑ under-confident";
+
+    bandErrors.push({
+      band,
+      predictedWinRate: Math.round(predictedWinRate * 10) / 10,
+      actualWinRate: Math.round(actualWinRate * 10) / 10,
+      error: Math.round(error * 10) / 10,
+      improvement,
+    });
+  }
+
+  const avgCalibError = bandCount > 0 ? totalCalibError / bandCount : 0;
+
+  // Ağırlık optimizasyonu:
+  // Sistematik over-confidence → sim ağırlığını artır (daha konservatif)
+  // Sistematik under-confidence → heuristic ağırlığını artır (daha agresif)
+  const overConfidentBands = bandErrors.filter((b) => b.improvement === "↓ over-confident").length;
+  const underConfidentBands = bandErrors.filter((b) => b.improvement === "↑ under-confident").length;
+
+  let heuristicWeight = DEFAULT_HEURISTIC_WEIGHT;
+  let simWeight = DEFAULT_SIM_WEIGHT;
+
+  if (overConfidentBands > underConfidentBands && overConfidentBands >= 2) {
+    // Over-confident: Sim'e daha çok güven (sim genelde daha konservatif)
+    heuristicWeight = Math.max(0.25, DEFAULT_HEURISTIC_WEIGHT - 0.05 * (overConfidentBands - underConfidentBands));
+    simWeight = 1 - heuristicWeight;
+  } else if (underConfidentBands > overConfidentBands && underConfidentBands >= 2) {
+    // Under-confident: Heuristic'e daha çok güven (gerçekte daha iyi)
+    heuristicWeight = Math.min(0.55, DEFAULT_HEURISTIC_WEIGHT + 0.05 * (underConfidentBands - overConfidentBands));
+    simWeight = 1 - heuristicWeight;
+  }
+
+  // Value bet performansına göre ek ayar
+  const valueBets = all.filter((r) => r.is_value_bet);
+  if (valueBets.length >= 10) {
+    const vbWinRate = (valueBets.filter((r) => r.result === "won").length / valueBets.length) * 100;
+    const vbAvgConf = valueBets.reduce((sum, r) => sum + r.confidence, 0) / valueBets.length;
+
+    // Value bet'ler sürekli kaybediyorsa → edge calculation'a güvenme → sim artır
+    if (vbWinRate < vbAvgConf - 15) {
+      simWeight = Math.min(0.75, simWeight + 0.05);
+      heuristicWeight = 1 - simWeight;
+    }
+  }
+
+  // Yuvarlama
+  heuristicWeight = Math.round(heuristicWeight * 100) / 100;
+  simWeight = Math.round(simWeight * 100) / 100;
+
+  const result: CalibrationData = {
+    heuristicWeight,
+    simWeight,
+    calibrationError: Math.round(avgCalibError * 10) / 10,
+    sampleSize: all.length,
+    bandErrors,
+    lastUpdated: new Date().toISOString(),
+  };
+
+  setCache(CALIBRATION_CACHE_KEY, result, CALIBRATION_CACHE_TTL);
+  return result;
+}
+
+/**
+ * Engine'in kullanacağı optimal ağırlıkları getir
+ * Cache'li, lightweight çağrı
+ */
+export async function getOptimalWeights(): Promise<{ heuristic: number; sim: number }> {
+  try {
+    const calibration = await calculateCalibration();
+    return {
+      heuristic: calibration.heuristicWeight,
+      sim: calibration.simWeight,
+    };
+  } catch {
+    return {
+      heuristic: DEFAULT_HEURISTIC_WEIGHT,
+      sim: DEFAULT_SIM_WEIGHT,
+    };
+  }
 }

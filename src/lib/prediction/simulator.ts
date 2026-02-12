@@ -4,6 +4,7 @@
 // ============================================
 
 import type { MatchAnalysis, MatchOdds, MonteCarloResult, RefereeProfile } from "@/types";
+import type { MatchImportance } from "@/lib/prediction/importance";
 
 const SIM_RUNS = 10_000;
 
@@ -103,7 +104,8 @@ function poissonRandom(lambda: number): number {
 export function simulateMatch(
   analysis: MatchAnalysis,
   odds?: MatchOdds,
-  leagueId?: number
+  leagueId?: number,
+  importance?: MatchImportance
 ): MonteCarloResult {
   // --- Lambda hesaplama ---
   const baseHomeLambda = analysis.homeXg ?? (analysis.homeAttack / 100) * 1.5;
@@ -124,8 +126,12 @@ export function simulateMatch(
   // Hakem tempo etkisi: Sık düdük çalan hakemler xG'yi düşürür
   const refTempoFactor = getRefereeLambdaFactor(analysis.refereeProfile);
 
-  let homeLambda = baseHomeLambda * awayDefFactor * homeInjuryFactor * homeAdvantageFactor * refTempoFactor;
-  let awayLambda = baseAwayLambda * homeDefFactor * awayInjuryFactor * refTempoFactor;
+  // Match Importance (motivasyon) çarpanı
+  const homeImportanceFactor = importance?.homeImportance ?? 1.0;
+  const awayImportanceFactor = importance?.awayImportance ?? 1.0;
+
+  let homeLambda = baseHomeLambda * awayDefFactor * homeInjuryFactor * homeAdvantageFactor * refTempoFactor * homeImportanceFactor;
+  let awayLambda = baseAwayLambda * homeDefFactor * awayInjuryFactor * refTempoFactor * awayImportanceFactor;
 
   // Lambda aralığını sınırla (0.3 – 4.0 arası mantıklı)
   homeLambda = Math.max(0.3, Math.min(4.0, homeLambda));

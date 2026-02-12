@@ -30,6 +30,8 @@ import { LEAGUE_IDS } from "@/lib/api-football";
 import { getCached, setCache } from "@/lib/cache";
 import { simulateMatch, getSimProbability } from "@/lib/prediction/simulator";
 import { getRefereeProfile } from "@/lib/prediction/referees";
+import { calculateMatchImportance, type MatchImportance } from "@/lib/prediction/importance";
+import { getOptimalWeights } from "@/lib/prediction/validator";
 
 const CACHE_TTL = 30 * 60; // 30 dakika
 
@@ -49,11 +51,18 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   if (cached) return cached;
 
   // Paralel veri çekimi (tüm kaynaklardan)
-  const [prediction, h2h, odds, injuries] = await Promise.all([
+  const [prediction, h2h, odds, injuries, importance] = await Promise.all([
     getPrediction(fixtureId).catch(() => null),
     getH2H(homeId, awayId, 10).catch(() => []),
     getOdds(fixtureId).catch(() => null),
     getInjuries(fixtureId).catch(() => []),
+    calculateMatchImportance(fixture.league.id, homeId, awayId).catch(() => ({
+      homeImportance: 1.0,
+      awayImportance: 1.0,
+      homeContext: "Veri yok",
+      awayContext: "Veri yok",
+      motivationGap: 0,
+    } as MatchImportance)),
   ]);
 
   // Analizleri oluştur
@@ -80,14 +89,17 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   const matchOdds = extractOdds(odds);
 
   // Monte Carlo simülasyon (analiz + odds hazır olduktan sonra)
-  // Liga bazlı ev sahibi avantajı → dinamik çarpan
-  const simulation = simulateMatch(analysis, matchOdds, fixture.league.id);
+  // Liga bazlı ev sahibi avantajı + motivasyon çarpanı → dinamik lambda
+  const simulation = simulateMatch(analysis, matchOdds, fixture.league.id, importance);
   analysis.simulation = simulation;
 
-  const picks = generatePicks(analysis, matchOdds, prediction, fixture);
+  // Self-calibrating ağırlıklar al (cache'li)
+  const weights = await getOptimalWeights().catch(() => ({ heuristic: 0.4, sim: 0.6 }));
+
+  const picks = generatePicks(analysis, matchOdds, prediction, fixture, weights);
 
   // Derinlemesine bilgiler (insights)
-  const insights = buildInsights(analysis, xgData, goalTiming, keyMissingPlayers, matchOdds);
+  const insights = buildInsights(analysis, xgData, goalTiming, keyMissingPlayers, matchOdds, importance);
 
   const result: MatchPrediction = {
     fixtureId,
@@ -595,7 +607,8 @@ function generatePicks(
   analysis: MatchAnalysis,
   odds: MatchOdds | undefined,
   prediction: PredictionResponse | null,
-  fixture: FixtureResponse
+  fixture: FixtureResponse,
+  weights: { heuristic: number; sim: number } = { heuristic: 0.4, sim: 0.6 }
 ): Pick[] {
   const picks: Pick[] = [];
   if (!odds) return picks;
@@ -611,13 +624,13 @@ function generatePicks(
   const impliedAway = 1 / odds.away;
   const impliedDraw = 1 / odds.draw;
 
-  // Hibrit confidence hesaplama: heuristic %40 + simülasyon %60
+  // Hibrit confidence hesaplama: self-calibrating ağırlıklar
   const hybridConfidence = (heuristicConf: number, pickType: string): number => {
     if (!sim) return heuristicConf;
     const simProb = getSimProbability(sim, pickType);
     if (simProb === undefined) return heuristicConf;
     const simConf = Math.min(95, simProb); // simProb zaten % cinsinden
-    return Math.round(heuristicConf * 0.4 + simConf * 0.6);
+    return Math.round(heuristicConf * weights.heuristic + simConf * weights.sim);
   };
 
   // H2H benzerlik filtresi: çelişen pick'lerin confidence'ını düşür
@@ -777,7 +790,8 @@ function buildInsights(
   xgData: XgData,
   goalTiming: GoalTimingData,
   keyMissing: KeyMissingPlayer[],
-  odds?: MatchOdds
+  odds?: MatchOdds,
+  importance?: MatchImportance
 ): MatchInsights {
   const notes: string[] = [];
 
@@ -835,6 +849,19 @@ function buildInsights(
 
   if (analysis.similarity) {
     notes.push(`📊 Benzer maç: ${analysis.similarity.similarMatch} → ${analysis.similarity.result} (%${analysis.similarity.similarityScore} benzerlik)`);
+  }
+
+  // Motivasyon / Maç Önemi uyarıları
+  if (importance && importance.motivationGap > 0) {
+    if (importance.warning) {
+      notes.push(importance.warning);
+    }
+    if (importance.homeImportance !== 1.0) {
+      notes.push(`🏠 Ev: ${importance.homeContext}`);
+    }
+    if (importance.awayImportance !== 1.0) {
+      notes.push(`✈️ Dep: ${importance.awayContext}`);
+    }
   }
 
   // Hakem uyarısı

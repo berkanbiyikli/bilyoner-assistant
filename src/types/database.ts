@@ -59,9 +59,11 @@ type PredictionRow = {
 type TweetRow = {
   id: string;
   tweet_id: string;
-  type: "daily_picks" | "coupon" | "live_alert" | "result";
+  type: "daily_picks" | "coupon" | "live_alert" | "result" | "outcome_reply" | "value_alert" | "weekly_report" | "analytic";
   content: string;
   coupon_id: string | null;
+  fixture_id: number | null;
+  reply_to_tweet_id: string | null;
   created_at: string;
 }
 
@@ -115,7 +117,7 @@ export type Database = {
       };
       tweets: {
         Row: TweetRow;
-        Insert: Omit<TweetRow, "id" | "created_at" | "coupon_id"> & { id?: string; coupon_id?: string | null };
+        Insert: Omit<TweetRow, "id" | "created_at" | "coupon_id" | "fixture_id" | "reply_to_tweet_id"> & { id?: string; coupon_id?: string | null; fixture_id?: number | null; reply_to_tweet_id?: string | null };
         Update: Partial<Omit<TweetRow, "id" | "created_at">>;
         Relationships: [];
       };

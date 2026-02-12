@@ -3,6 +3,7 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getFixtureById } from "@/lib/api-football";
 import { sendTweet, formatResultTweet } from "@/lib/bot";
 import { createValidationRecord, saveValidationRecord, calculateValidationStats, formatValidationTweet } from "@/lib/prediction/validator";
+import { processOutcomes } from "@/lib/bot/twitter-manager";
 
 export async function GET(req: NextRequest) {
   try {
@@ -138,11 +139,24 @@ export async function GET(req: NextRequest) {
 
     console.log(`[CRON] Settle: ${settled} settled (${won}W/${lost}L)`);
 
+    // Outcome Listener: Biten maçların tweetlerine sonuç yanıtı gönder
+    let outcomeReplies = 0;
+    if (settled > 0) {
+      try {
+        const outcomeResult = await processOutcomes();
+        outcomeReplies = outcomeResult.repliesSent;
+        console.log(`[CRON] Outcome replies: ${outcomeResult.repliesSent} sent, ${outcomeResult.errors} errors`);
+      } catch (outcomeErr) {
+        console.error("[CRON] Outcome processing error:", outcomeErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       settled,
       won,
       lost,
+      outcomeReplies,
     });
   } catch (error) {
     console.error("Settle bets cron error:", error);

@@ -5,6 +5,10 @@
       "schedule": "0 8 * * *"
     },
     {
+      "path": "/api/cron/market-scanner",
+      "schedule": "0 */1 * * *"
+    },
+    {
       "path": "/api/cron/live-scores",
       "schedule": "*/5 * * * *"
     },

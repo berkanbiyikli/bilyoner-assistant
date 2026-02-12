@@ -88,9 +88,11 @@ CREATE INDEX idx_bankroll_date ON bankroll_entries(created_at);
 CREATE TABLE IF NOT EXISTS tweets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tweet_id TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('daily_picks', 'coupon', 'live_alert', 'result')),
+  type TEXT NOT NULL CHECK (type IN ('daily_picks', 'coupon', 'live_alert', 'result', 'outcome_reply', 'value_alert', 'weekly_report', 'analytic')),
   content TEXT NOT NULL,
   coupon_id UUID REFERENCES coupons(id) ON DELETE SET NULL,
+  fixture_id INTEGER,
+  reply_to_tweet_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -152,6 +154,7 @@ CREATE POLICY predictions_update ON predictions FOR UPDATE USING (true);
 ALTER TABLE tweets ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tweets_select ON tweets FOR SELECT USING (true);
 CREATE POLICY tweets_insert ON tweets FOR INSERT WITH CHECK (true);
+CREATE POLICY tweets_update ON tweets FOR UPDATE USING (true);
 
 -- Validation Records: public read, server insert/update
 ALTER TABLE validation_records ENABLE ROW LEVEL SECURITY;

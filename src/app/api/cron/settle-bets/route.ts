@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getFixtureById } from "@/lib/api-football";
-import { sendTweet, formatResultTweet } from "@/lib/bot";
+import {
+  sendTweet,
+  formatResultTweet,
+  replyToTweet,
+  findThreadChain,
+  recordThreadReply,
+  uploadMedia,
+  sendTweetWithMedia,
+  generateROICard,
+} from "@/lib/bot";
+import { generateOutcomeTweet } from "@/lib/bot/prompts";
 import { createValidationRecord, saveValidationRecord, calculateValidationStats, formatValidationTweet } from "@/lib/prediction/validator";
-import { processOutcomes } from "@/lib/bot/twitter-manager";
 
 export async function GET(req: NextRequest) {
   try {
@@ -101,6 +110,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Sonuç tweet'i (günde 1 kez)
+    let outcomeReplies = 0;
     if (settled > 0) {
       const total = won + lost;
       const roi = total > 0 ? ((won / total) * 100 - 50) : 0;
@@ -115,18 +125,97 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      // Haftalık performans raporu (Pazartesi günleri)
+      // --- THE THREADER: Her settle edilen maça thread chain reply ---
+      for (const fixtureId of fixtureIds) {
+        try {
+          const chain = await findThreadChain(fixtureId);
+          if (!chain) continue;
+
+          const fixturePreds = pending!.filter((p) => p.fixture_id === fixtureId);
+          const fixture = await getFixtureById(fixtureId);
+          if (!fixture) continue;
+
+          const status = fixture.fixture.status.short;
+          if (!['FT', 'AET', 'PEN'].includes(status)) continue;
+
+          const homeGoals = fixture.goals.home ?? 0;
+          const awayGoals = fixture.goals.away ?? 0;
+          const actualScore = `${homeGoals}-${awayGoals}`;
+
+          for (const pred of fixturePreds) {
+            // Sonuç reply'ı — randomize persona kullan
+            const outcomeText = generateOutcomeTweet({
+              homeTeam: pred.home_team,
+              awayTeam: pred.away_team,
+              pick: pred.pick,
+              odds: pred.odds,
+              confidence: pred.confidence,
+              result: pred.result === "won" ? "won" : "lost",
+              actualScore,
+            });
+
+            const replyResult = await replyToTweet(chain.lastTweetId, outcomeText);
+
+            if (replyResult.success && replyResult.tweetId) {
+              outcomeReplies++;
+              await recordThreadReply(
+                replyResult.tweetId,
+                fixtureId,
+                chain.lastTweetId,
+                "outcome_reply",
+                outcomeText
+              );
+            }
+
+            // Rate limit
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        } catch (chainErr) {
+          console.error(`[SETTLE] Thread chain error for fixture ${fixtureId}:`, chainErr);
+        }
+      }
+
+      console.log(`[CRON] Outcome thread replies: ${outcomeReplies}`);
+
+      // Haftalık performans raporu (Pazartesi günleri) — ROI kartı ile
       const today = new Date();
       if (today.getDay() === 1) { // Pazartesi
         try {
           const stats = await calculateValidationStats();
           if (stats.totalPredictions >= 10) {
             const statsTweet = formatValidationTweet(stats);
-            const statsResult = await sendTweet(statsTweet);
+
+            // Visual Proof: ROI kartı oluştur
+            let roiMediaId: string | null = null;
+            try {
+              const bestMarket = stats.byMarket.find((m) => m.total >= 3 && m.roi > 0);
+              const roiCard = generateROICard({
+                period: "Bu Hafta",
+                totalPredictions: stats.totalPredictions,
+                won: stats.won,
+                lost: stats.lost,
+                winRate: stats.winRate,
+                roi: stats.roi,
+                topMarket: bestMarket?.market,
+                valueBetRoi: stats.valueBetStats.roi > 0 ? stats.valueBetStats.roi : undefined,
+              });
+              roiMediaId = await uploadMedia(roiCard);
+            } catch (imgErr) {
+              console.error("[SETTLE] ROI card generation error:", imgErr);
+            }
+
+            // ROI kartı ile tweet at (varsa)
+            let statsResult;
+            if (roiMediaId) {
+              statsResult = await sendTweetWithMedia(statsTweet, [roiMediaId]);
+            } else {
+              statsResult = await sendTweet(statsTweet);
+            }
+
             if (statsResult.success && statsResult.tweetId) {
               await supabase.from("tweets").insert({
                 tweet_id: statsResult.tweetId,
-                type: "result",
+                type: "weekly_report" as const,
                 content: statsTweet,
               });
             }
@@ -137,19 +226,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    console.log(`[CRON] Settle: ${settled} settled (${won}W/${lost}L)`);
-
-    // Outcome Listener: Biten maçların tweetlerine sonuç yanıtı gönder
-    let outcomeReplies = 0;
-    if (settled > 0) {
-      try {
-        const outcomeResult = await processOutcomes();
-        outcomeReplies = outcomeResult.repliesSent;
-        console.log(`[CRON] Outcome replies: ${outcomeResult.repliesSent} sent, ${outcomeResult.errors} errors`);
-      } catch (outcomeErr) {
-        console.error("[CRON] Outcome processing error:", outcomeErr);
-      }
-    }
+    console.log(`[CRON] Settle: ${settled} settled (${won}W/${lost}L), ${outcomeReplies} thread replies`);
 
     return NextResponse.json({
       success: true,

@@ -81,6 +81,7 @@ export interface FixtureResponse {
   teams: { home: Team; away: Team };
   goals: Goals;
   score: Score;
+  events?: FixtureEvent[]; // Canlı maçlarda gelen olaylar
 }
 
 // ---- Standings ----

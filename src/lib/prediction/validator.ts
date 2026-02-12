@@ -83,13 +83,45 @@ export async function saveValidationRecord(record: ValidationRecord): Promise<vo
 export async function calculateValidationStats(): Promise<ValidationStats> {
   const supabase = createAdminSupabase();
 
+  // Önce validation_records tablosundan dene
   const { data: records } = await supabase
     .from("validation_records")
     .select("*")
     .in("result", ["won", "lost"])
     .order("kickoff", { ascending: false });
 
-  const all = records || [];
+  let all = records || [];
+
+  // Fallback: validation_records boşsa predictions tablosundan oku
+  if (all.length === 0) {
+    const { data: predictions } = await supabase
+      .from("predictions")
+      .select("*")
+      .in("result", ["won", "lost"])
+      .order("kickoff", { ascending: false });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    all = (predictions || []).map((p: any) => ({
+      id: p.id,
+      fixture_id: p.fixture_id,
+      home_team: p.home_team,
+      away_team: p.away_team,
+      league: p.league,
+      kickoff: p.kickoff,
+      pick: p.pick,
+      confidence: p.confidence,
+      odds: p.odds,
+      expected_value: p.expected_value,
+      is_value_bet: p.is_value_bet,
+      result: p.result,
+      sim_probability: null,
+      sim_top_scoreline: null,
+      actual_score: null,
+      edge_at_open: p.expected_value && Number(p.expected_value) > 0 ? Number(p.expected_value) * 100 : null,
+      created_at: p.created_at,
+    }));
+  }
+
   if (all.length === 0) return emptyStats();
 
   const won = all.filter((r) => r.result === "won").length;

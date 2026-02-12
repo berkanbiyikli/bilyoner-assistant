@@ -20,34 +20,34 @@ const CATEGORY_DEFAULTS: Record<CouponCategory, Partial<CouponBuildOptions>> = {
   safe: {
     maxItems: 3,
     minConfidence: 70,
-    minOdds: 1.2,
-    maxOdds: 1.8,
-    targetTotalOdds: 4,
+    minOdds: 1.25,
+    maxOdds: 1.70,
+    targetTotalOdds: 3.5,
   },
   balanced: {
-    maxItems: 5,
-    minConfidence: 55,
-    minOdds: 1.4,
-    maxOdds: 2.5,
-    targetTotalOdds: 10,
+    maxItems: 4,
+    minConfidence: 60,
+    minOdds: 1.40,
+    maxOdds: 2.20,
+    targetTotalOdds: 8,
   },
   risky: {
-    maxItems: 7,
-    minConfidence: 40,
-    minOdds: 1.8,
-    maxOdds: 5.0,
-    targetTotalOdds: 50,
+    maxItems: 5,
+    minConfidence: 50,
+    minOdds: 1.60,
+    maxOdds: 3.50,
+    targetTotalOdds: 25,
   },
   value: {
-    maxItems: 5,
-    minConfidence: 45,
-    minOdds: 1.5,
-    maxOdds: 4.0,
-    targetTotalOdds: 15,
+    maxItems: 4,
+    minConfidence: 55,
+    minOdds: 1.50,
+    maxOdds: 3.00,
+    targetTotalOdds: 12,
   },
   custom: {
     maxItems: 10,
-    minConfidence: 30,
+    minConfidence: 40,
     minOdds: 1.1,
     maxOdds: 10.0,
   },
@@ -74,8 +74,13 @@ export function buildCoupon(
     }
   }
 
-  // En yüksek confidence'a göre sırala
-  eligiblePicks.sort((a, b) => b.pick.confidence - a.pick.confidence);
+  // Confidence + Expected Value hibrit skoruna göre sırala
+  eligiblePicks.sort((a, b) => {
+    // EV pozitif olanları öncelikle
+    const aScore = a.pick.confidence + (a.pick.expectedValue > 0 ? a.pick.expectedValue * 50 : 0);
+    const bScore = b.pick.confidence + (b.pick.expectedValue > 0 ? b.pick.expectedValue * 50 : 0);
+    return bScore - aScore;
+  });
 
   // Aynı maçtan birden fazla pick alma
   const selectedFixtures = new Set<number>();

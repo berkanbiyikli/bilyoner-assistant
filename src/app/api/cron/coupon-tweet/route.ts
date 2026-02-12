@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFixturesByDate } from "@/lib/api-football";
+import { LEAGUE_IDS } from "@/lib/api-football";
 import { analyzeMatches } from "@/lib/prediction";
 import { buildCoupon } from "@/lib/coupon";
 import { createAdminSupabase } from "@/lib/supabase/admin";
@@ -7,6 +8,23 @@ import { sendTweet, formatCouponTweet } from "@/lib/bot";
 import type { CouponCategory } from "@/types";
 
 const COUPON_CATEGORIES: CouponCategory[] = ["safe", "balanced", "risky"];
+
+// Minimum kalite eşikleri — bu şartları sağlamayan kupon paylaşılmaz
+const MIN_ITEMS_PER_CATEGORY: Record<CouponCategory, number> = {
+  safe: 2,
+  balanced: 3,
+  risky: 3,
+  value: 2,
+  custom: 1,
+};
+
+const MIN_AVG_CONFIDENCE: Record<CouponCategory, number> = {
+  safe: 65,
+  balanced: 55,
+  risky: 50,
+  value: 50,
+  custom: 30,
+};
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,32 +35,51 @@ export async function GET(req: NextRequest) {
 
     const date = new Date().toISOString().split("T")[0];
     const allFixtures = await getFixturesByDate(date);
-    const fixtures = allFixtures.filter((f) => f.fixture.status.short === "NS");
+
+    // SADECE desteklenen liglerdeki, henüz başlamamış maçları al
+    const fixtures = allFixtures.filter(
+      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
+    );
 
     if (fixtures.length === 0) {
-      return NextResponse.json({ success: true, reason: "No upcoming fixtures" });
+      return NextResponse.json({ success: true, reason: "No upcoming fixtures in supported leagues" });
     }
 
     const predictions = await analyzeMatches(fixtures);
 
-    if (predictions.length < 3) {
-      return NextResponse.json({ success: true, reason: "Not enough predictions" });
+    // Sadece en az 1 güvenilir pick'i olan tahminleri kullan
+    const qualityPredictions = predictions.filter(
+      (p) => p.picks.length > 0 && p.picks[0].confidence >= 50
+    );
+
+    if (qualityPredictions.length < 3) {
+      return NextResponse.json({ success: true, reason: "Not enough quality predictions" });
     }
 
     const supabase = createAdminSupabase();
-    const results: Array<{ category: string; tweeted: boolean; saved: boolean }> = [];
+    const results: Array<{ category: string; tweeted: boolean; saved: boolean; reason?: string }> = [];
 
     for (const category of COUPON_CATEGORIES) {
       const stake = category === "safe" ? 100 : category === "balanced" ? 50 : 25;
-      const coupon = buildCoupon(predictions, { category, stake });
+      const coupon = buildCoupon(qualityPredictions, { category, stake });
 
-      if (coupon.items.length < 2) {
-        results.push({ category, tweeted: false, saved: false });
+      const minItems = MIN_ITEMS_PER_CATEGORY[category];
+      const minAvgConf = MIN_AVG_CONFIDENCE[category];
+
+      // Kalite kontrolü — yeterli maç yoksa veya güven düşükse paylaşma
+      if (coupon.items.length < minItems) {
+        results.push({ category, tweeted: false, saved: false, reason: `Not enough items (${coupon.items.length}/${minItems})` });
+        continue;
+      }
+
+      const avgConfidence = coupon.items.reduce((sum, i) => sum + i.confidence, 0) / coupon.items.length;
+      if (avgConfidence < minAvgConf) {
+        results.push({ category, tweeted: false, saved: false, reason: `Low avg confidence (${avgConfidence.toFixed(0)}/${minAvgConf})` });
         continue;
       }
 
       // Kupon tweet'i - her kategori için ayrı tweet
-      const couponPredictions = predictions.filter((p) =>
+      const couponPredictions = qualityPredictions.filter((p) =>
         coupon.items.some((item) => item.fixtureId === p.fixtureId)
       );
       const tweetText = formatCouponTweet(couponPredictions, category, coupon.totalOdds, stake);
@@ -73,6 +110,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       date,
+      fixturesAnalyzed: fixtures.length,
+      qualityPredictions: qualityPredictions.length,
       coupons: results,
     });
   } catch (error) {

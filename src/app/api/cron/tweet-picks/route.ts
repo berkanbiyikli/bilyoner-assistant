@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { getFixturesByDate } from "@/lib/api-football";
+import { getFixturesByDate, LEAGUE_IDS } from "@/lib/api-football";
 import { analyzeMatches } from "@/lib/prediction";
 import { sendThread, formatDailyPicksTweet } from "@/lib/bot";
 
@@ -11,18 +11,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Günün tahminlerini çek
+    // Günün tahminlerini çek — sadece desteklenen ligler
     const date = new Date().toISOString().split("T")[0];
     const allFixtures = await getFixturesByDate(date);
-    const fixtures = allFixtures.filter((f) => f.fixture.status.short === "NS");
+    const fixtures = allFixtures.filter(
+      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
+    );
     const predictions = await analyzeMatches(fixtures);
 
-    if (predictions.length === 0) {
-      return NextResponse.json({ success: true, tweeted: false, reason: "No predictions" });
+    // Sadece kaliteli tahminleri paylaş
+    const qualityPredictions = predictions.filter(
+      (p) => p.picks.length > 0 && p.picks[0].confidence >= 50
+    );
+
+    if (qualityPredictions.length === 0) {
+      return NextResponse.json({ success: true, tweeted: false, reason: "No quality predictions" });
     }
 
-    // Tweet thread oluştur
-    const tweetTexts = formatDailyPicksTweet(predictions);
+    // Tweet thread oluştur — kaliteli tahminlerle
+    const tweetTexts = formatDailyPicksTweet(qualityPredictions);
     if (tweetTexts.length === 0) {
       return NextResponse.json({ success: true, tweeted: false, reason: "No picks to tweet" });
     }

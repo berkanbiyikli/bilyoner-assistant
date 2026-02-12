@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   Trophy,
   TrendingUp,
@@ -13,6 +13,7 @@ import {
   X,
   Brain,
   Sparkles,
+  Dices,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ import { useAppStore } from "@/lib/store";
 
 const NAV_ITEMS = [
   { href: "/", label: "Tahminler", icon: Trophy },
+  { href: "/?tab=crazy", label: "Sürpriz", icon: Dices },
   { href: "/live", label: "Canlı", icon: Radio },
   { href: "/coupons", label: "Kuponlar", icon: Ticket },
   { href: "/value-bets", label: "Value Bet", icon: Gem },
@@ -31,8 +33,15 @@ const NAV_ITEMS = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
   const couponCount = useAppStore((s) => s.activeCoupon.length);
+
+  const getIsActive = (href: string) => {
+    if (href === "/?tab=crazy") return pathname === "/" && searchParams.get("tab") === "crazy";
+    if (href === "/") return pathname === "/" && searchParams.get("tab") !== "crazy";
+    return pathname === href;
+  };
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
@@ -49,7 +58,7 @@ export function Navbar() {
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-1">
             {NAV_ITEMS.map((item) => {
-              const isActive = pathname === item.href;
+              const isActive = getIsActive(item.href);
               const Icon = item.icon;
               return (
                 <Link
@@ -87,7 +96,7 @@ export function Navbar() {
         {mobileOpen && (
           <div className="md:hidden pb-4 animate-slide-up">
             {NAV_ITEMS.map((item) => {
-              const isActive = pathname === item.href;
+              const isActive = getIsActive(item.href);
               const Icon = item.icon;
               return (
                 <Link

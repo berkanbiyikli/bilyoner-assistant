@@ -934,6 +934,20 @@ function extractOdds(oddsData: OddsResponse | null): MatchOdds | undefined {
   const corners = bookmaker.bets.find((b) => b.name?.toLowerCase().includes("corner"));
   const cards = bookmaker.bets.find((b) => b.name?.toLowerCase().includes("card"));
 
+  // Exact Score (Correct Score) — bet id=10 veya isim bazlı fallback
+  const exactScoreBet = bookmaker.bets.find((b) => b.id === 10) ||
+    bookmaker.bets.find((b) => b.name?.toLowerCase().includes("exact score") || b.name?.toLowerCase().includes("correct score"));
+  
+  const exactScoreOdds: Record<string, number> = {};
+  if (exactScoreBet) {
+    for (const v of exactScoreBet.values) {
+      // API-Football format: value = "1:0", "2:1", "3:3" etc.
+      const score = v.value.replace(":", "-");
+      const odd = parseFloat(v.odd);
+      if (odd > 0) exactScoreOdds[score] = odd;
+    }
+  }
+
   return {
     home: parseFloat(matchWinner?.values.find((v) => v.value === "Home")?.odd || "1.5"),
     draw: parseFloat(matchWinner?.values.find((v) => v.value === "Draw")?.odd || "3.5"),
@@ -950,6 +964,7 @@ function extractOdds(oddsData: OddsResponse | null): MatchOdds | undefined {
     cornerUnder85: corners ? parseFloat(corners.values.find((v) => v.value.includes("Under"))?.odd || "0") || undefined : undefined,
     cardOver35: cards ? parseFloat(cards.values.find((v) => v.value.includes("Over"))?.odd || "0") || undefined : undefined,
     cardUnder35: cards ? parseFloat(cards.values.find((v) => v.value.includes("Under"))?.odd || "0") || undefined : undefined,
+    exactScoreOdds: Object.keys(exactScoreOdds).length > 0 ? exactScoreOdds : undefined,
     bookmaker: bookmaker.name,
   };
 }

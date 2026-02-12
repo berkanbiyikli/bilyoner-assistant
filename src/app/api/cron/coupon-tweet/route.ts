@@ -16,6 +16,7 @@ const MIN_ITEMS_PER_CATEGORY: Record<CouponCategory, number> = {
   risky: 3,
   value: 2,
   custom: 1,
+  crazy: 2,
 };
 
 const MIN_AVG_CONFIDENCE: Record<CouponCategory, number> = {
@@ -24,6 +25,7 @@ const MIN_AVG_CONFIDENCE: Record<CouponCategory, number> = {
   risky: 50,
   value: 50,
   custom: 30,
+  crazy: 0,
 };
 
 export async function GET(req: NextRequest) {

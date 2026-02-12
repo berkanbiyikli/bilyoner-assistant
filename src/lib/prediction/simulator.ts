@@ -182,6 +182,15 @@ export function simulateMatch(
       probability: toPercent(count),
     }));
 
+  // Tüm skorlar (>%0.5 olasılık) — Crazy Pick modülü için
+  const allScorelines = Array.from(scoreMap.entries())
+    .filter(([, count]) => toPercent(count) >= 0.5)
+    .sort((a, b) => b[1] - a[1])
+    .map(([score, count]) => ({
+      score,
+      probability: toPercent(count),
+    }));
+
   return {
     simHomeWinProb: toPercent(homeWins),
     simDrawProb: toPercent(draws),
@@ -191,6 +200,7 @@ export function simulateMatch(
     simOver35Prob: toPercent(over35),
     simBttsProb: toPercent(bttsYes),
     topScorelines,
+    allScorelines,
     simRuns: SIM_RUNS,
   };
 }
@@ -226,7 +236,14 @@ export function getSimProbability(
       return sim.simBttsProb;
     case "BTTS No":
       return 100 - sim.simBttsProb;
-    default:
+    default: {
+      // Exact Score desteği: "CS 2-1" → allScorelines'tan oku
+      if (pickType.startsWith("CS ")) {
+        const score = pickType.slice(3); // "2-1"
+        const found = sim.allScorelines?.find((s) => s.score === score);
+        return found ? found.probability : undefined;
+      }
       return undefined; // Korner/Kart gibi pazarlar için simülasyon yok
+    }
   }
 }

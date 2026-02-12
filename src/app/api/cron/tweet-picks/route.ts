@@ -10,7 +10,9 @@ import {
   uploadMedia,
   sendTweetWithMedia,
   generateSimulationCard,
+  formatCrazyPickTweet,
 } from "@/lib/bot";
+import { findCrazyPicks } from "@/lib/crazy-pick";
 import type { MatchPrediction } from "@/types";
 
 export async function GET(req: NextRequest) {
@@ -141,6 +143,34 @@ export async function GET(req: NextRequest) {
 
     console.log(`[CRON] Tweet thread: ${successCount}/${tweetTexts.length} tweets sent (${skipped.length} skipped by safety)`);
 
+    // --- BLACK SWAN: Crazy Pick tweet'leri ---
+    let crazyPicksSent = 0;
+    try {
+      const crazyResults = findCrazyPicks(predictions);
+      if (crazyResults.length > 0) {
+        const crazyTweets = formatCrazyPickTweet(crazyResults);
+        // Günde max 1 crazy pick tweet'i gönder
+        const crazyToSend = crazyTweets.slice(0, 1);
+        const crazyThreadResults = await sendThread(crazyToSend);
+        crazyPicksSent = crazyThreadResults.filter((r) => r.success).length;
+
+        // Crazy pick tweet'lerini kaydet
+        for (let i = 0; i < crazyThreadResults.length; i++) {
+          const cr = crazyThreadResults[i];
+          if (cr.success && cr.tweetId) {
+            await supabase.from("tweets").insert({
+              tweet_id: cr.tweetId,
+              type: "daily_picks",
+              content: `[CRAZY PICK] ${crazyToSend[i] || ""}`,
+            });
+          }
+        }
+        console.log(`[CRON] Crazy picks: ${crazyPicksSent} tweet(s), ${crazyResults.length} maç bulundu`);
+      }
+    } catch (crazyErr) {
+      console.error("[CRON] Crazy pick error:", crazyErr);
+    }
+
     return NextResponse.json({
       success: true,
       tweeted: true,
@@ -149,6 +179,7 @@ export async function GET(req: NextRequest) {
       tweetIds: results.filter((r) => r.success).map((r) => r.tweetId),
       hasSimCard: !!simMediaId,
       threadSeeds: threadSeedCount,
+      crazyPicksSent,
       safetyReport: {
         safe: safe.length,
         skipped: skipped.length,

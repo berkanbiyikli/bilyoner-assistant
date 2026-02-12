@@ -51,6 +51,12 @@ const CATEGORY_DEFAULTS: Record<CouponCategory, Partial<CouponBuildOptions>> = {
     minOdds: 1.1,
     maxOdds: 10.0,
   },
+  crazy: {
+    maxItems: 5,
+    minConfidence: 0,
+    minOdds: 15.0,
+    maxOdds: 201.0,
+  },
 };
 
 export function buildCoupon(
@@ -178,6 +184,7 @@ export function getCouponCategoryLabel(category: CouponCategory): string {
     balanced: "⚖️ Dengeli",
     risky: "🔥 Riskli",
     value: "💎 Value",
+    crazy: "🎲 Crazy Pick",
     custom: "✏️ Özel",
   };
   return labels[category];

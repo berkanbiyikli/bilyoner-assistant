@@ -38,6 +38,9 @@ import {
   Clock,
   Settings2,
   Sparkles,
+  Dices,
+  Flame,
+  Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,7 +58,7 @@ const COLORS = {
   indigo: "#6366f1",
 };
 
-type TabKey = "live-tracker" | "simulation" | "roi" | "optimizer";
+type TabKey = "live-tracker" | "simulation" | "roi" | "optimizer" | "crazy-picks";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("live-tracker");
@@ -65,6 +68,7 @@ export default function DashboardPage() {
     { key: "simulation", label: "Simülasyon", icon: Brain },
     { key: "roi", label: "ROI Dashboard", icon: TrendingUp },
     { key: "optimizer", label: "Self-Correction", icon: Settings2 },
+    { key: "crazy-picks", label: "Crazy Picks", icon: Dices },
   ];
 
   return (
@@ -76,7 +80,7 @@ export default function DashboardPage() {
           Advanced Dashboard
         </h1>
         <p className="text-zinc-400 mt-1 text-sm">
-          Live Tracker · Simülasyon Analizi · ROI Dashboard · Self-Correction
+          Live Tracker · Simülasyon · ROI · Self-Correction · Crazy Picks
         </p>
       </div>
 
@@ -104,6 +108,7 @@ export default function DashboardPage() {
       {activeTab === "simulation" && <SimulationTab />}
       {activeTab === "roi" && <ROIDashboardTab />}
       {activeTab === "optimizer" && <OptimizerTab />}
+      {activeTab === "crazy-picks" && <CrazyPicksTab />}
     </div>
   );
 }
@@ -883,6 +888,320 @@ function OptimizerTab() {
             Son optimizasyon: {new Date(data.timestamp).toLocaleString("tr-TR")}
           </p>
         </>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// Crazy Picks Tab (Black Swan)
+// ============================================
+
+interface CrazyPickData {
+  fixtureId: number;
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  leagueId: number;
+  kickoff: string;
+  score: string;
+  simProbability: number;
+  impliedProbability: number;
+  edge: number;
+  bookmakerOdds: number;
+  volatilityScore: number;
+  chaosFactors: string[];
+  totalGoals: number;
+}
+
+interface CrazyPickResultData {
+  match: {
+    fixtureId: number;
+    homeTeam: string;
+    awayTeam: string;
+    league: string;
+    leagueId: number;
+    kickoff: string;
+    volatilityScore: number;
+    chaosFactors: string[];
+  };
+  picks: CrazyPickData[];
+  bestEdge: number;
+  avgEdge: number;
+  stake: number;
+}
+
+interface CrazyPickSummary {
+  totalMatches: number;
+  totalPicks: number;
+  avgVolatility: number;
+  avgEdge: number;
+  totalStake: number;
+  potentialMaxReturn: number;
+}
+
+function CrazyPicksTab() {
+  const [data, setData] = useState<{
+    results: CrazyPickResultData[];
+    summary: CrazyPickSummary;
+    date: string;
+    totalFixtures: number;
+    analyzedFixtures: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/crazy-picks");
+      const json = await res.json();
+      if (!json.error) setData(json);
+    } catch (e) {
+      console.error("Crazy picks error:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  if (loading) return <LoadingSpinner />;
+  if (!data) return <EmptyState message="Crazy Pick verisi yüklenemedi" />;
+
+  const { results, summary } = data;
+
+  // Volatilite dağılımı bar chart (lig bazlı)
+  const leagueVolatilityMap = new Map<string, { volatility: number; count: number }>();
+  for (const r of results) {
+    const existing = leagueVolatilityMap.get(r.match.league);
+    if (existing) {
+      existing.volatility = Math.max(existing.volatility, r.match.volatilityScore);
+      existing.count++;
+    } else {
+      leagueVolatilityMap.set(r.match.league, { volatility: r.match.volatilityScore, count: 1 });
+    }
+  }
+  const volatilityChartData = Array.from(leagueVolatilityMap.entries())
+    .map(([league, d]) => ({ league: league.length > 14 ? league.slice(0, 12) + "…" : league, volatility: d.volatility, count: d.count }))
+    .sort((a, b) => b.volatility - a.volatility);
+
+  // Edge dağılımı – tüm pick'leri düzleştir
+  const allPicks = results.flatMap((r) => r.picks);
+  const edgeBuckets = [
+    { range: "5-10%", min: 5, max: 10, count: 0 },
+    { range: "10-20%", min: 10, max: 20, count: 0 },
+    { range: "20-40%", min: 20, max: 40, count: 0 },
+    { range: "40-60%", min: 40, max: 60, count: 0 },
+    { range: "60%+", min: 60, max: 999, count: 0 },
+  ];
+  for (const p of allPicks) {
+    const bucket = edgeBuckets.find((b) => p.edge >= b.min && p.edge < b.max);
+    if (bucket) bucket.count++;
+  }
+
+  const volatilityColor = (score: number) =>
+    score >= 70 ? "text-red-400" : score >= 50 ? "text-orange-400" : "text-yellow-400";
+
+  const volatilityBg = (score: number) =>
+    score >= 70 ? "bg-red-500/10 border-red-500/30" : score >= 50 ? "bg-orange-500/10 border-orange-500/30" : "bg-yellow-500/10 border-yellow-500/30";
+
+  return (
+    <div className="space-y-6">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <KpiCard icon={Dices} label="Crazy Maç" value={summary.totalMatches} color="text-purple-400" />
+        <KpiCard icon={Target} label="Toplam Pick" value={summary.totalPicks} color="text-blue-400" />
+        <KpiCard icon={Flame} label="Ort. Volatilite" value={summary.avgVolatility} color="text-orange-400" />
+        <KpiCard icon={TrendingUp} label="Ort. Edge" value={`%${summary.avgEdge}`} color="text-green-400" />
+        <KpiCard icon={Trophy} label="Max Kazanç" value={`${summary.potentialMaxReturn} ₺`} color="text-yellow-400" />
+      </div>
+
+      {/* Toplam stake bilgisi */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Zap className="w-5 h-5 text-purple-400" />
+          <div>
+            <p className="text-sm text-white font-medium">Bugünün Black Swan Kuponu</p>
+            <p className="text-xs text-zinc-400">
+              {data.analyzedFixtures} maç analiz edildi · {summary.totalPicks} skor varyasyonu · {data.date}
+            </p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-bold text-white">{summary.totalStake} ₺</p>
+          <p className="text-[10px] text-zinc-500">Toplam Stake ({summary.totalPicks} × 50₺)</p>
+        </div>
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Lig Volatilite Heatmap */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Flame className="w-4 h-4 text-orange-400" />
+            Lig Bazlı Volatilite
+          </h3>
+          {volatilityChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={volatilityChartData} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                <XAxis type="number" domain={[0, 100]} stroke="#71717a" fontSize={11} tickLine={false} />
+                <YAxis type="category" dataKey="league" stroke="#71717a" fontSize={11} tickLine={false} width={110} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "#18181b", border: "1px solid #27272a", borderRadius: "8px" }}
+                  formatter={(value: number) => [`${value}/100`, "Volatilite"]}
+                />
+                <Bar dataKey="volatility" name="Volatilite" radius={[0, 6, 6, 0]}>
+                  {volatilityChartData.map((entry, i) => (
+                    <Cell key={i} fill={entry.volatility >= 70 ? COLORS.danger : entry.volatility >= 50 ? COLORS.warning : COLORS.cyan} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-zinc-500 text-sm text-center py-10">Crazy pick bulunamadı</p>
+          )}
+        </div>
+
+        {/* Edge Dağılımı */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-green-400" />
+            Edge Dağılımı
+          </h3>
+          {allPicks.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={edgeBuckets}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                <XAxis dataKey="range" stroke="#71717a" fontSize={11} tickLine={false} />
+                <YAxis stroke="#71717a" fontSize={12} tickLine={false} />
+                <Tooltip contentStyle={{ backgroundColor: "#18181b", border: "1px solid #27272a", borderRadius: "8px" }} />
+                <Bar dataKey="count" name="Pick Sayısı" fill={COLORS.emerald} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-zinc-500 text-sm text-center py-10">Henüz pick yok</p>
+          )}
+        </div>
+      </div>
+
+      {/* Match Cards */}
+      {results.length > 0 ? (
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Dices className="w-4 h-4 text-purple-400" />
+            Aktif Crazy Pick&apos;ler
+          </h3>
+          {results.map((result) => (
+            <div key={result.match.fixtureId} className={cn("border rounded-xl p-5 space-y-4", volatilityBg(result.match.volatilityScore))}>
+              {/* Match Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-white">
+                    {result.match.homeTeam} vs {result.match.awayTeam}
+                  </p>
+                  <p className="text-xs text-zinc-400 mt-0.5">{result.match.league}</p>
+                </div>
+                <div className="text-right">
+                  <div className={cn("text-lg font-bold", volatilityColor(result.match.volatilityScore))}>
+                    {result.match.volatilityScore}/100
+                  </div>
+                  <p className="text-[10px] text-zinc-500">Volatilite</p>
+                </div>
+              </div>
+
+              {/* Chaos Factors */}
+              {result.match.chaosFactors.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {result.match.chaosFactors.map((factor, i) => (
+                    <span key={i} className="text-[10px] bg-zinc-800/80 text-zinc-300 px-2 py-0.5 rounded-full">
+                      {factor}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Score Picks Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-zinc-500 border-b border-zinc-700/50">
+                      <th className="text-left py-2 pr-3">Skor</th>
+                      <th className="text-right py-2 px-3">Sim %</th>
+                      <th className="text-right py-2 px-3">Piyasa %</th>
+                      <th className="text-right py-2 px-3">Edge</th>
+                      <th className="text-right py-2 px-3">Oran</th>
+                      <th className="text-right py-2 pl-3">Potansiyel</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.picks.map((pick, i) => (
+                      <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
+                        <td className="py-2 pr-3 font-bold text-white">{pick.score}</td>
+                        <td className="text-right py-2 px-3 text-cyan-400">%{pick.simProbability}</td>
+                        <td className="text-right py-2 px-3 text-zinc-400">%{pick.impliedProbability}</td>
+                        <td className={cn("text-right py-2 px-3 font-medium", pick.edge >= 30 ? "text-green-400" : "text-emerald-400")}>
+                          +{pick.edge}%
+                        </td>
+                        <td className="text-right py-2 px-3 text-yellow-400 font-medium">{pick.bookmakerOdds.toFixed(1)}</td>
+                        <td className="text-right py-2 pl-3 text-white font-medium">{(50 * pick.bookmakerOdds).toFixed(0)} ₺</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Match Footer */}
+              <div className="flex items-center justify-between pt-1 border-t border-zinc-700/30">
+                <p className="text-[10px] text-zinc-500">
+                  {result.picks.length} skor varyasyonu · Avg Edge: %{result.avgEdge} · Best: %{result.bestEdge}
+                </p>
+                <p className="text-[10px] text-zinc-500">
+                  Stake: {result.picks.length * result.stake} ₺
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-10 text-center">
+          <Dices className="w-10 h-10 mx-auto text-zinc-600 mb-3" />
+          <p className="text-zinc-400 text-sm">Bugün için crazy pick bulunamadı</p>
+          <p className="text-zinc-600 text-xs mt-1">Yüksek volatilite + edge koşulları sağlanan maç yok</p>
+        </div>
+      )}
+
+      {/* Scatter: Sim Prob vs Odds */}
+      {allPicks.length > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-cyan-400" />
+            Sim Olasılık vs Oran (Scatter)
+          </h3>
+          <ResponsiveContainer width="100%" height={280}>
+            <ScatterChart>
+              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+              <XAxis type="number" dataKey="simProbability" name="Sim %" stroke="#71717a" fontSize={11} tickLine={false} unit="%" />
+              <YAxis type="number" dataKey="bookmakerOdds" name="Oran" stroke="#71717a" fontSize={11} tickLine={false} />
+              <ZAxis type="number" dataKey="edge" range={[40, 400]} name="Edge" />
+              <Tooltip
+                contentStyle={{ backgroundColor: "#18181b", border: "1px solid #27272a", borderRadius: "8px" }}
+                formatter={(value: number, name: string) => [name === "Edge" ? `%${value}` : name === "Sim %" ? `%${value}` : value, name]}
+                labelFormatter={() => ""}
+              />
+              <Scatter
+                name="Crazy Picks"
+                data={allPicks.map((p) => ({
+                  simProbability: p.simProbability,
+                  bookmakerOdds: p.bookmakerOdds,
+                  edge: p.edge,
+                  score: p.score,
+                }))}
+                fill={COLORS.purple}
+              />
+            </ScatterChart>
+          </ResponsiveContainer>
+        </div>
       )}
     </div>
   );

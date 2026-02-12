@@ -3,7 +3,7 @@
 // Tahminleri tweet formatına çevirir
 // ============================================
 
-import type { MatchPrediction } from "@/types";
+import type { MatchPrediction, CrazyPickResult } from "@/types";
 
 const CONFIDENCE_EMOJI: Record<string, string> = {
   high: "🟢",
@@ -304,4 +304,68 @@ export function formatResultTweet(
   const emoji = parseFloat(rate) >= 60 ? "🎯" : parseFloat(rate) >= 40 ? "📊" : "📉";
 
   return `${emoji} Günün Sonuçları\n\n✅ Kazanan: ${won}\n❌ Kaybeden: ${lost}\n📊 Başarı: %${rate}\n💰 ROI: ${roi >= 0 ? "+" : ""}${roi.toFixed(1)}%\n\n#bahis #sonuçlar`;
+}
+
+// ============================================
+// Crazy Pick (Black Swan) Tweet Formatı
+// ============================================
+
+function volatilityEmoji(score: number): string {
+  if (score >= 70) return "🔥🔥🔥";
+  if (score >= 50) return "🔥🔥";
+  return "🔥";
+}
+
+/**
+ * Crazy Pick tweet'ı oluştur
+ * Tek bir maç için 3-5 skor varyasyonu gösteren tweet
+ */
+export function formatCrazyPickTweet(results: CrazyPickResult[]): string[] {
+  const tweets: string[] = [];
+
+  // Max 2 maç için crazy pick tweet'i
+  const topResults = results.slice(0, 2);
+
+  for (const result of topResults) {
+    const { match, picks, stake } = result;
+    const volEmoji = volatilityEmoji(match.volatilityScore);
+
+    const pickLines = picks.slice(0, 4).map((p) => {
+      return `🎯 ${p.score} @${p.bookmakerOdds.toFixed(0)} (Sim: %${p.simProbability} vs Piyasa: %${p.impliedProbability} → Edge: +${p.edge}%)`;
+    }).join("\n");
+
+    // En yüksek potansiyel kazanç
+    const maxPotential = Math.max(...picks.map((p) => p.bookmakerOdds * stake));
+
+    // Chaos faktörleri (max 2)
+    const factors = match.chaosFactors.slice(0, 2).join(" | ");
+
+    const tweet = `🎲 BLACK SWAN — Sürpriz Skor
+
+⚽ ${match.homeTeam} vs ${match.awayTeam}
+Volatilite: ${volEmoji} (${match.volatilityScore}/100)
+${factors ? `💡 ${factors}\n` : ""}\n${pickLines}
+
+💰 Stake: ${stake}₺ per skor
+🌟 Max kazanç: ${maxPotential.toFixed(0)}₺
+⚠️ Düşük kasa yönetimi — yüksek risk
+
+#blackswan #crazypick #exactscore`;
+
+    tweets.push(tweet);
+  }
+
+  // Özet tweet (tüm crazy pick'ler)
+  if (results.length > 0) {
+    const totalPicks = results.reduce((sum, r) => sum + r.picks.length, 0);
+    const totalStake = totalPicks * results[0].stake;
+    const avgVol = Math.round(results.reduce((sum, r) => sum + r.match.volatilityScore, 0) / results.length);
+    const maxOdds = Math.max(...results.flatMap((r) => r.picks.map((p) => p.bookmakerOdds)));
+
+    const summary = `🎲 Black Swan Özet\n\n📈 ${results.length} maç, ${totalPicks} skor tahmini\n🔥 Ort. volatilite: ${avgVol}/100\n💰 Toplam yatırım: ${totalStake}₺\n🌟 En yüksek oran: @${maxOdds.toFixed(0)}\n⚠️ Bu tahminler yüksek risklidir!\n\n#blackswan #sistem`;
+
+    tweets.push(summary);
+  }
+
+  return tweets;
 }

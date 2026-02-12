@@ -7,6 +7,9 @@ import { NextResponse } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { calculateValidationStats, calculateCalibration } from "@/lib/prediction/validator";
 import { getLastOptimizationResult, runOptimization } from "@/lib/prediction/optimizer";
+import { getFixturesByDate } from "@/lib/api-football";
+import { analyzeMatches } from "@/lib/prediction";
+import { findCrazyPicks, summarizeCrazyPicks } from "@/lib/crazy-pick";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -269,6 +272,41 @@ export async function GET(request: Request) {
         // Manuel optimization tetikle
         const result = await runOptimization();
         return NextResponse.json(result);
+      }
+
+      case "crazy-picks": {
+        // Bugünün crazy pick verilerini getir
+        const today = new Date().toISOString().split("T")[0];
+        const fixtures = await getFixturesByDate(today);
+        
+        if (!fixtures.length) {
+          return NextResponse.json({
+            results: [],
+            summary: summarizeCrazyPicks([]),
+            date: today,
+            totalFixtures: 0,
+            analyzedFixtures: 0,
+          });
+        }
+
+        const predictions = await analyzeMatches(fixtures);
+        const results = findCrazyPicks(predictions);
+        const summary = summarizeCrazyPicks(results);
+
+        // Geçmiş crazy pick tweet sayısı
+        const { count: crazyTweetCount } = await supabase
+          .from("tweets")
+          .select("*", { count: "exact", head: true })
+          .like("content", "%[CRAZY PICK]%");
+
+        return NextResponse.json({
+          results,
+          summary,
+          date: today,
+          totalFixtures: fixtures.length,
+          analyzedFixtures: predictions.length,
+          crazyTweetsTotal: crazyTweetCount || 0,
+        });
       }
 
       default:

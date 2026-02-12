@@ -27,7 +27,8 @@ export type PickType =
   | "Over 8.5 Corners"
   | "Under 8.5 Corners"
   | "Over 3.5 Cards"
-  | "Under 3.5 Cards";
+  | "Under 3.5 Cards"
+  | `CS ${string}`; // Exact Score: "CS 3-2", "CS 4-1" etc.
 
 export interface MatchPrediction {
   fixtureId: number;
@@ -62,6 +63,7 @@ export interface MonteCarloResult {
   simOver35Prob: number;    // %
   simBttsProb: number;      // %
   topScorelines: { score: string; probability: number }[]; // En olası 5 skor
+  allScorelines: { score: string; probability: number }[]; // Tüm skorlar (>0.5%)
   simRuns: number;          // Simülasyon sayısı (10000)
 }
 
@@ -173,6 +175,7 @@ export interface MatchOdds {
   cornerUnder85?: number;
   cardOver35?: number;
   cardUnder35?: number;
+  exactScoreOdds?: Record<string, number>; // { "2-1": 8.0, "3-3": 51.0, ... }
   bookmaker: string;
 }
 
@@ -203,7 +206,42 @@ export interface Coupon {
   category: CouponCategory;
 }
 
-export type CouponCategory = "safe" | "balanced" | "risky" | "value" | "custom";
+export type CouponCategory = "safe" | "balanced" | "risky" | "value" | "crazy" | "custom";
+
+// ---- Crazy Pick (Black Swan) ----
+export interface CrazyPick {
+  fixtureId: number;
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  leagueId: number;
+  kickoff: string;
+  score: string;             // "3-2", "4-1", etc.
+  simProbability: number;    // Monte Carlo %
+  impliedProbability: number; // 1/odds * vigCorrection
+  edge: number;              // % edge over market
+  bookmakerOdds: number;
+  volatilityScore: number;   // 0-100
+  chaosFactors: string[];    // ["Yüksek atak", "xG verimsiz", ...]
+  totalGoals: number;        // Toplam skor (filtreleme için)
+}
+
+export interface CrazyPickResult {
+  match: {
+    fixtureId: number;
+    homeTeam: string;
+    awayTeam: string;
+    league: string;
+    leagueId: number;
+    kickoff: string;
+    volatilityScore: number;
+    chaosFactors: string[];
+  };
+  picks: CrazyPick[];        // 3-5 skor varyasyonu
+  bestEdge: number;
+  avgEdge: number;
+  stake: number;             // 50 TL sabit
+}
 
 // ---- Bankroll ----
 export interface BankrollEntry {

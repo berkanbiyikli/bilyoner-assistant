@@ -24,7 +24,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2) DB'de bu tarihin tahminleri var mı? (cron kaydetmiş olabilir)
+    // 2) Günün maçlarını API'den çek
+    const allFixtures = await getFixturesByDate(date);
+
+    // 3) DB'deki kayıtlı tahminleri çek (cron kaydetmiş olabilir)
     const supabase = createAdminSupabase();
     const dayStart = `${date}T00:00:00.000Z`;
     const dayEnd = `${date}T23:59:59.999Z`;
@@ -35,77 +38,71 @@ export async function GET(req: NextRequest) {
       .lte("kickoff", dayEnd)
       .order("confidence", { ascending: false });
 
-    // 3) Günün maçlarını API'den çek (hem NS hem canlı hem bitmiş — tüm maçlar)
-    const allFixtures = await getFixturesByDate(date);
+    // DB'deki fixture ID'leri (bunları canlı analizden hariç tutacağız)
+    const dbFixtureIds = new Set((dbPredictions || []).map((p) => p.fixture_id));
 
-    // DB'de bu tarih için yeterince tahmin varsa, fixture verileriyle birleştir
-    if (dbPredictions && dbPredictions.length > 0) {
-      const enriched = dbPredictions.map((dbPred) => {
-        // Fixture verisini eşleştir
-        const fixture = allFixtures.find((f) => f.fixture.id === dbPred.fixture_id);
-        if (!fixture) return null;
+    // 4) DB'deki tahminleri fixture verisiyle zenginleştir
+    const dbEnriched = (dbPredictions || []).map((dbPred) => {
+      const fixture = allFixtures.find((f) => f.fixture.id === dbPred.fixture_id);
+      if (!fixture) return null;
 
-        return {
-          fixtureId: dbPred.fixture_id,
-          fixture,
-          league: fixture.league,
-          homeTeam: fixture.teams.home,
-          awayTeam: fixture.teams.away,
-          kickoff: dbPred.kickoff,
-          picks: [
-            {
-              type: dbPred.pick,
-              confidence: dbPred.confidence,
-              odds: dbPred.odds,
-              reasoning: dbPred.analysis_summary || "",
-              expectedValue: dbPred.expected_value,
-              isValueBet: dbPred.is_value_bet,
-            },
-          ],
-          analysis: {
-            summary: dbPred.analysis_summary || "",
-            homeAttack: 50,
-            homeDefense: 50,
-            awayAttack: 50,
-            awayDefense: 50,
-            homeForm: 50,
-            awayForm: 50,
+      return {
+        fixtureId: dbPred.fixture_id,
+        fixture,
+        league: fixture.league,
+        homeTeam: fixture.teams.home,
+        awayTeam: fixture.teams.away,
+        kickoff: dbPred.kickoff,
+        picks: [
+          {
+            type: dbPred.pick,
+            confidence: dbPred.confidence,
+            odds: dbPred.odds,
+            reasoning: dbPred.analysis_summary || "",
+            expectedValue: dbPred.expected_value,
+            isValueBet: dbPred.is_value_bet,
           },
-          odds: undefined,
-          isLive: fixture.fixture.status.short !== "NS" && fixture.fixture.status.short !== "FT",
-        };
-      }).filter(Boolean);
+        ],
+        analysis: {
+          summary: dbPred.analysis_summary || "",
+          homeAttack: 50,
+          homeDefense: 50,
+          awayAttack: 50,
+          awayDefense: 50,
+          homeForm: 50,
+          awayForm: 50,
+        },
+        odds: undefined,
+        isLive: fixture.fixture.status.short !== "NS" && fixture.fixture.status.short !== "FT",
+      };
+    }).filter(Boolean);
 
-      if (enriched.length > 0) {
-        setCache(cacheKey, { predictions: enriched }, 300);
-        return NextResponse.json({
-          date,
-          source: "database",
-          total: allFixtures.length,
-          analyzed: enriched.length,
-          predictions: enriched,
-        });
-      }
-    }
-
-    // 4) DB'de yoksa → canlı analiz yap (sadece NS maçları)
-    const upcomingFixtures = allFixtures.filter(
-      (f) => f.fixture.status.short === "NS"
+    // 5) DB'de OLMAYAN NS maçları canlı analiz et
+    const unseenFixtures = allFixtures.filter(
+      (f) => f.fixture.status.short === "NS" && !dbFixtureIds.has(f.fixture.id)
     );
 
-    const predictions = await analyzeMatches(upcomingFixtures);
+    let liveAnalyzed: unknown[] = [];
+    if (unseenFixtures.length > 0) {
+      liveAnalyzed = await analyzeMatches(unseenFixtures);
+    }
 
-    // Canlı analiz sonuçlarını cache'e kaydet
-    if (predictions.length > 0) {
-      setCache(cacheKey, { predictions }, 300);
+    // 6) DB + canlı analiz sonuçlarını birleştir
+    const allPredictions = [...dbEnriched, ...liveAnalyzed];
+
+    // Cache'e kaydet
+    if (allPredictions.length > 0) {
+      setCache(cacheKey, { predictions: allPredictions }, 300);
     }
 
     return NextResponse.json({
       date,
-      source: "live",
+      source: dbEnriched.length > 0 && liveAnalyzed.length > 0 ? "hybrid" : dbEnriched.length > 0 ? "database" : "live",
       total: allFixtures.length,
-      analyzed: predictions.length,
-      predictions,
+      fromDb: dbEnriched.length,
+      fromLive: liveAnalyzed.length,
+      analyzed: allPredictions.length,
+      predictions: allPredictions,
     });
   } catch (error) {
     console.error("Predictions API error:", error);

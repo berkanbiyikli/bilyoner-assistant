@@ -1,212 +1,127 @@
--- =============================================
--- Kupon Muhendisi - Supabase Database Schema
--- Bu SQL'i Supabase Dashboard > SQL Editor'de calistirin
--- =============================================
+-- ============================================
+-- Bilyoner Assistant v2 - Database Schema
+-- ============================================
 
--- 1. Profiles tablosu (auth.users ile otomatik senkron)
-CREATE TABLE IF NOT EXISTS public.profiles (
-  id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+-- Profiles
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT NOT NULL,
-  full_name TEXT,
+  display_name TEXT NOT NULL DEFAULT '',
   avatar_url TEXT,
-  subscription_tier TEXT NOT NULL DEFAULT 'free' CHECK (subscription_tier IN ('free', 'pro', 'elite')),
-  subscription_expires_at TIMESTAMPTZ,
+  is_premium BOOLEAN NOT NULL DEFAULT FALSE,
+  bankroll NUMERIC(10,2) NOT NULL DEFAULT 0,
+  risk_level TEXT NOT NULL DEFAULT 'moderate' CHECK (risk_level IN ('conservative', 'moderate', 'aggressive')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 2. User Favorites (kaydedilen maclar)
-CREATE TABLE IF NOT EXISTS public.user_favorites (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  fixture_id INTEGER NOT NULL,
-  home_team TEXT NOT NULL,
-  away_team TEXT NOT NULL,
-  league TEXT NOT NULL,
-  match_date TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(user_id, fixture_id)
-);
-
--- 3. User Predictions (tahmin gecmisi)
-CREATE TABLE IF NOT EXISTS public.user_predictions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  fixture_id INTEGER NOT NULL,
-  home_team TEXT NOT NULL,
-  away_team TEXT NOT NULL,
-  prediction_type TEXT NOT NULL,
-  pick TEXT NOT NULL,
-  odds NUMERIC(6,2) NOT NULL DEFAULT 1.00,
-  confidence INTEGER NOT NULL DEFAULT 50,
-  result TEXT NOT NULL DEFAULT 'pending' CHECK (result IN ('pending', 'won', 'lost', 'void')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- =============================================
--- Row Level Security (RLS)
--- =============================================
-
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_favorites ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_predictions ENABLE ROW LEVEL SECURITY;
-
--- Profiles: Kullanici sadece kendi profilini gorebilir/guncelleyebilir
-CREATE POLICY "Users can view own profile" ON public.profiles
-  FOR SELECT USING (auth.uid() = id);
-
-CREATE POLICY "Users can update own profile" ON public.profiles
-  FOR UPDATE USING (auth.uid() = id);
-
--- Favorites: Kullanici sadece kendi favorilerini yonetebilir
-CREATE POLICY "Users can view own favorites" ON public.user_favorites
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own favorites" ON public.user_favorites
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete own favorites" ON public.user_favorites
-  FOR DELETE USING (auth.uid() = user_id);
-
--- Predictions: Kullanici sadece kendi tahminlerini yonetebilir
-CREATE POLICY "Users can view own predictions" ON public.user_predictions
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own predictions" ON public.user_predictions
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
--- =============================================
--- Triggers
--- =============================================
-
--- Yeni kullanici kayit olunca otomatik profil olustur
-CREATE OR REPLACE FUNCTION public.handle_new_user()
+-- Auto-create profile on signup
+CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, full_name, avatar_url)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    NEW.raw_user_meta_data->>'full_name',
-    NEW.raw_user_meta_data->>'avatar_url'
-  );
+  INSERT INTO profiles (id, email, display_name)
+  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)));
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE TRIGGER on_auth_user_created
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
 
--- updated_at otomatik guncelleme
-CREATE OR REPLACE FUNCTION public.handle_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE TRIGGER on_profile_updated
-  BEFORE UPDATE ON public.profiles
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- =============================================
--- 4. Bankroll Transactions (kasa hareketleri)
--- =============================================
-
-CREATE TABLE IF NOT EXISTS public.bankroll_transactions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('deposit', 'withdraw', 'bet', 'win', 'loss', 'bonus')),
-  amount NUMERIC(12,2) NOT NULL,
-  balance_after NUMERIC(12,2) NOT NULL,
-  description TEXT,
-  fixture_id INTEGER,
-  prediction_id UUID REFERENCES public.user_predictions(id) ON DELETE SET NULL,
+-- Predictions
+CREATE TABLE IF NOT EXISTS predictions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  fixture_id INTEGER NOT NULL,
+  home_team TEXT NOT NULL,
+  away_team TEXT NOT NULL,
+  league TEXT NOT NULL,
+  kickoff TIMESTAMPTZ NOT NULL,
+  pick TEXT NOT NULL,
+  odds NUMERIC(5,2) NOT NULL,
+  confidence INTEGER NOT NULL,
+  expected_value NUMERIC(5,2) NOT NULL DEFAULT 0,
+  is_value_bet BOOLEAN NOT NULL DEFAULT FALSE,
+  result TEXT NOT NULL DEFAULT 'pending' CHECK (result IN ('won', 'lost', 'void', 'pending')),
+  analysis_summary TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 5. Bankroll Settings (kasa ayarları)
-CREATE TABLE IF NOT EXISTS public.bankroll_settings (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL UNIQUE,
-  initial_balance NUMERIC(12,2) NOT NULL DEFAULT 1000,
-  current_balance NUMERIC(12,2) NOT NULL DEFAULT 1000,
-  currency TEXT NOT NULL DEFAULT 'TRY',
-  -- Risk Limits
-  daily_loss_limit NUMERIC(12,2) DEFAULT 200,
-  weekly_loss_limit NUMERIC(12,2) DEFAULT 500,
-  max_bet_percentage NUMERIC(5,2) DEFAULT 5.00,
-  max_single_bet NUMERIC(12,2) DEFAULT 500,
-  kelly_fraction NUMERIC(4,2) DEFAULT 0.25,
-  -- Streak tracking
-  current_streak INTEGER NOT NULL DEFAULT 0,
-  best_streak INTEGER NOT NULL DEFAULT 0,
-  worst_streak INTEGER NOT NULL DEFAULT 0,
-  -- Stats
-  total_bets INTEGER NOT NULL DEFAULT 0,
-  total_won INTEGER NOT NULL DEFAULT 0,
-  total_lost INTEGER NOT NULL DEFAULT 0,
-  total_void INTEGER NOT NULL DEFAULT 0,
-  total_staked NUMERIC(12,2) NOT NULL DEFAULT 0,
-  total_returns NUMERIC(12,2) NOT NULL DEFAULT 0,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+CREATE INDEX idx_predictions_fixture ON predictions(fixture_id);
+CREATE INDEX idx_predictions_date ON predictions(kickoff);
+CREATE INDEX idx_predictions_result ON predictions(result);
 
--- 6. Daily Snapshots (günlük P&L snapshot)
-CREATE TABLE IF NOT EXISTS public.bankroll_daily_snapshots (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  date DATE NOT NULL,
-  opening_balance NUMERIC(12,2) NOT NULL,
-  closing_balance NUMERIC(12,2) NOT NULL,
-  total_staked NUMERIC(12,2) NOT NULL DEFAULT 0,
-  total_returns NUMERIC(12,2) NOT NULL DEFAULT 0,
-  bets_placed INTEGER NOT NULL DEFAULT 0,
-  bets_won INTEGER NOT NULL DEFAULT 0,
-  bets_lost INTEGER NOT NULL DEFAULT 0,
-  profit_loss NUMERIC(12,2) NOT NULL DEFAULT 0,
-  roi NUMERIC(6,2) NOT NULL DEFAULT 0,
+-- Coupons
+CREATE TABLE IF NOT EXISTS coupons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  items JSONB NOT NULL DEFAULT '[]',
+  total_odds NUMERIC(10,2) NOT NULL DEFAULT 0,
+  stake NUMERIC(10,2) NOT NULL DEFAULT 0,
+  potential_win NUMERIC(10,2) NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'won', 'lost', 'partial', 'void')),
+  category TEXT NOT NULL DEFAULT 'balanced' CHECK (category IN ('safe', 'balanced', 'risky', 'value', 'custom')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(user_id, date)
+  settled_at TIMESTAMPTZ
 );
 
--- RLS for bankroll tables
-ALTER TABLE public.bankroll_transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.bankroll_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.bankroll_daily_snapshots ENABLE ROW LEVEL SECURITY;
+CREATE INDEX idx_coupons_user ON coupons(user_id);
+CREATE INDEX idx_coupons_status ON coupons(status);
 
--- Bankroll Transactions RLS
-CREATE POLICY "Users can view own transactions" ON public.bankroll_transactions
-  FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own transactions" ON public.bankroll_transactions
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
+-- Bankroll Entries
+CREATE TABLE IF NOT EXISTS bankroll_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('deposit', 'withdrawal', 'bet', 'win')),
+  amount NUMERIC(10,2) NOT NULL,
+  balance NUMERIC(10,2) NOT NULL,
+  coupon_id UUID REFERENCES coupons(id) ON DELETE SET NULL,
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
--- Bankroll Settings RLS
-CREATE POLICY "Users can view own settings" ON public.bankroll_settings
-  FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own settings" ON public.bankroll_settings
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update own settings" ON public.bankroll_settings
-  FOR UPDATE USING (auth.uid() = user_id);
+CREATE INDEX idx_bankroll_user ON bankroll_entries(user_id);
+CREATE INDEX idx_bankroll_date ON bankroll_entries(created_at);
 
--- Daily Snapshots RLS
-CREATE POLICY "Users can view own snapshots" ON public.bankroll_daily_snapshots
-  FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own snapshots" ON public.bankroll_daily_snapshots
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update own snapshots" ON public.bankroll_daily_snapshots
-  FOR UPDATE USING (auth.uid() = user_id);
+-- Tweets
+CREATE TABLE IF NOT EXISTS tweets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tweet_id TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('daily_picks', 'coupon', 'live_alert', 'result')),
+  content TEXT NOT NULL,
+  coupon_id UUID REFERENCES coupons(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
--- =============================================
--- Indexes
--- =============================================
+CREATE INDEX idx_tweets_type ON tweets(type);
 
-CREATE INDEX IF NOT EXISTS idx_user_favorites_user_id ON public.user_favorites(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_predictions_user_id ON public.user_predictions(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_predictions_result ON public.user_predictions(result);
-CREATE INDEX IF NOT EXISTS idx_profiles_subscription ON public.profiles(subscription_tier);
-CREATE INDEX IF NOT EXISTS idx_bankroll_transactions_user_id ON public.bankroll_transactions(user_id);
-CREATE INDEX IF NOT EXISTS idx_bankroll_transactions_created ON public.bankroll_transactions(created_at);
-CREATE INDEX IF NOT EXISTS idx_bankroll_snapshots_user_date ON public.bankroll_daily_snapshots(user_id, date);
+-- RLS Policies
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE coupons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bankroll_entries ENABLE ROW LEVEL SECURITY;
+
+-- Profiles: users can read/update their own
+CREATE POLICY profiles_select ON profiles FOR SELECT USING (auth.uid() = id);
+CREATE POLICY profiles_update ON profiles FOR UPDATE USING (auth.uid() = id);
+
+-- Coupons: users can CRUD their own
+CREATE POLICY coupons_select ON coupons FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY coupons_insert ON coupons FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY coupons_update ON coupons FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY coupons_delete ON coupons FOR DELETE USING (auth.uid() = user_id);
+
+-- Bankroll: users can CRUD their own
+CREATE POLICY bankroll_select ON bankroll_entries FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY bankroll_insert ON bankroll_entries FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- Predictions: public read, server insert/update
+ALTER TABLE predictions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY predictions_select ON predictions FOR SELECT USING (true);
+CREATE POLICY predictions_insert ON predictions FOR INSERT WITH CHECK (true);
+CREATE POLICY predictions_update ON predictions FOR UPDATE USING (true);
+
+-- Tweets: public read, server insert
+ALTER TABLE tweets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tweets_select ON tweets FOR SELECT USING (true);
+CREATE POLICY tweets_insert ON tweets FOR INSERT WITH CHECK (true);

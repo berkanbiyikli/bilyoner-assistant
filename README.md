@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bilyoner Assistant v2
 
-## Getting Started
+AI destekli futbol tahmin, kupon oluşturma ve bankroll yönetim sistemi.
 
-First, run the development server:
+## Özellikler
+
+- **🏆 Maç Tahminleri** — API-Football verileriyle AI analiz ve tahmin
+- **📊 Value Bet Bulucu** — Fair odds vs bahisçi oranları karşılaştırması
+- **🎫 Kupon Oluşturucu** — Otomatik ve manuel kupon builder (Güvenli/Dengeli/Riskli/Value)
+- **📻 Canlı Skor** — Gerçek zamanlı maç takibi (30sn güncelleme)
+- **💰 Bankroll Yönetimi** — Kelly Criterion, ROI takibi, para yönetimi
+- **🐦 Twitter Bot** — Otomatik tahmin ve kupon paylaşımı
+
+## Tech Stack
+
+- **Next.js 15** (App Router)
+- **TypeScript**
+- **Tailwind CSS**
+- **Supabase** (Auth + Database)
+- **Zustand** (State Management)
+- **API-Football** (Veri kaynağı)
+- **Vercel** (Deploy + Cron Jobs)
+
+## Kurulum
 
 ```bash
+# Bağımlılıkları yükle
+npm install
+
+# Development
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# Build
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Env Variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`.env.local` dosyasında şu değişkenler gerekli:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```env
+API_FOOTBALL_KEY=...
+API_FOOTBALL_BASE_URL=https://v3.football.api-sports.io
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+NEXT_PUBLIC_BASE_URL=http://localhost:3000
+CRON_SECRET=...
+TWITTER_API_KEY=...
+TWITTER_API_SECRET=...
+TWITTER_ACCESS_TOKEN=...
+TWITTER_ACCESS_SECRET=...
+```
 
-## Learn More
+## Proje Yapısı
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+├── app/                  # Next.js App Router
+│   ├── api/              # API Routes
+│   │   ├── predictions/  # Tahmin endpointi
+│   │   ├── live/         # Canlı skor
+│   │   ├── value-bets/   # Value bet'ler
+│   │   ├── coupon/       # Kupon oluşturma
+│   │   ├── match/[id]/   # Tekil maç analizi
+│   │   └── cron/         # Scheduled jobs
+│   ├── live/             # Canlı skor sayfası
+│   ├── coupons/          # Kupon sayfası
+│   ├── value-bets/       # Value bet sayfası
+│   ├── bankroll/         # Bankroll sayfası
+│   └── stats/            # İstatistik sayfası
+├── components/           # React bileşenleri
+├── lib/                  # Core modüller
+│   ├── api-football/     # API-Football client
+│   ├── prediction/       # Tahmin motoru
+│   ├── coupon/           # Kupon builder
+│   ├── bankroll/         # Bankroll yönetimi
+│   ├── value-bet/        # Value bet bulma
+│   ├── supabase/         # Supabase client
+│   ├── store.ts          # Zustand store
+│   └── utils.ts          # Utility fonksiyonlar
+└── types/                # TypeScript tanımları
+```

@@ -1,67 +1,35 @@
-import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
-import { QueryProvider } from "@/lib/query/providers";
-import { ThemeProvider } from "next-themes";
 import { Navbar } from "@/components/navbar";
+import { Toaster } from "sonner";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export const viewport: Viewport = {
-  themeColor: "#6366f1",
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-};
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Kupon Mühendisi - İddaa Analiz",
-  description: "Canlı maç analizi ve akıllı kupon önerileri",
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "Kupon Mühendisi",
-  },
-  formatDetection: {
-    telephone: false,
-  },
+  title: "Bilyoner Assistant | AI Futbol Tahmin",
+  description: "AI destekli futbol tahmin, kupon oluşturma ve bankroll yönetim sistemi",
+  icons: { icon: "/favicon.ico" },
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="tr" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-        suppressHydrationWarning
-      >
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <QueryProvider>
-            <div className="min-h-screen bg-background flex flex-col">
-              <Navbar />
-              <main className="flex-1">
-                {children}
-              </main>
-            </div>
-          </QueryProvider>
-        </ThemeProvider>
+    <html lang="tr" className="dark" suppressHydrationWarning>
+      <body className={`${inter.className} min-h-screen bg-background antialiased`}>
+        <Navbar />
+        <main className="container mx-auto px-4 py-6 max-w-7xl">
+          {children}
+        </main>
+        <Toaster
+          position="bottom-right"
+          theme="dark"
+          richColors
+          closeButton
+        />
       </body>
     </html>
   );

@@ -1,204 +1,259 @@
-﻿'use client';
+﻿"use client";
 
-import Image from 'next/image';
-import Link from 'next/link';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { ProcessedFixture } from '@/types/api-football';
-import { ChevronRight } from 'lucide-react';
-import { FavoriteButton } from '@/components/favorite-button';
-import { formatTurkeyDate } from '@/lib/utils';
-import { cn } from '@/lib/utils';
+import { cn } from "@/lib/utils";
+import type { MatchPrediction, Pick as PickType } from "@/types";
+import { useAppStore } from "@/lib/store";
+import {
+  formatOdds,
+  confidenceColor,
+  confidenceBg,
+  getMatchDate,
+} from "@/lib/utils";
+import {
+  Trophy,
+  TrendingUp,
+  Shield,
+  Plus,
+  Check,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
+import { useState } from "react";
+import Image from "next/image";
 
 interface MatchCardProps {
-  fixture: ProcessedFixture;
-  onClick?: () => void;
-  selected?: boolean;
+  prediction: MatchPrediction;
 }
 
-export function MatchCard({ fixture, onClick, selected }: MatchCardProps) {
-  const { status, homeTeam, awayTeam, score, league, time } = fixture;
+export function MatchCard({ prediction }: MatchCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const { activeCoupon, addToCoupon } = useAppStore();
 
-  return (
-    <div 
-      className={cn(
-        'card-premium rounded-xl cursor-pointer group',
-        selected && 'ring-2 ring-primary',
-        status.isLive && 'match-live'
-      )}
-      onClick={onClick}
-    >
-      <div className="p-4">
-        {/* League bar */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {league.logo && (
-              <Image src={league.logo} alt={league.name} width={16} height={16} className="object-contain" />
-            )}
-            <span className="font-medium truncate">{league.country} - {league.name}</span>
-          </div>
-          <MatchStatusBadge status={status} />
-        </div>
-
-        {/* Teams & Score - Centered layout */}
-        <div className="flex items-center justify-between gap-3">
-          {/* Home */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2.5">
-              {homeTeam.logo && (
-                <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors">
-                  <Image src={homeTeam.logo} alt={homeTeam.name} width={28} height={28} className="object-contain" />
-                </div>
-              )}
-              <span className="font-bold text-sm truncate">{homeTeam.name}</span>
-            </div>
-          </div>
-
-          {/* Score */}
-          <div className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-xl shrink-0',
-            status.isLive 
-              ? 'bg-red-500/10 border border-red-500/20' 
-              : status.isFinished 
-                ? 'bg-muted/50' 
-                : 'bg-primary/5 border border-primary/10'
-          )}>
-            <span className={cn(
-              'text-2xl font-black tabular-nums',
-              status.isLive && 'text-red-500 score-glow'
-            )}>
-              {score.home ?? '-'}
-            </span>
-            <span className="text-muted-foreground font-light">:</span>
-            <span className={cn(
-              'text-2xl font-black tabular-nums',
-              status.isLive && 'text-red-500 score-glow'
-            )}>
-              {score.away ?? '-'}
-            </span>
-          </div>
-
-          {/* Away */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2.5 justify-end">
-              <span className="font-bold text-sm truncate text-right">{awayTeam.name}</span>
-              {awayTeam.logo && (
-                <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors">
-                  <Image src={awayTeam.logo} alt={awayTeam.name} width={28} height={28} className="object-contain" />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/30">
-          {status.isUpcoming && (
-            <span className="text-xs font-bold text-primary">{time}</span>
-          )}
-          {status.isLive && status.elapsed && (
-            <span className="flex items-center gap-1.5 text-xs font-bold text-red-500">
-              <span className="live-dot" />
-              {status.elapsed}&apos;
-            </span>
-          )}
-          {status.isFinished && (
-            <span className="text-xs font-medium text-muted-foreground">Bitti</span>
-          )}
-          <ChevronRight className="h-4 w-4 text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MatchStatusBadge({ status }: { status: ProcessedFixture['status'] }) {
-  if (status.isLive) {
-    return (
-      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/20">
-        <span className="live-dot !w-[6px] !h-[6px]" />
-        <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Canli</span>
-      </span>
+  const isInCoupon = (fixtureId: number, pickType: string) =>
+    activeCoupon.some(
+      (item) => item.fixtureId === fixtureId && item.pick === pickType
     );
-  }
-  if (status.isFinished) {
-    return <Badge variant="secondary" className="text-[10px] font-semibold rounded-lg">Bitti</Badge>;
-  }
-  if (status.isUpcoming) {
-    return <Badge variant="outline" className="text-[10px] font-semibold rounded-lg border-primary/20 text-primary">Baslamadi</Badge>;
-  }
-  return <Badge variant="destructive" className="text-[10px] rounded-lg">{status.code}</Badge>;
-}
 
-export function MatchCardCompact({ fixture, onClick, selected }: MatchCardProps) {
-  const { status, homeTeam, awayTeam, score, time } = fixture;
+  const handleAddToCoupon = (pick: PickType) => {
+    addToCoupon({
+      fixtureId: prediction.fixtureId,
+      homeTeam: prediction.homeTeam.name,
+      awayTeam: prediction.awayTeam.name,
+      league: prediction.league.name,
+      kickoff: prediction.kickoff,
+      pick: pick.type,
+      odds: pick.odds,
+      confidence: pick.confidence,
+      result: "pending",
+    });
+  };
 
-  const content = (
-    <div 
-      className={cn(
-        'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all rounded-xl hover:bg-muted/50 group',
-        status.isLive && 'bg-red-500/5 hover:bg-red-500/10',
-        selected && 'bg-primary/5 ring-1 ring-primary/20'
-      )}
-      onClick={onClick}
-    >
-      {/* Time / Minute */}
-      <div className="w-14 text-center shrink-0">
-        {status.isLive ? (
-          <div className="flex items-center justify-center gap-1.5">
-            <span className="live-dot !w-[5px] !h-[5px]" />
-            <span className="text-xs text-red-500 font-black">{status.elapsed}&apos;</span>
-          </div>
-        ) : status.isFinished ? (
-          <span className="text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-md">MS</span>
-        ) : (
-          <span className="text-xs font-black text-primary">{time}</span>
-        )}
-      </div>
-
-      {/* Home */}
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        {homeTeam.logo && (
-          <Image src={homeTeam.logo} alt={homeTeam.name} width={22} height={22} className="object-contain shrink-0" />
-        )}
-        <span className="truncate text-sm font-semibold">{homeTeam.name}</span>
-      </div>
-
-      {/* Score */}
-      <div className={cn(
-        'font-black text-center px-3 py-1 rounded-lg shrink-0 min-w-[52px] text-sm tabular-nums',
-        status.isLive ? 'bg-red-500 text-white shadow-lg shadow-red-500/25' : status.isFinished ? 'bg-muted' : 'bg-primary/10 text-primary'
-      )}>
-        {score.home ?? '-'} : {score.away ?? '-'}
-      </div>
-
-      {/* Away */}
-      <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
-        <span className="truncate text-sm font-semibold text-right">{awayTeam.name}</span>
-        {awayTeam.logo && (
-          <Image src={awayTeam.logo} alt={awayTeam.name} width={22} height={22} className="object-contain shrink-0" />
-        )}
-      </div>
-      
-      <FavoriteButton
-        matchId={fixture.id}
-        matchData={{
-          id: fixture.id,
-          homeTeam: homeTeam.name,
-          awayTeam: awayTeam.name,
-          date: formatTurkeyDate(fixture.timestamp * 1000),
-          time: time,
-          league: fixture.league.name,
-        }}
-        size="sm"
-      />
-      <ChevronRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
-    </div>
-  );
+  const bestPick = prediction.picks[0];
 
   return (
-    <Link href={`/match/${fixture.id}`} className="block">
-      {content}
-    </Link>
+    <div className="rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/30">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {prediction.league.flag && (
+            <Image
+              src={prediction.league.flag}
+              alt={prediction.league.country}
+              width={14}
+              height={10}
+              className="h-2.5 w-3.5 object-cover rounded-[1px]"
+            />
+          )}
+          <span>{prediction.league.name}</span>
+          <span>•</span>
+          <span>{getMatchDate(prediction.kickoff)}</span>
+        </div>
+        {bestPick && (
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-xs font-semibold border",
+              confidenceBg(bestPick.confidence),
+              confidenceColor(bestPick.confidence)
+            )}
+          >
+            %{bestPick.confidence}
+          </span>
+        )}
+      </div>
+
+      {/* Teams */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3 flex-1">
+          {prediction.homeTeam.logo && (
+            <Image
+              src={prediction.homeTeam.logo}
+              alt={prediction.homeTeam.name}
+              width={32}
+              height={32}
+              className="h-8 w-8 object-contain"
+            />
+          )}
+          <span className="font-semibold text-sm">{prediction.homeTeam.name}</span>
+        </div>
+        <span className="text-muted-foreground text-xs font-medium px-3">VS</span>
+        <div className="flex items-center gap-3 flex-1 justify-end">
+          <span className="font-semibold text-sm">{prediction.awayTeam.name}</span>
+          {prediction.awayTeam.logo && (
+            <Image
+              src={prediction.awayTeam.logo}
+              alt={prediction.awayTeam.name}
+              width={32}
+              height={32}
+              className="h-8 w-8 object-contain"
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Picks */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {prediction.picks.slice(0, expanded ? undefined : 3).map((pick) => {
+          const inCoupon = isInCoupon(prediction.fixtureId, pick.type);
+          return (
+            <button
+              key={pick.type}
+              onClick={() => handleAddToCoupon(pick)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
+                inCoupon
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border hover:border-primary/50 hover:bg-primary/5"
+              )}
+            >
+              {inCoupon ? (
+                <Check className="h-3 w-3" />
+              ) : (
+                <Plus className="h-3 w-3" />
+              )}
+              <span>{pick.type}</span>
+              <span className="text-muted-foreground">@{formatOdds(pick.odds)}</span>
+              {pick.isValueBet && <Gem className="h-3 w-3 text-yellow-500" />}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Analysis Summary */}
+      {bestPick && (
+        <p className="text-xs text-muted-foreground mb-2">
+          {bestPick.reasoning}
+        </p>
+      )}
+
+      {/* Expand */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {expanded ? (
+          <>
+            <ChevronUp className="h-3 w-3" /> Daralt
+          </>
+        ) : (
+          <>
+            <ChevronDown className="h-3 w-3" /> Detaylı Analiz
+          </>
+        )}
+      </button>
+
+      {/* Expanded Analysis */}
+      {expanded && (
+        <div className="mt-4 space-y-3 animate-slide-up">
+          <div className="grid grid-cols-3 gap-2">
+            <StatBar
+              label="Ev Formu"
+              value={prediction.analysis.homeForm}
+              icon={<Trophy className="h-3 w-3" />}
+            />
+            <StatBar
+              label="Hücum"
+              value={prediction.analysis.homeAttack}
+              icon={<TrendingUp className="h-3 w-3" />}
+            />
+            <StatBar
+              label="Savunma"
+              value={prediction.analysis.homeDefense}
+              icon={<Shield className="h-3 w-3" />}
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <StatBar
+              label="Dep Formu"
+              value={prediction.analysis.awayForm}
+              icon={<Trophy className="h-3 w-3" />}
+            />
+            <StatBar
+              label="Hücum"
+              value={prediction.analysis.awayAttack}
+              icon={<TrendingUp className="h-3 w-3" />}
+            />
+            <StatBar
+              label="Savunma"
+              value={prediction.analysis.awayDefense}
+              icon={<Shield className="h-3 w-3" />}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground italic">
+            {prediction.analysis.summary}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatBar({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          {icon}
+          {label}
+        </span>
+        <span className={confidenceColor(value)}>{value}</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", {
+            "bg-green-500": value >= 70,
+            "bg-yellow-500": value >= 50 && value < 70,
+            "bg-red-500": value < 50,
+          })}
+          style={{ width: `${value}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Gem(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M6 3h12l4 6-10 13L2 9Z" />
+      <path d="M11 3 8 9l4 13 4-13-3-6" />
+      <path d="M2 9h20" />
+    </svg>
   );
 }

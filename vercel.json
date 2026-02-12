@@ -1,81 +1,24 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/bot/morning-bulletin",
-      "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/bot/daily-preview",
+      "path": "/api/cron/daily-predictions",
       "schedule": "0 8 * * *"
     },
     {
-      "path": "/api/bot/run?action=new-coupon",
+      "path": "/api/cron/live-scores",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/settle-bets",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/cron/tweet-picks",
       "schedule": "0 10 * * *"
     },
     {
-      "path": "/api/bot/surprise-coupons",
-      "schedule": "0 10 * * *"
-    },
-    {
-      "path": "/api/bot/stats-tweet",
-      "schedule": "0 12 * * *"
-    },
-    {
-      "path": "/api/bot/deep-stats",
-      "schedule": "0 13 * * *"
-    },
-    {
-      "path": "/api/bot/cron",
-      "schedule": "*/15 14-23 * * *"
-    },
-    {
-      "path": "/api/bot/cron",
-      "schedule": "*/15 0-1 * * *"
-    },
-    {
-      "path": "/api/bot/cron",
-      "schedule": "*/15 10-13 * * 6,0"
-    },
-    {
-      "path": "/api/bot/live",
-      "schedule": "*/10 14-23 * * *"
-    },
-    {
-      "path": "/api/bot/live",
-      "schedule": "*/10 0-1 * * *"
-    },
-    {
-      "path": "/api/bot/live",
-      "schedule": "*/10 10-13 * * 6,0"
-    },
-    {
-      "path": "/api/bot/live-results",
-      "schedule": "*/10 14-23 * * *"
-    },
-    {
-      "path": "/api/bot/live-results",
-      "schedule": "*/10 0-1 * * *"
-    },
-    {
-      "path": "/api/bot/live-results",
-      "schedule": "*/10 10-13 * * 6,0"
-    },
-    {
-      "path": "/api/bot/run?action=check-results",
-      "schedule": "30 23 * * *"
-    },
-    {
-      "path": "/api/bot/night-report",
-      "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/bot/weekly-summary",
-      "schedule": "0 18 * * 0"
-    },
-    {
-      "path": "/api/backtesting",
-      "schedule": "0 0 * * *"
+      "path": "/api/cron/coupon-tweet",
+      "schedule": "0 * * * *"
     }
   ]
 }

@@ -1,27 +1,3 @@
-/**
- * API-Football Module Exports
- */
-
-// Client
-export { apiFootballFetch, getLastRateLimitInfo, getRateLimitStatus, isApiCallAllowed, updateRateLimitFromHeaders, formatDateForApi, getTodayForApi } from './client';
-
-// Fixtures
-export { 
-  getFixturesByDate, 
-  getLiveFixtures, 
-  getFixtureById,
-  getFixtureStatistics,
-  getFixtureEvents,
-  getHeadToHead
-} from './fixtures';
-
-// Predictions & Odds
-export { 
-  getPrediction, 
-  processPrediction,
-  getOdds,
-  getLiveOdds,
-  processOdds,
-  type ProcessedPrediction,
-  type ProcessedOdds
-} from './predictions';
+export { getFixturesByDate, getFixturesByLeague, getFixtureById, getLiveFixtures, getStandings, getH2H, getPrediction, getOdds, getFixtureStatistics, getInjuries, getLineups, getFixtureEvents, getCurrentSeason } from "./client";
+export { LEAGUES, LEAGUE_IDS, getLeagueById, getLeaguesByPriority } from "./leagues";
+export type { LeagueConfig } from "./leagues";

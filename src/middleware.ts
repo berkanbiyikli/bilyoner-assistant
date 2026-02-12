@@ -1,25 +1,17 @@
-/**
- * Next.js Middleware
- * Supabase auth session refresh on every request
- */
+import { NextResponse, type NextRequest } from "next/server";
 
-import { type NextRequest } from 'next/server';
-import { updateSession } from '@/lib/supabase/middleware';
+export function middleware(request: NextRequest) {
+  // API cron routes - verify cron secret
+  if (request.nextUrl.pathname.startsWith("/api/cron/")) {
+    const authHeader = request.headers.get("authorization");
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
 
-export async function middleware(request: NextRequest) {
-  return await updateSession(request);
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization)
-     * - favicon.ico (favicon)
-     * - public folder assets
-     * - API routes that don't need auth refresh
-     */
-    '/((?!_next/static|_next/image|favicon.ico|icons/|manifest.json|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ["/api/cron/:path*"],
 };

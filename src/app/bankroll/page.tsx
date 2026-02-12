@@ -1,102 +1,132 @@
-/**
- * Bankroll Management Page
- * Kasa yönetimi, Kelly hesaplayıcı, risk limitleri, performans
- */
+"use client";
 
-'use client';
-
-import { useState } from 'react';
-import { BankrollDashboard } from '@/components/bankroll-dashboard';
-import { KellyCalculator } from '@/components/kelly-calculator';
-import { RiskLimitsPanel } from '@/components/risk-limits-panel';
-import { PerformanceDashboard } from '@/components/performance-dashboard';
-import { BetEntry } from '@/components/bet-entry';
-import { BetSettler } from '@/components/bet-settler';
-import { 
-  Wallet, Calculator, Shield, BarChart3, Plus 
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useAutoSettle } from '@/hooks/useAutoSettle';
-
-type TabKey = 'overview' | 'bet' | 'calculator' | 'performance';
-
-const TABS = [
-  { key: 'overview' as TabKey, label: 'Kasa', icon: Wallet, desc: 'Bakiye & P/L' },
-  { key: 'bet' as TabKey, label: 'Bahis', icon: Plus, desc: 'Bahis gir' },
-  { key: 'calculator' as TabKey, label: 'Hesapla', icon: Calculator, desc: 'Kelly' },
-  { key: 'performance' as TabKey, label: 'Performans', icon: BarChart3, desc: 'İstatistik' },
-];
+import { useState } from "react";
+import {
+  Wallet,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Target,
+  PlusCircle,
+} from "lucide-react";
+import { formatCurrency, formatPercentage, cn } from "@/lib/utils";
+import type { BankrollStats } from "@/types";
 
 export default function BankrollPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>('overview');
-  const { pendingCount } = useAutoSettle();
+  const [stats] = useState<BankrollStats>({
+    totalDeposit: 0,
+    totalWithdrawal: 0,
+    totalBets: 0,
+    totalWins: 0,
+    currentBalance: 0,
+    roi: 0,
+    winRate: 0,
+    streak: { current: 0, type: "win", best: 0 },
+  });
+
+  const [deposit, setDeposit] = useState("");
+
+  const handleDeposit = async () => {
+    // TODO: Supabase'e kaydet
+    setDeposit("");
+  };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 pb-24 pt-4">
-      {/* Header */}
-      <div className="mb-5">
-        <h1 className="text-2xl font-extrabold tracking-tight">
-          Kasa <span className="gradient-text">Yönetimi</span>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Wallet className="h-6 w-6 text-primary" />
+          Bankroll Yönetimi
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Akıllı bankroll management ile kasanı koru ve büyüt
+          Para yönetimi, Kelly criterion ve performans takibi
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-muted/30 rounded-xl p-1 mb-5 overflow-x-auto">
-        {TABS.map((tab) => {
-          const isActive = activeTab === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all flex-1 justify-center min-w-0',
-                isActive 
-                  ? 'bg-background shadow-sm text-primary' 
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <tab.icon className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.label}</span>
-              {tab.key === 'bet' && pendingCount > 0 && (
-                <span className="ml-1 bg-amber-500/20 text-amber-500 text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
-                  {pendingCount}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard
+          label="Bakiye"
+          value={formatCurrency(stats.currentBalance)}
+          icon={<DollarSign className="h-4 w-4" />}
+          color="text-primary"
+        />
+        <StatCard
+          label="ROI"
+          value={formatPercentage(stats.roi)}
+          icon={<TrendingUp className="h-4 w-4" />}
+          color={stats.roi >= 0 ? "text-green-500" : "text-red-500"}
+        />
+        <StatCard
+          label="Kazanma Oranı"
+          value={formatPercentage(stats.winRate)}
+          icon={<Target className="h-4 w-4" />}
+          color="text-yellow-500"
+        />
+        <StatCard
+          label="Seri"
+          value={`${stats.streak.current} ${stats.streak.type === "win" ? "W" : "L"}`}
+          icon={stats.streak.type === "win" ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+          color={stats.streak.type === "win" ? "text-green-500" : "text-red-500"}
+        />
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'overview' && (
-        <div className="space-y-4">
-          <BankrollDashboard />
-          <BetSettler />
-          <RiskLimitsPanel />
+      {/* Deposit */}
+      <div className="rounded-xl border border-border bg-card p-6">
+        <h2 className="font-semibold mb-4 flex items-center gap-2">
+          <PlusCircle className="h-4 w-4 text-primary" />
+          Para Yatır
+        </h2>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            value={deposit}
+            onChange={(e) => setDeposit(e.target.value)}
+            placeholder="Miktar (₺)"
+            className="flex-1 rounded-lg border border-border bg-background px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <button
+            onClick={handleDeposit}
+            disabled={!deposit || Number(deposit) <= 0}
+            className="rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            Yatır
+          </button>
         </div>
-      )}
+      </div>
 
-      {activeTab === 'bet' && (
-        <div className="space-y-4">
-          <BetEntry />
-          <BetSettler />
+      {/* Transaction History */}
+      <div>
+        <h2 className="text-lg font-semibold mb-4">İşlem Geçmişi</h2>
+        <div className="rounded-xl border border-border bg-card p-12 text-center">
+          <Wallet className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+          <p className="text-sm text-muted-foreground">
+            Henüz işlem geçmişi bulunmuyor. Bakiye yatırarak başlayın.
+          </p>
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
 
-      {activeTab === 'calculator' && (
-        <div className="space-y-4">
-          <KellyCalculator />
-          <RiskLimitsPanel />
-        </div>
-      )}
-
-      {activeTab === 'performance' && (
-        <PerformanceDashboard />
-      )}
+function StatCard({
+  label,
+  value,
+  icon,
+  color,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  color: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+        {icon}
+        {label}
+      </div>
+      <div className={cn("text-xl font-bold", color)}>{value}</div>
     </div>
   );
 }

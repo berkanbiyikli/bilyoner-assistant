@@ -18,16 +18,17 @@ import { getLeagueById, type VolatilityLevel } from "@/lib/api-football/leagues"
 
 // ---- Konfigürasyon ----
 const CRAZY_PICK_CONFIG = {
-  minBookmakerOdds: 15.0,     // Minimum oran (düşük oranlar "crazy" değil)
+  minBookmakerOdds: 8.0,      // Minimum oran (daha erişilebilir)
   maxBookmakerOdds: 201.0,    // Maximum oran (çok absürd oranları pas geç)
-  minSimProbability: 1.0,      // Minimum sim olasılığı % (en az 100/10000 iterasyon)
-  minEdge: 5.0,                // Minimum edge % (sim piyasadan %5+ fazla görmeli)
-  minVolatilityScore: 30,      // Minimum volatilite skoru (kaotik maç olmalı)
-  minTotalGoals: 3,            // Minimum toplam gol (3-1 ve üstü)
-  maxPicksPerMatch: 5,         // Maç başına max skor varyasyonu
-  minPicksPerMatch: 2,         // Maç başına min skor varyasyonu (az ise skip)
-  stake: 50,                   // Sabit stake (TL)
-  vigCorrection: 0.92,         // Bahisçi marjı düzeltmesi (ortalama ~8% vig)
+  minSimProbability: 0.8,     // Minimum sim olasılığı % (en az 80/10000 iterasyon)
+  minEdge: 3.0,               // Minimum edge % (sim piyasadan %3+ fazla görmeli)
+  minVolatilityScore: 20,     // Minimum volatilite skoru (biraz esnetildi)
+  minTotalGoals: 3,           // Minimum toplam gol (3-1 ve üstü)
+  maxPicksPerMatch: 5,        // Maç başına max skor varyasyonu
+  minPicksPerMatch: 1,        // Maç başına min skor varyasyonu (1'e düşürüldü)
+  stake: 50,                  // Sabit stake (TL)
+  vigCorrection: 0.92,        // Bahisçi marjı düzeltmesi (ortalama ~8% vig)
+  syntheticVig: 1.12,         // Sentetik oranlar için vig ekle (gerçekçi olsun)
 };
 
 // ---- Volatilite Skoru ----
@@ -128,8 +129,11 @@ export function findCrazyPicks(predictions: MatchPrediction[]): CrazyPickResult[
     const sim = prediction.analysis.simulation;
     const odds = prediction.odds;
 
-    // Guard: Simülasyon + exact score odds olmalı
-    if (!sim?.allScorelines?.length || !odds?.exactScoreOdds) continue;
+    // Guard: En azından simülasyon skor dağılımı olmalı
+    if (!sim?.allScorelines?.length) continue;
+
+    // Exact score odds yoksa simülasyondan sentetik oranlar üret
+    const exactScoreOdds = odds?.exactScoreOdds ?? generateSyntheticOdds(sim.allScorelines);
 
     // 1. Volatilite skoru
     const { score: volatilityScore, factors: chaosFactors } = calculateVolatilityScore(prediction);
@@ -139,8 +143,8 @@ export function findCrazyPicks(predictions: MatchPrediction[]): CrazyPickResult[
     const crazyPicks: CrazyPick[] = [];
 
     for (const scoreline of sim.allScorelines) {
-      const bookmakerOdds = odds.exactScoreOdds[scoreline.score];
-      if (!bookmakerOdds) continue; // Bahisçide bu skor yoksa atla
+      const bookmakerOdds = exactScoreOdds[scoreline.score];
+      if (!bookmakerOdds) continue; // Bu skor için oran yoksa atla
 
       // Filtreleme
       if (bookmakerOdds < CRAZY_PICK_CONFIG.minBookmakerOdds) continue;
@@ -213,6 +217,33 @@ export function findCrazyPicks(predictions: MatchPrediction[]): CrazyPickResult[
 }
 
 /**
+ * Simülasyon olasılıklarından sentetik bahis oranları üret
+ * API-Football'dan exact score odds gelmediğinde fallback olarak kullanılır
+ * 
+ * Formül: odds = (1 / probability) * vig
+ * Vig eklenerek gerçekçi bahisçi oranları simüle edilir
+ */
+function generateSyntheticOdds(
+  allScorelines: Array<{ score: string; probability: number }>
+): Record<string, number> {
+  const odds: Record<string, number> = {};
+  
+  for (const scoreline of allScorelines) {
+    if (scoreline.probability <= 0) continue;
+    
+    // Olasılıktan oran hesapla: odds = (100 / prob%) * vig
+    const rawOdds = (100 / scoreline.probability) * CRAZY_PICK_CONFIG.syntheticVig;
+    
+    // Gerçekçi bahis oranı aralığında tut (5-300 arası)
+    const clampedOdds = Math.max(5, Math.min(300, rawOdds));
+    
+    odds[scoreline.score] = Math.round(clampedOdds * 100) / 100;
+  }
+  
+  return odds;
+}
+
+/**
  * Crazy Pick sonuçlarını özet metriğe çevir
  */
 export function summarizeCrazyPicks(results: CrazyPickResult[]): {
@@ -220,16 +251,18 @@ export function summarizeCrazyPicks(results: CrazyPickResult[]): {
   totalPicks: number;
   avgVolatility: number;
   avgEdge: number;
+  bestEdge: number;
   totalStake: number;
   potentialMaxReturn: number;
 } {
   if (results.length === 0) {
-    return { totalMatches: 0, totalPicks: 0, avgVolatility: 0, avgEdge: 0, totalStake: 0, potentialMaxReturn: 0 };
+    return { totalMatches: 0, totalPicks: 0, avgVolatility: 0, avgEdge: 0, bestEdge: 0, totalStake: 0, potentialMaxReturn: 0 };
   }
 
   const totalPicks = results.reduce((sum, r) => sum + r.picks.length, 0);
   const avgVolatility = results.reduce((sum, r) => sum + r.match.volatilityScore, 0) / results.length;
   const avgEdge = results.reduce((sum, r) => sum + r.avgEdge, 0) / results.length;
+  const bestEdge = Math.max(...results.map((r) => r.bestEdge));
   const totalStake = totalPicks * CRAZY_PICK_CONFIG.stake;
 
   // En yüksek oranlı pick tutarsa potansiyel kazanç
@@ -241,6 +274,7 @@ export function summarizeCrazyPicks(results: CrazyPickResult[]): {
     totalPicks,
     avgVolatility: Math.round(avgVolatility),
     avgEdge: Math.round(avgEdge * 10) / 10,
+    bestEdge: Math.round(bestEdge * 10) / 10,
     totalStake,
     potentialMaxReturn: Math.round(potentialMaxReturn),
   };

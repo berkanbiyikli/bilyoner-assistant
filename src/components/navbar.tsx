@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   Brain,
+  Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   { href: "/value-bets", label: "Value Bet", icon: Gem },
   { href: "/bankroll", label: "Bankroll", icon: Wallet },
   { href: "/stats", label: "İstatistik", icon: TrendingUp },
+  { href: "/dashboard", label: "Dashboard", icon: Sparkles },
   { href: "/admin", label: "Admin", icon: Brain },
 ];
 

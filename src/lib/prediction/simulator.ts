@@ -5,6 +5,7 @@
 
 import type { MatchAnalysis, MatchOdds, MonteCarloResult, RefereeProfile } from "@/types";
 import type { MatchImportance } from "@/lib/prediction/importance";
+import { getCalibratedHomeAdvantage } from "@/lib/prediction/optimizer";
 
 const SIM_RUNS = 10_000;
 
@@ -61,10 +62,11 @@ function getRefereeLambdaFactor(refProfile?: RefereeProfile): number {
 
 /**
  * Liga ID'sine göre ev sahibi avantaj çarpanını getir
+ * Self-Correction: Önce optimizer'ın kalibre ettiği değeri kontrol eder.
+ * Cache'te kalibrasyon yoksa base (LEAGUE_HOME_ADVANTAGE) değeri döner.
  */
 export function getHomeAdvantage(leagueId?: number): number {
-  if (!leagueId) return DEFAULT_HOME_ADVANTAGE;
-  return LEAGUE_HOME_ADVANTAGE[leagueId] ?? DEFAULT_HOME_ADVANTAGE;
+  return getCalibratedHomeAdvantage(leagueId);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { getFixturesByDate, LEAGUE_IDS } from "@/lib/api-football";
+import { getFixturesByDate } from "@/lib/api-football";
 import { analyzeMatches } from "@/lib/prediction";
 import { filterSafePredictions } from "@/lib/prediction/safety";
 import { findValueBets } from "@/lib/value-bet";
@@ -23,10 +23,10 @@ export async function GET(req: NextRequest) {
     const now = new Date();
     const date = now.toISOString().split("T")[0];
 
-    // Günün maçlarını çek — sadece NS ve desteklenen ligler
+    // Günün tüm NS maçlarını çek
     const allFixtures = await getFixturesByDate(date);
     const fixtures = allFixtures.filter(
-      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
+      (f) => f.fixture.status.short === "NS"
     );
 
     // Sadece 1-2 saat içinde başlayacak maçları al

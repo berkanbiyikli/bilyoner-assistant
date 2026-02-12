@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFixturesByDate, LEAGUE_IDS } from "@/lib/api-football";
+import { getFixturesByDate } from "@/lib/api-football";
 import { analyzeMatches } from "@/lib/prediction";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
@@ -13,9 +13,9 @@ export async function GET(req: NextRequest) {
 
     const date = new Date().toISOString().split("T")[0];
     const allFixtures = await getFixturesByDate(date);
-    // Sadece desteklenen liglerdeki maçları analiz et
+    // Tüm liglerdeki başlamamış maçları analiz et
     const fixtures = allFixtures.filter(
-      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
+      (f) => f.fixture.status.short === "NS"
     );
 
     // Maçları analiz et

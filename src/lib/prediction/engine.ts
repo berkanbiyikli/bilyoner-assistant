@@ -26,7 +26,6 @@ import type {
   KeyMissingPlayer,
 } from "@/types";
 import { getPrediction, getH2H, getOdds, getInjuries } from "@/lib/api-football";
-import { LEAGUE_IDS } from "@/lib/api-football";
 import { getCached, setCache } from "@/lib/cache";
 import { simulateMatch, getSimProbability } from "@/lib/prediction/simulator";
 import { getRefereeProfile } from "@/lib/prediction/referees";
@@ -34,11 +33,6 @@ import { calculateMatchImportance, type MatchImportance } from "@/lib/prediction
 import { getOptimalWeights } from "@/lib/prediction/validator";
 
 const CACHE_TTL = 30 * 60; // 30 dakika
-
-// Desteklenen liglerde mi kontrol
-function isSupportedLeague(leagueId: number): boolean {
-  return LEAGUE_IDS.includes(leagueId);
-}
 
 export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPrediction> {
   const fixtureId = fixture.fixture.id;

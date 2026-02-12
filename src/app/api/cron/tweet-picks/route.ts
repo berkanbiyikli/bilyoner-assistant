@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { getFixturesByDate, LEAGUE_IDS } from "@/lib/api-football";
+import { getFixturesByDate } from "@/lib/api-football";
 import { analyzeMatches } from "@/lib/prediction";
 import { filterSafePredictions } from "@/lib/prediction/safety";
 import { sendThread, formatDailyPicksTweet } from "@/lib/bot";
@@ -12,11 +12,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Günün tahminlerini çek — sadece desteklenen ligler
+    // Günün tüm maçlarını çek
     const date = new Date().toISOString().split("T")[0];
     const allFixtures = await getFixturesByDate(date);
     const fixtures = allFixtures.filter(
-      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
+      (f) => f.fixture.status.short === "NS"
     );
     const predictions = await analyzeMatches(fixtures);
 

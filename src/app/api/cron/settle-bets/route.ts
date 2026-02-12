@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getFixtureById } from "@/lib/api-football";
 import { sendTweet, formatResultTweet } from "@/lib/bot";
+import { createValidationRecord, saveValidationRecord, calculateValidationStats, formatValidationTweet } from "@/lib/prediction/validator";
 
 export async function GET(req: NextRequest) {
   try {
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
         const homeGoals = fixture.goals.home ?? 0;
         const awayGoals = fixture.goals.away ?? 0;
         const totalGoals = homeGoals + awayGoals;
+        const actualScore = `${homeGoals}-${awayGoals}`;
 
         // Bu fixture'ın tahminlerini bul
         const fixturePreds = pending.filter((p) => p.fixture_id === fixtureId);
@@ -71,6 +73,20 @@ export async function GET(req: NextRequest) {
             .update({ result })
             .eq("id", pred.id);
 
+          // Validasyon kaydı oluştur ve kaydet
+          try {
+            const vRecord = createValidationRecord(
+              { ...pred, result },
+              actualScore,
+              undefined, // simTopScoreline — analysis_summary'den parse edilebilir
+              undefined, // simProbability
+              pred.expected_value > 0 ? pred.expected_value * 100 : undefined // edge %
+            );
+            await saveValidationRecord(vRecord);
+          } catch (valErr) {
+            console.error(`[SETTLE] Validation record error for ${pred.id}:`, valErr);
+          }
+
           if (result === "won") won++;
           else lost++;
           settled++;
@@ -96,6 +112,27 @@ export async function GET(req: NextRequest) {
           type: "result",
           content: tweet,
         });
+      }
+
+      // Haftalık performans raporu (Pazartesi günleri)
+      const today = new Date();
+      if (today.getDay() === 1) { // Pazartesi
+        try {
+          const stats = await calculateValidationStats();
+          if (stats.totalPredictions >= 10) {
+            const statsTweet = formatValidationTweet(stats);
+            const statsResult = await sendTweet(statsTweet);
+            if (statsResult.success && statsResult.tweetId) {
+              await supabase.from("tweets").insert({
+                tweet_id: statsResult.tweetId,
+                type: "result",
+                content: statsTweet,
+              });
+            }
+          }
+        } catch (statsErr) {
+          console.error("[SETTLE] Validation stats tweet error:", statsErr);
+        }
       }
     }
 

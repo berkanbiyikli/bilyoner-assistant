@@ -80,7 +80,8 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   const matchOdds = extractOdds(odds);
 
   // Monte Carlo simülasyon (analiz + odds hazır olduktan sonra)
-  const simulation = simulateMatch(analysis, matchOdds);
+  // Liga bazlı ev sahibi avantajı → dinamik çarpan
+  const simulation = simulateMatch(analysis, matchOdds, fixture.league.id);
   analysis.simulation = simulation;
 
   const picks = generatePicks(analysis, matchOdds, prediction, fixture);
@@ -840,7 +841,8 @@ function buildInsights(
   if (analysis.refereeProfile) {
     const ref = analysis.refereeProfile;
     const tendencyLabel = ref.cardTendency === "strict" ? "kartçı" : ref.cardTendency === "lenient" ? "sakin" : "dengeli";
-    notes.push(`🟨 Hakem ${ref.name} maç başı ort. ${ref.avgCardsPerMatch} kart — ${tendencyLabel}`);
+    const tempoLabel = ref.tempoImpact === "low-tempo" ? " — tempo düşürücü ⚠️" : ref.tempoImpact === "high-tempo" ? " — akıcı oyun ✅" : "";
+    notes.push(`🟨 Hakem ${ref.name} maç başı ort. ${ref.avgCardsPerMatch} kart — ${tendencyLabel}${tempoLabel}`);
   }
 
   if (analysis.cornerData && analysis.cornerData.totalAvg > 10) {

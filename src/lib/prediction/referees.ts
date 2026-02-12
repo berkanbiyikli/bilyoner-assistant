@@ -102,7 +102,8 @@ export function getRefereeProfile(refereeName: string | null | undefined): Refer
 
   // Tam eşleşme
   if (REFEREE_DATABASE[name]) {
-    return { name, ...REFEREE_DATABASE[name] };
+    const profile = REFEREE_DATABASE[name];
+    return { name, ...profile, tempoImpact: deriveTempoImpact(profile.avgCardsPerMatch) };
   }
 
   // Kısmi eşleşme — soyadı ile ara
@@ -113,9 +114,19 @@ export function getRefereeProfile(refereeName: string | null | undefined): Refer
     const dbLastName = dbLower.split(" ").pop() || "";
     const inputLastName = nameLower.split(" ").pop() || "";
     if (dbLastName.length > 2 && dbLastName === inputLastName) {
-      return { name: dbName, ...profile };
+      return { name: dbName, ...profile, tempoImpact: deriveTempoImpact(profile.avgCardsPerMatch) };
     }
   }
 
   return undefined;
+}
+
+/**
+ * Hakem kart ortalamasından tempo etkisini türet
+ * Sık düdük çalan hakem → düşük tempo → xG düşüşü
+ */
+function deriveTempoImpact(avgCards: number): "high-tempo" | "neutral" | "low-tempo" {
+  if (avgCards >= 5.0) return "low-tempo";   // Çok duru, oyun akışını bozuyor
+  if (avgCards <= 3.5) return "high-tempo";  // Akıcı oyun, az durma
+  return "neutral";
 }

@@ -123,9 +123,12 @@ function generateMatchStories(predictions: MatchPrediction[]): string[] {
       insights?.simEdgeNote &&
       !stories.some((s) => s.includes("SİMÜLASYON"))
     ) {
-      const topScore = sim.topScorelines[0];
+      const scoreList = sim.topScorelines
+        .slice(0, 5)
+        .map((s, i) => `${i + 1}. ${s.score} (%${s.probability})`)
+        .join("\n");
       stories.push(
-        `🎲 SİMÜLASYON EDGE\n\n10.000 simülasyonda bu maçın %${sim.simOver25Prob.toFixed(1)} ihtimalle 2.5 Üst olduğu hesaplandı.\n${insights.simEdgeNote}!\nEn olası skor: ${topScore.score} (%${topScore.probability})\n\n➜ ${pick.type} @${pick.odds.toFixed(2)}\n\n#montecarlo #simülasyon`
+        `🎲 SİMÜLASYON EDGE\n\n10.000 simülasyonda:\n${scoreList}\n\n${insights.simEdgeNote}!\n\n➜ ${pick.type} @${pick.odds.toFixed(2)}\n\n#montecarlo #simülasyon`
       );
       continue;
     }
@@ -148,6 +151,30 @@ function generateMatchStories(predictions: MatchPrediction[]): string[] {
   }
 
   return stories;
+}
+
+/**
+ * Simülasyon skor tahminleri tweet'i
+ * En yüksek confidence maçların top 5 skor dağılımını gösterir
+ */
+function formatScorelineTweet(predictions: MatchPrediction[]): string | null {
+  const withSim = predictions
+    .filter((p) => p.analysis.simulation && p.analysis.simulation.topScorelines.length >= 3 && p.picks.length > 0 && p.picks[0].confidence >= 55)
+    .sort((a, b) => b.picks[0].confidence - a.picks[0].confidence)
+    .slice(0, 3);
+
+  if (withSim.length === 0) return null;
+
+  const lines = withSim.map((p) => {
+    const sim = p.analysis.simulation!;
+    const scores = sim.topScorelines
+      .slice(0, 5)
+      .map((s) => `   ${s.score} (%${s.probability})`)
+      .join("\n");
+    return `⚽ ${p.homeTeam.name} vs ${p.awayTeam.name}\n${scores}`;
+  }).join("\n\n");
+
+  return `🎲 Skor Tahmini (10K Simülasyon)\n\n${lines}\n\n#skortahmini #montecarlo #bahis`;
 }
 
 export function formatDailyPicksTweet(predictions: MatchPrediction[]): string[] {
@@ -222,6 +249,12 @@ export function formatDailyPicksTweet(predictions: MatchPrediction[]): string[] 
   const storyTweets = generateMatchStories(predictions);
   for (const story of storyTweets) {
     tweets.push(story);
+  }
+
+  // Simülasyon skor tahmini tweet'i
+  const scorelineTweet = formatScorelineTweet(predictions);
+  if (scorelineTweet) {
+    tweets.push(scorelineTweet);
   }
 
   return tweets;

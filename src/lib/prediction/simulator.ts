@@ -3,9 +3,68 @@
 // Poisson dağılımı ile maç simülasyonu (10.000 iterasyon)
 // ============================================
 
-import type { MatchAnalysis, MatchOdds, MonteCarloResult } from "@/types";
+import type { MatchAnalysis, MatchOdds, MonteCarloResult, RefereeProfile } from "@/types";
 
 const SIM_RUNS = 10_000;
+
+/**
+ * Liga bazlı ev sahibi avantaj çarpanları
+ * Araştırma: Türkiye, İspanya, İtalya'da ev sahibi avantajı PL/Bundesliga'dan yüksek
+ * Kaynak: Son 10 sezon ev-deplasman galibiyet oranları
+ */
+const LEAGUE_HOME_ADVANTAGE: Record<number, number> = {
+  // Türkiye — taraftar baskısı çok yüksek
+  203: 1.12, // Süper Lig
+  204: 1.10, // 1. Lig
+
+  // Top 5 Avrupa
+  39:  1.04, // Premier League — oldukça dengeli
+  140: 1.08, // La Liga
+  135: 1.09, // Serie A
+  78:  1.05, // Bundesliga
+  61:  1.06, // Ligue 1
+
+  // Diğer
+  94:  1.07, // Primeira Liga
+  88:  1.05, // Eredivisie
+  144: 1.06, // Jupiler Pro League
+  235: 1.11, // Rusya Premier Liga — seyahat mesafesi etkisi
+
+  // Avrupa kupaları — nötr/düşük avantaj
+  2:   1.03, // Champions League
+  3:   1.04, // Europa League
+  848: 1.04, // Conference League
+};
+
+const DEFAULT_HOME_ADVANTAGE = 1.05;
+
+/**
+ * Hakem tempo etkisi: Sık düdük çalan hakemler maçın temposunu düşürür
+ * Bu da xG beklentisini negatif etkiler (gol aksiyon sayısı azalır)
+ * strict hakem → tempo düşürücü → lambda azaltıcı çarpan
+ * lenient hakem → akıcı oyun → lambda artırıcı çarpan
+ */
+function getRefereeLambdaFactor(refProfile?: RefereeProfile): number {
+  if (!refProfile) return 1.0;
+
+  // avgCardsPerMatch > 5.5 → çok fazla duruş, tempo düşük
+  // avgCardsPerMatch < 3.5 → akıcı oyun, gol fırsatları artar
+  const cards = refProfile.avgCardsPerMatch;
+  if (cards >= 5.5) return 0.94;   // Ağır tempo düşüşü
+  if (cards >= 5.0) return 0.96;   // Orta tempo düşüşü
+  if (cards >= 4.5) return 0.98;   // Hafif tempo düşüşü
+  if (cards <= 3.0) return 1.04;   // Akıcı oyun, gol fırsatı artışı
+  if (cards <= 3.5) return 1.02;   // Hafif tempo artışı
+  return 1.0;                       // Nötr
+}
+
+/**
+ * Liga ID'sine göre ev sahibi avantaj çarpanını getir
+ */
+export function getHomeAdvantage(leagueId?: number): number {
+  if (!leagueId) return DEFAULT_HOME_ADVANTAGE;
+  return LEAGUE_HOME_ADVANTAGE[leagueId] ?? DEFAULT_HOME_ADVANTAGE;
+}
 
 /**
  * Poisson dağılımından rastgele sayı üretimi (Knuth algoritması)
@@ -43,7 +102,8 @@ function poissonRandom(lambda: number): number {
  */
 export function simulateMatch(
   analysis: MatchAnalysis,
-  odds?: MatchOdds
+  odds?: MatchOdds,
+  leagueId?: number
 ): MonteCarloResult {
   // --- Lambda hesaplama ---
   const baseHomeLambda = analysis.homeXg ?? (analysis.homeAttack / 100) * 1.5;
@@ -58,11 +118,14 @@ export function simulateMatch(
   const homeInjuryFactor = 1 - Math.min(0.25, analysis.injuryImpact.home / 80);
   const awayInjuryFactor = 1 - Math.min(0.25, analysis.injuryImpact.away / 80);
 
-  // Ev sahibi avantajı: %5
-  const homeAdvantageFactor = 1.05;
+  // Ev sahibi avantajı: Liga bazlı dinamik çarpan
+  const homeAdvantageFactor = getHomeAdvantage(leagueId);
 
-  let homeLambda = baseHomeLambda * awayDefFactor * homeInjuryFactor * homeAdvantageFactor;
-  let awayLambda = baseAwayLambda * homeDefFactor * awayInjuryFactor;
+  // Hakem tempo etkisi: Sık düdük çalan hakemler xG'yi düşürür
+  const refTempoFactor = getRefereeLambdaFactor(analysis.refereeProfile);
+
+  let homeLambda = baseHomeLambda * awayDefFactor * homeInjuryFactor * homeAdvantageFactor * refTempoFactor;
+  let awayLambda = baseAwayLambda * homeDefFactor * awayInjuryFactor * refTempoFactor;
 
   // Lambda aralığını sınırla (0.3 – 4.0 arası mantıklı)
   homeLambda = Math.max(0.3, Math.min(4.0, homeLambda));

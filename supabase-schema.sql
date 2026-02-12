@@ -96,6 +96,33 @@ CREATE TABLE IF NOT EXISTS tweets (
 
 CREATE INDEX idx_tweets_type ON tweets(type);
 
+-- Validation Records (Backtest & Feedback Loop)
+CREATE TABLE IF NOT EXISTS validation_records (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  fixture_id INTEGER NOT NULL,
+  home_team TEXT NOT NULL,
+  away_team TEXT NOT NULL,
+  league TEXT NOT NULL,
+  kickoff TIMESTAMPTZ NOT NULL,
+  pick TEXT NOT NULL,
+  confidence INTEGER NOT NULL,
+  odds NUMERIC(5,2) NOT NULL,
+  expected_value NUMERIC(5,2) NOT NULL DEFAULT 0,
+  is_value_bet BOOLEAN NOT NULL DEFAULT FALSE,
+  sim_probability NUMERIC(5,1),
+  sim_top_scoreline TEXT,
+  actual_score TEXT,
+  result TEXT NOT NULL CHECK (result IN ('won', 'lost', 'void', 'pending')),
+  edge_at_open NUMERIC(5,1),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_validation_fixture ON validation_records(fixture_id);
+CREATE INDEX idx_validation_result ON validation_records(result);
+CREATE INDEX idx_validation_date ON validation_records(kickoff);
+CREATE INDEX idx_validation_confidence ON validation_records(confidence);
+CREATE INDEX idx_validation_league ON validation_records(league);
+
 -- RLS Policies
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE coupons ENABLE ROW LEVEL SECURITY;
@@ -125,3 +152,9 @@ CREATE POLICY predictions_update ON predictions FOR UPDATE USING (true);
 ALTER TABLE tweets ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tweets_select ON tweets FOR SELECT USING (true);
 CREATE POLICY tweets_insert ON tweets FOR INSERT WITH CHECK (true);
+
+-- Validation Records: public read, server insert/update
+ALTER TABLE validation_records ENABLE ROW LEVEL SECURITY;
+CREATE POLICY validation_select ON validation_records FOR SELECT USING (true);
+CREATE POLICY validation_insert ON validation_records FOR INSERT WITH CHECK (true);
+CREATE POLICY validation_update ON validation_records FOR UPDATE USING (true);

@@ -65,6 +65,26 @@ type TweetRow = {
   created_at: string;
 }
 
+type ValidationRecordRow = {
+  id: string;
+  fixture_id: number;
+  home_team: string;
+  away_team: string;
+  league: string;
+  kickoff: string;
+  pick: string;
+  confidence: number;
+  odds: number;
+  expected_value: number;
+  is_value_bet: boolean;
+  sim_probability: number | null;
+  sim_top_scoreline: string | null;
+  actual_score: string | null;
+  result: "won" | "lost" | "void" | "pending";
+  edge_at_open: number | null;
+  created_at: string;
+}
+
 // ---- Database Type ----
 export type Database = {
   public: {
@@ -97,6 +117,12 @@ export type Database = {
         Row: TweetRow;
         Insert: Omit<TweetRow, "id" | "created_at" | "coupon_id"> & { id?: string; coupon_id?: string | null };
         Update: Partial<Omit<TweetRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      validation_records: {
+        Row: ValidationRecordRow;
+        Insert: Omit<ValidationRecordRow, "id" | "created_at"> & { id?: string };
+        Update: Partial<Omit<ValidationRecordRow, "id" | "created_at">>;
         Relationships: [];
       };
     };

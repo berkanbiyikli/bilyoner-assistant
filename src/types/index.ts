@@ -69,6 +69,7 @@ export interface RefereeProfile {
   name: string;
   avgCardsPerMatch: number;
   cardTendency: "strict" | "moderate" | "lenient";
+  tempoImpact?: "high-tempo" | "neutral" | "low-tempo"; // Düdük sıklığına göre tempo etkisi
 }
 
 export interface MatchAnalysis {
@@ -256,6 +257,77 @@ export interface LiveEvent {
   team: "home" | "away";
   player: string;
   detail: string;
+}
+
+// ---- Validation & Backtest ----
+export interface ValidationRecord {
+  fixtureId: number;
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  kickoff: string;
+  pick: string;
+  confidence: number;
+  odds: number;
+  expectedValue: number;
+  isValueBet: boolean;
+  simProbability?: number;
+  simTopScoreline?: string;       // "2-1"
+  actualScore?: string;            // "2-1"
+  result: "won" | "lost" | "void" | "pending";
+  edgeAtOpen?: number;             // Edge % at prediction time
+  createdAt: string;
+}
+
+export interface ValidationStats {
+  totalPredictions: number;
+  won: number;
+  lost: number;
+  winRate: number;                 // %
+  roi: number;                     // %
+  avgConfidence: number;           // %
+  avgOdds: number;
+
+  // Confidence band analysis
+  byConfidenceBand: {
+    band: string;                  // "50-60", "60-70", "70-80", "80+"
+    total: number;
+    won: number;
+    winRate: number;
+    roi: number;
+  }[];
+
+  // Market type analysis
+  byMarket: {
+    market: string;                // "1", "X", "2", "Over 2.5", etc.
+    total: number;
+    won: number;
+    winRate: number;
+    roi: number;
+  }[];
+
+  // Simulation accuracy
+  simAccuracy: {
+    scorelineHitRate: number;      // Top 5 skor tutma oranı %
+    top1HitRate: number;           // En olası skor tutma oranı %
+    simEdgeROI: number;            // Edge > 10% olan maçların ROI'si
+    avgSimConfidence: number;      // Sim ile pick'lerin avg confidence
+  };
+
+  // Value bet performance
+  valueBetStats: {
+    total: number;
+    won: number;
+    winRate: number;
+    roi: number;
+    avgEdge: number;
+  };
+
+  // Trend (son 7/30 gün)
+  recentTrend: {
+    last7Days: { won: number; lost: number; roi: number };
+    last30Days: { won: number; lost: number; roi: number };
+  };
 }
 
 // ---- Value Bet ----

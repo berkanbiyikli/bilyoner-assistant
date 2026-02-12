@@ -41,30 +41,38 @@ export async function GET(req: NextRequest) {
     // DB'deki fixture ID'leri (bunları canlı analizden hariç tutacağız)
     const dbFixtureIds = new Set((dbPredictions || []).map((p) => p.fixture_id));
 
-    // 4) DB'deki tahminleri fixture verisiyle zenginleştir
-    const dbEnriched = (dbPredictions || []).map((dbPred) => {
-      const fixture = allFixtures.find((f) => f.fixture.id === dbPred.fixture_id);
-      if (!fixture) return null;
+    // 4) DB'deki tahminleri fixture bazlı grupla ve zenginleştir
+    const fixtureGrouped = new Map<number, typeof dbPredictions>();
+    for (const dbPred of (dbPredictions || [])) {
+      const group = fixtureGrouped.get(dbPred.fixture_id) || [];
+      group.push(dbPred);
+      fixtureGrouped.set(dbPred.fixture_id, group);
+    }
+
+    const dbEnriched = Array.from(fixtureGrouped.entries()).map(([fixtureId, preds]) => {
+      const fixture = allFixtures.find((f) => f.fixture.id === fixtureId);
+      if (!fixture || !preds) return null;
+
+      // Tüm pick'leri confidence'a göre sırala
+      const sortedPreds = preds.sort((a, b) => b.confidence - a.confidence);
 
       return {
-        fixtureId: dbPred.fixture_id,
+        fixtureId,
         fixture,
         league: fixture.league,
         homeTeam: fixture.teams.home,
         awayTeam: fixture.teams.away,
-        kickoff: dbPred.kickoff,
-        picks: [
-          {
-            type: dbPred.pick,
-            confidence: dbPred.confidence,
-            odds: dbPred.odds,
-            reasoning: dbPred.analysis_summary || "",
-            expectedValue: dbPred.expected_value,
-            isValueBet: dbPred.is_value_bet,
-          },
-        ],
+        kickoff: sortedPreds[0].kickoff,
+        picks: sortedPreds.map((p) => ({
+          type: p.pick,
+          confidence: p.confidence,
+          odds: p.odds,
+          reasoning: p.analysis_summary || "",
+          expectedValue: p.expected_value,
+          isValueBet: p.is_value_bet,
+        })),
         analysis: {
-          summary: dbPred.analysis_summary || "",
+          summary: sortedPreds[0].analysis_summary || "",
           homeAttack: 50,
           homeDefense: 50,
           awayAttack: 50,

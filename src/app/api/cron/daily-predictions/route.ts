@@ -13,53 +13,59 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const supabase = createAdminSupabase();
     const date = new Date().toISOString().split("T")[0];
     const allFixtures = await getFixturesByDate(date);
 
-    // NS (başlamamış) maçları filtrele
+    // NS (başlamamış) maçları filtrele — batch analiz (Vercel 60s timeout)
     const nsFixtures = allFixtures.filter(
       (f) => f.fixture.status.short === "NS"
     );
 
     const apiUsage = getApiUsage();
-    const fixtures = nsFixtures;
-    console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${fixtures.length} NS maç analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
+    
+    // Daha önce DB'de olan fixture'ları atla
+    const { data: existingPreds } = await supabase
+      .from("predictions")
+      .select("fixture_id, pick")
+      .gte("kickoff", `${date}T00:00:00.000Z`)
+      .lte("kickoff", `${date}T23:59:59.999Z`);
+    
+    const existingFixtureIds = new Set((existingPreds || []).map((p) => p.fixture_id));
+    const newFixtures = nsFixtures.filter((f) => !existingFixtureIds.has(f.fixture.id));
+    
+    // Batch: max 15 maç per cron run (15 × 4 = 60 API call, ~45s)
+    const fixtures = newFixtures.slice(0, 15);
+    console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${nsFixtures.length} NS, ${newFixtures.length} yeni, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {
       return NextResponse.json({
         success: true,
         date,
         fixturesTotal: allFixtures.length,
+        nsTotal: nsFixtures.length,
+        remaining: newFixtures.length,
         analyzed: 0,
         totalPicks: 0,
         saved: 0,
         apiUsage,
-        message: "No NS fixtures today",
+        message: newFixtures.length === 0 ? "Tüm maçlar zaten analiz edildi" : "No NS fixtures today",
       });
     }
 
     // Maçları analiz et
     const predictions = await analyzeMatches(fixtures);
-
-    // Supabase'e kaydet — her maçın TÜM pick'lerini kaydet
-    const supabase = createAdminSupabase();
     let savedCount = 0;
+
+    // existingPreds'ten pick bazlı set oluştur
+    const existingPickKeys = new Set((existingPreds || []).map((e) => `${e.fixture_id}_${e.pick}`));
 
     for (const pred of predictions) {
       if (pred.picks.length === 0) continue;
 
-      // Aynı fixture+pick zaten var mı kontrol et (duplicate önleme)
-      const { data: existing } = await supabase
-        .from("predictions")
-        .select("fixture_id, pick")
-        .eq("fixture_id", pred.fixtureId);
-      
-      const existingPicks = new Set((existing || []).map((e) => `${e.fixture_id}_${e.pick}`));
-
-      // Maç başına tüm pick'leri kaydet (her pick ayrı satır)
       for (const pick of pred.picks) {
         const key = `${pred.fixtureId}_${pick.type}`;
-        if (existingPicks.has(key)) continue; // zaten var
+        if (existingPickKeys.has(key)) continue;
 
         const { error } = await supabase.from("predictions").insert({
           fixture_id: pred.fixtureId,
@@ -88,6 +94,8 @@ export async function GET(req: NextRequest) {
       success: true,
       date,
       fixturesTotal: allFixtures.length,
+      nsTotal: nsFixtures.length,
+      remaining: Math.max(0, newFixtures.length - fixtures.length),
       analyzed: predictions.length,
       totalPicks,
       saved: savedCount,

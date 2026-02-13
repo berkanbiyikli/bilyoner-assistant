@@ -8,7 +8,7 @@ import { SystemPerformanceWidget } from "@/components/system-performance";
 import { MatchCardSkeleton } from "@/components/skeletons";
 import { useAppStore } from "@/lib/store";
 import type { MatchPrediction, CrazyPickResult } from "@/types";
-import { Trophy, Calendar, RefreshCw, Dices, Flame, TrendingUp, Zap, AlertTriangle } from "lucide-react";
+import { Trophy, Calendar, RefreshCw, Dices, Flame, TrendingUp, Zap, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
 
@@ -27,7 +27,7 @@ export function PredictionsPage() {
     setActiveTab(tab === "crazy" ? "crazy-picks" : "predictions");
   }, [searchParams]);
   const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [selectedDates, setSelectedDates] = useState<string[]>(() => [new Date().toISOString().split("T")[0]]);
   const selectedLeagues = useAppStore((s) => s.selectedLeagues);
 
   // Crazy Picks state
@@ -42,10 +42,74 @@ export function PredictionsPage() {
     totalStake: number;
   } | null>(null);
 
+  // Date helpers
+  const formatDateStr = (d: Date) => d.toISOString().split("T")[0];
+  const today = formatDateStr(new Date());
+
+  const getWeekendDates = () => {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+    const dates: string[] = [];
+
+    // Cuma, Cumartesi, Pazar’ı bul (bu haftaki veya sonraki)
+    for (let offset = 0; offset <= 7; offset++) {
+      const d = new Date(now);
+      d.setDate(now.getDate() + offset);
+      const dow = d.getDay();
+      if (dow === 5 || dow === 6 || dow === 0) { // Cuma, Cmt, Pazar
+        dates.push(formatDateStr(d));
+      }
+      if (dates.length >= 3) break;
+    }
+    return dates;
+  };
+
+  const shiftDates = (direction: number) => {
+    setSelectedDates((prev) => {
+      return prev.map((d) => {
+        const dt = new Date(d);
+        dt.setDate(dt.getDate() + direction);
+        return formatDateStr(dt);
+      });
+    });
+  };
+
+  const toggleDate = (dateStr: string) => {
+    setSelectedDates((prev) => {
+      if (prev.includes(dateStr)) {
+        // En az 1 tarih olmalı
+        if (prev.length === 1) return prev;
+        return prev.filter((d) => d !== dateStr);
+      }
+      return [...prev, dateStr].sort();
+    });
+  };
+
+  const setPreset = (preset: "today" | "tomorrow" | "weekend") => {
+    const now = new Date();
+    switch (preset) {
+      case "today":
+        setSelectedDates([formatDateStr(now)]);
+        break;
+      case "tomorrow": {
+        const tmrw = new Date(now);
+        tmrw.setDate(now.getDate() + 1);
+        setSelectedDates([formatDateStr(tmrw)]);
+        break;
+      }
+      case "weekend":
+        setSelectedDates(getWeekendDates());
+        break;
+    }
+  };
+
   const fetchPredictions = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/predictions?date=${date}`);
+      const url = selectedDates.length === 1
+        ? `/api/predictions?date=${selectedDates[0]}`
+        : `/api/predictions?dates=${selectedDates.join(",")}`;
+      const res = await fetch(url);
       const data = await res.json();
       setPredictions(data.predictions || []);
     } catch (error) {
@@ -76,7 +140,7 @@ export function PredictionsPage() {
 
   useEffect(() => {
     fetchPredictions();
-  }, [date]);
+  }, [selectedDates]);
 
   // Lazy load crazy picks when tab first opens
   useEffect(() => {
@@ -105,18 +169,7 @@ export function PredictionsPage() {
               AI destekli maç analizi ve tahminler
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            {activeTab === "predictions" && (
-              <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="bg-transparent text-sm outline-none"
-                />
-              </div>
-            )}
+          <div className="flex items-center gap-2">
             <button
               onClick={activeTab === "predictions" ? fetchPredictions : fetchCrazyPicks}
               disabled={loading || crazyLoading}
@@ -164,6 +217,97 @@ export function PredictionsPage() {
             )}
           </button>
         </div>
+
+        {/* Date Picker Bar */}
+        {activeTab === "predictions" && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-3">
+            {/* Preset buttons */}
+            <button
+              onClick={() => setPreset("today")}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
+                selectedDates.length === 1 && selectedDates[0] === today
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              Bugün
+            </button>
+            <button
+              onClick={() => setPreset("tomorrow")}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
+                selectedDates.length === 1 && selectedDates[0] === formatDateStr((() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })())
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              Yarın
+            </button>
+            <button
+              onClick={() => setPreset("weekend")}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
+                selectedDates.length >= 2
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              Hafta Sonu
+            </button>
+
+            <div className="mx-2 h-6 w-px bg-border" />
+
+            {/* Navigation arrows */}
+            <button
+              onClick={() => shiftDates(-1)}
+              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              title="Önceki gün"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+
+            {/* Selected date chips */}
+            <div className="flex flex-wrap gap-1.5">
+              {selectedDates.map((d) => {
+                const dt = new Date(d + "T12:00:00");
+                const dayName = dt.toLocaleDateString("tr-TR", { weekday: "short" });
+                const dayMonth = dt.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+                return (
+                  <button
+                    key={d}
+                    onClick={() => toggleDate(d)}
+                    className="flex items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    <Calendar className="h-3 w-3" />
+                    {dayName} {dayMonth}
+                    {selectedDates.length > 1 && <span className="ml-0.5 text-primary/50">×</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => shiftDates(1)}
+              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              title="Sonraki gün"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+
+            {/* Custom date picker */}
+            <div className="ml-auto flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="date"
+                onChange={(e) => {
+                  if (e.target.value) toggleDate(e.target.value);
+                }}
+                className="bg-transparent text-xs outline-none w-[110px]"
+              />
+            </div>
+          </div>
+        )}
 
         {/* TAB: Predictions */}
         {activeTab === "predictions" && (

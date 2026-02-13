@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFixturesByDate, getApiUsage } from "@/lib/api-football";
-import { LEAGUE_IDS } from "@/lib/api-football/leagues";
 import { analyzeMatches } from "@/lib/prediction";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
@@ -112,17 +111,10 @@ export async function GET(req: NextRequest) {
 
       allDbEnriched.push(...dbEnriched);
 
-      // 4) DB'de OLMAYAN desteklenen lig NS maçları canlı analiz et (max 5 maç)
-      const apiUsage = getApiUsage();
-      const canAnalyze = apiUsage.remaining >= 20; // en az 5 maç × 4 istek
-
-      const unseenFixtures = canAnalyze
-        ? allFixtures.filter(
-            (f) => f.fixture.status.short === "NS" &&
-                   !dbFixtureIds.has(f.fixture.id) &&
-                   LEAGUE_IDS.includes(f.league.id)
-          ).slice(0, 5)
-        : [];
+      // 4) DB'de OLMAYAN NS maçları canlı analiz et
+      const unseenFixtures = allFixtures.filter(
+        (f) => f.fixture.status.short === "NS" && !dbFixtureIds.has(f.fixture.id)
+      ).slice(0, 15);
 
       if (unseenFixtures.length > 0) {
         try {

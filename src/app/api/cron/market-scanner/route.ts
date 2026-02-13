@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getFixturesByDate, getApiUsage } from "@/lib/api-football";
-import { LEAGUE_IDS } from "@/lib/api-football/leagues";
 import { analyzeMatches } from "@/lib/prediction";
 import { filterSafePredictions } from "@/lib/prediction/safety";
 import { findValueBets } from "@/lib/value-bet";
@@ -22,37 +21,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // API bütçe kontrolü — en az 40 istek kalmamışsa çalışma
     const apiUsage = getApiUsage();
-    if (apiUsage.remaining < 40) {
-      return NextResponse.json({
-        success: true,
-        scanned: 0,
-        alerts: 0,
-        reason: `API budget low (${apiUsage.remaining} remaining)`,
-        apiUsage,
-      });
-    }
-
     const supabase = createAdminSupabase();
     const now = new Date();
     const date = now.toISOString().split("T")[0];
 
-    // Günün desteklenen lig NS maçlarını çek
+    // Günün NS maçlarını çek
     const allFixtures = await getFixturesByDate(date);
     const fixtures = allFixtures.filter(
-      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
+      (f) => f.fixture.status.short === "NS"
     );
 
-    // Sadece 1-3 saat içinde başlayacak maçları al
+    // 1-3 saat içinde başlayacak maçları al
     const soonFixtures = fixtures.filter((f) => {
       const kickoff = new Date(f.fixture.date);
       const hoursUntil = (kickoff.getTime() - now.getTime()) / (1000 * 60 * 60);
       return hoursUntil > 0 && hoursUntil <= 3;
     });
 
-    // Max 8 maç analiz et (API bütçesi: 8 × 4 = 32 istek)
-    const limitedFixtures = soonFixtures.slice(0, 8);
+    const limitedFixtures = soonFixtures;
 
     if (soonFixtures.length === 0) {
       return NextResponse.json({
@@ -68,7 +55,7 @@ export async function GET(req: NextRequest) {
         success: true,
         scanned: 0,
         alerts: 0,
-        reason: "No supported league matches starting within 3 hours",
+        reason: "No matches starting within 3 hours",
         apiUsage,
       });
     }

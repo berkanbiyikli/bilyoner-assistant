@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFixturesByDate, getApiUsage } from "@/lib/api-football";
-import { LEAGUE_IDS } from "@/lib/api-football/leagues";
 import { analyzeMatches } from "@/lib/prediction";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
@@ -17,35 +16,25 @@ export async function GET(req: NextRequest) {
     const date = new Date().toISOString().split("T")[0];
     const allFixtures = await getFixturesByDate(date);
 
-    // Sadece desteklenen liglerdeki NS (başlamamış) maçları filtrele
-    const supportedFixtures = allFixtures.filter(
-      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
+    // NS (başlamamış) maçları filtrele
+    const nsFixtures = allFixtures.filter(
+      (f) => f.fixture.status.short === "NS"
     );
 
-    // API bütçesi: her maç ~4 istek yapıyor, max 20 maç analiz et
     const apiUsage = getApiUsage();
-    const maxMatches = Math.min(
-      supportedFixtures.length,
-      Math.floor(apiUsage.remaining / 4), // her maç 4 API call
-      20 // hard limit
-    );
-
-    const fixtures = supportedFixtures.slice(0, maxMatches);
-    console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${supportedFixtures.length} desteklenen, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
+    const fixtures = nsFixtures;
+    console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${fixtures.length} NS maç analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {
       return NextResponse.json({
         success: true,
         date,
         fixturesTotal: allFixtures.length,
-        supportedFixtures: supportedFixtures.length,
         analyzed: 0,
         totalPicks: 0,
         saved: 0,
         apiUsage,
-        message: fixtures.length === 0 && supportedFixtures.length > 0
-          ? "API limit insufficient for analysis"
-          : "No supported league fixtures today",
+        message: "No NS fixtures today",
       });
     }
 
@@ -99,7 +88,6 @@ export async function GET(req: NextRequest) {
       success: true,
       date,
       fixturesTotal: allFixtures.length,
-      supportedFixtures: supportedFixtures.length,
       analyzed: predictions.length,
       totalPicks,
       saved: savedCount,

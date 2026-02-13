@@ -56,6 +56,10 @@ export async function GET(req: NextRequest) {
         const totalGoals = homeGoals + awayGoals;
         const actualScore = `${homeGoals}-${awayGoals}`;
 
+        // İlk yarı skoru (fixture.score.halftime)
+        const htHome = fixture.score?.halftime?.home ?? null;
+        const htAway = fixture.score?.halftime?.away ?? null;
+
         // Bu fixture'ın tahminlerini bul
         const fixturePreds = pending.filter((p) => p.fixture_id === fixtureId);
 
@@ -147,6 +151,17 @@ export async function GET(req: NextRequest) {
               const htGoals = await getFirstHalfGoals();
               if (htGoals === null) { result = null; break; }
               result = htGoals === 0 ? "won" : "lost";
+              break;
+            }
+            // İY/MS (Half Time / Full Time)
+            case "1/1": case "1/X": case "1/2":
+            case "X/1": case "X/X": case "X/2":
+            case "2/1": case "2/X": case "2/2": {
+              if (htHome === null || htAway === null) { result = null; break; }
+              const htResult = htHome > htAway ? "1" : htHome === htAway ? "X" : "2";
+              const ftResult = homeGoals > awayGoals ? "1" : homeGoals === awayGoals ? "X" : "2";
+              const expected = pred.pick; // "1/1", "X/2" etc.
+              result = `${htResult}/${ftResult}` === expected ? "won" : "lost";
               break;
             }
             // Korner

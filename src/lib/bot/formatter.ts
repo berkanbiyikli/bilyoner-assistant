@@ -25,6 +25,9 @@ const PICK_TO_MARKET: Record<string, string> = {
   "Over 1.5": "over15", "Under 1.5": "under15",
   "Over 3.5": "over35", "Under 3.5": "under35",
   "BTTS Yes": "bttsYes", "BTTS No": "bttsNo",
+  "1/1": "htft_1/1", "1/X": "htft_1/X", "1/2": "htft_1/2",
+  "X/1": "htft_X/1", "X/X": "htft_X/X", "X/2": "htft_X/2",
+  "2/1": "htft_2/1", "2/X": "htft_2/X", "2/2": "htft_2/2",
 };
 
 /** Bir pick'in oranı gerçek bahisçi verisinden mi geliyor? */
@@ -258,22 +261,7 @@ export function formatDailyPicksTweet(predictions: MatchPrediction[]): string[] 
     tweets.push(insightsTweet);
   }
 
-  // Korner/Kart pick'leri varsa ayrı bir tweet
-  const specialPicks = predictions.filter((p) =>
-    p.picks.some((pk) => ["Over 8.5 Corners", "Under 8.5 Corners", "Over 3.5 Cards", "Under 3.5 Cards"].includes(pk.type) && pk.confidence >= 55)
-  ).slice(0, 5);
-
-  if (specialPicks.length > 0) {
-    const specialLines = specialPicks.map((p) => {
-      const sp = p.picks.find((pk) => ["Over 8.5 Corners", "Under 8.5 Corners", "Over 3.5 Cards", "Under 3.5 Cards"].includes(pk.type))!;
-      const icon = sp.type.includes("Corner") ? "🚩" : "🟨";
-      // Korner/kart oranları her zaman API'den geliyor (opsiyonel alan), fallback yok
-      const oddsStr = sp.odds > 1.0 ? ` @${sp.odds.toFixed(2)}` : "";
-      return `${icon} ${p.homeTeam.name} vs ${p.awayTeam.name}\n   ➨ ${sp.type}${oddsStr} (%${sp.confidence})`;
-    }).join("\n\n");
-
-    tweets.push(`🚩🟨 Korner & Kart Tahminleri\n\n${specialLines}\n\n#korner #kart #bahis`);
-  }
+  // Korner/Kart tweet'leri devre dışı — sentetik veri güvenilir değil
 
   // Senaryo bazlı hikaye tweetleri (max 2)
   const storyTweets = generateMatchStories(predictions);

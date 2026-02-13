@@ -701,79 +701,124 @@ function generatePicks(
     addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, false, 50);
   }
 
-  // --- Korner 8.5 Üst/Alt (Hakem filtresi yok — korner hakemden bağımsız) ---
-  if (analysis.cornerData) {
-    const cd = analysis.cornerData;
-    if (cd.overProb > 55 && odds.cornerOver85 && odds.cornerOver85 > 1.0) {
-      const cornerProb = cd.overProb / 100;
-      const impliedCorner = 1 / odds.cornerOver85;
-      let conf = calculateConfidence(cornerProb, impliedCorner, cd.totalAvg > 10);
-      conf = applyH2HFilter(conf, "Over 8.5 Corners");
-      const ev = cornerProb * odds.cornerOver85 - 1;
-      if (conf >= 50) {
-        picks.push({ type: "Over 8.5 Corners", confidence: conf, odds: odds.cornerOver85, reasoning: `Korner ort. ${cd.totalAvg} — hücum odaklı takımlar`, expectedValue: Math.round(ev * 100) / 100, isValueBet: ev > 0.05 });
+  // --- İY/MS (Half Time / Full Time) ---
+  if (odds.htft && Object.keys(odds.htft).length > 0) {
+    // İY/MS olasılıkları hesapla: Basit Poisson yarı-maç modeli
+    // İlk yarı xG ~ toplam xG * 0.42 (ampirik olarak ilk yarıda gollerin ~%42'si atılır)
+    const htFactor = 0.42;
+    const homeLambdaHT = (analysis.homeXg ?? (analysis.homeAttack / 100) * 1.5) * htFactor;
+    const awayLambdaHT = (analysis.awayXg ?? (analysis.awayAttack / 100) * 1.5) * htFactor;
+    const homeLambdaFT = analysis.homeXg ?? (analysis.homeAttack / 100) * 1.5;
+    const awayLambdaFT = analysis.awayXg ?? (analysis.awayAttack / 100) * 1.5;
+
+    // Poisson olasılık fonksiyonu
+    const poisson = (k: number, lambda: number): number => {
+      return (Math.pow(lambda, k) * Math.exp(-lambda)) / factorial(k);
+    };
+    const factorial = (n: number): number => {
+      if (n <= 1) return 1;
+      let result = 1;
+      for (let i = 2; i <= n; i++) result *= i;
+      return result;
+    };
+
+    // İY 1X2 olasılıkları (Poisson, max 6 gol)
+    let htHomeWin = 0, htDraw = 0, htAwayWin = 0;
+    for (let h = 0; h <= 6; h++) {
+      for (let a = 0; a <= 6; a++) {
+        const p = poisson(h, homeLambdaHT) * poisson(a, awayLambdaHT);
+        if (h > a) htHomeWin += p;
+        else if (h === a) htDraw += p;
+        else htAwayWin += p;
       }
     }
-    if (cd.overProb < 40 && odds.cornerUnder85 && odds.cornerUnder85 > 1.0) {
-      const cornerProb = (100 - cd.overProb) / 100;
-      const impliedCorner = 1 / odds.cornerUnder85;
-      let conf = calculateConfidence(cornerProb, impliedCorner, cd.totalAvg < 7);
-      conf = applyH2HFilter(conf, "Under 8.5 Corners");
-      const ev = cornerProb * odds.cornerUnder85 - 1;
-      if (conf >= 50) {
-        picks.push({ type: "Under 8.5 Corners", confidence: conf, odds: odds.cornerUnder85, reasoning: `Korner ort. ${cd.totalAvg} — düşük tempo`, expectedValue: Math.round(ev * 100) / 100, isValueBet: ev > 0.05 });
+
+    // MS 1X2 olasılıkları — heuristik + sim hybrid
+    const ftHomeWin = homeProbability;
+    const ftDraw = drawProbability;
+    const ftAwayWin = awayProbability;
+
+    // İY/MS kombinasyon olasılıkları (bağımsız değil — koşullu düzeltme)
+    // P(İY=X, MS=Y) ≈ P(İY=X) * P(MS=Y|İY=X)
+    // Koşullu düzeltme: İY'de önde olan MS'de de önde olma eğiliminde
+    const htftProbs: Record<string, number> = {};
+
+    // Koşullu olasılık düzeltme çarpanları
+    // İY'de önde olan takımın MS'de de kazanma olasılığı artmalı
+    const conditionalFactor = 1.35; // Öndeki takım avantajı
+    const reverseFactor = 0.45;     // Geri dönüş zorluğu
+    const holdDrawFactor = 0.80;    // Beraberliği koruma
+
+    // 1/1: İY ev - MS ev (en doğal)
+    htftProbs["1/1"] = htHomeWin * ftHomeWin * conditionalFactor;
+    // 1/X: İY ev - MS beraberlik (gol farkı kapatılır)
+    htftProbs["1/X"] = htHomeWin * ftDraw * holdDrawFactor;
+    // 1/2: İY ev - MS deplasman (comeBack — nadir)
+    htftProbs["1/2"] = htHomeWin * ftAwayWin * reverseFactor;
+    // X/1: İY beraberlik - MS ev
+    htftProbs["X/1"] = htDraw * ftHomeWin * 0.95;
+    // X/X: İY beraberlik - MS beraberlik
+    htftProbs["X/X"] = htDraw * ftDraw * conditionalFactor;
+    // X/2: İY beraberlik - MS deplasman
+    htftProbs["X/2"] = htDraw * ftAwayWin * 0.95;
+    // 2/1: İY deplasman - MS ev (comeback — nadir)
+    htftProbs["2/1"] = htAwayWin * ftHomeWin * reverseFactor;
+    // 2/X: İY deplasman - MS beraberlik
+    htftProbs["2/X"] = htAwayWin * ftDraw * holdDrawFactor;
+    // 2/2: İY deplasman - MS deplasman
+    htftProbs["2/2"] = htAwayWin * ftAwayWin * conditionalFactor;
+
+    // Normalize et (toplam = 1 olmalı)
+    const totalProb = Object.values(htftProbs).reduce((s, v) => s + v, 0);
+    for (const key of Object.keys(htftProbs)) {
+      htftProbs[key] = htftProbs[key] / totalProb;
+    }
+
+    // En iyi İY/MS seçeneklerini değerlendir
+    const htftEntries = Object.entries(htftProbs)
+      .filter(([key]) => odds.htft![key] && odds.htft![key] > 1.0)
+      .map(([key, prob]) => ({
+        key,
+        prob,
+        odds: odds.htft![key],
+        implied: 1 / odds.htft![key],
+        ev: prob * odds.htft![key] - 1,
+      }))
+      .filter((e) => e.prob > 0.08) // En az %8 olasılık — çok düşük prob'ları elele
+      .sort((a, b) => b.ev - a.ev);
+
+    // En iyi 2 İY/MS pick'i üret (aynı maçtan max 2)
+    let htftCount = 0;
+    for (const entry of htftEntries) {
+      if (htftCount >= 2) break;
+      const type = entry.key as PickType;
+      let conf = calculateConfidence(entry.prob, entry.implied, entry.prob > 0.20);
+      conf = hybridConfidence(conf, type);
+
+      if (conf >= 50 && entry.ev > -0.05) {
+        const htLabel = entry.key.split("/")[0] === "1" ? "Ev" : entry.key.split("/")[0] === "X" ? "Beraberlik" : "Deplasman";
+        const ftLabel = entry.key.split("/")[1] === "1" ? "Ev" : entry.key.split("/")[1] === "X" ? "Beraberlik" : "Deplasman";
+        picks.push({
+          type,
+          confidence: conf,
+          odds: entry.odds,
+          reasoning: `İY ${htLabel} → MS ${ftLabel} — olasılık %${(entry.prob * 100).toFixed(1)}`,
+          expectedValue: Math.round(entry.ev * 100) / 100,
+          isValueBet: entry.ev > 0.05,
+          simProbability: undefined,
+        });
+        htftCount++;
       }
     }
   }
 
-  // --- Kart 3.5 Üst/Alt (HAKEM FİLTRESİ AKTİF) ---
-  if (analysis.cardData) {
-    const cd = analysis.cardData;
+  // --- Korner 8.5 Üst/Alt DEVRE DIŞI ---
+  // Korner verileri sentetik (gerçek istatistik yok), tahmin güvenilir değil.
+  // Korner bilgisi sadece insight olarak kullanılıyor.
 
-    if (cd.overProb > 55 && odds.cardOver35 && odds.cardOver35 > 1.0) {
-      const cardProb = cd.overProb / 100;
-      const impliedCard = 1 / odds.cardOver35;
-      let conf = calculateConfidence(cardProb, impliedCard, cd.totalAvg > 5);
-      conf = applyH2HFilter(conf, "Over 3.5 Cards");
-      let reasoning = `Kart ort. ${cd.totalAvg} — sert savunma`;
-
-      // Hakem filtresi: "lenient" hakem + Kart Üst → confidence düşür
-      if (refProfile?.cardTendency === "lenient") {
-        conf = Math.max(10, conf - 15);
-        reasoning += ` ⚠️ Hakem ${refProfile.name} kart konusunda cimri (ort. ${refProfile.avgCardsPerMatch})`;
-      } else if (refProfile?.cardTendency === "strict") {
-        conf = Math.min(95, conf + 5);
-        reasoning += ` 🟨 Hakem ${refProfile.name} kartçı (ort. ${refProfile.avgCardsPerMatch})`;
-      }
-
-      const ev = cardProb * odds.cardOver35 - 1;
-      if (conf >= 50) {
-        picks.push({ type: "Over 3.5 Cards", confidence: conf, odds: odds.cardOver35, reasoning, expectedValue: Math.round(ev * 100) / 100, isValueBet: ev > 0.05 });
-      }
-    }
-
-    if (cd.overProb < 40 && odds.cardUnder35 && odds.cardUnder35 > 1.0) {
-      const cardProb = (100 - cd.overProb) / 100;
-      const impliedCard = 1 / odds.cardUnder35;
-      let conf = calculateConfidence(cardProb, impliedCard, cd.totalAvg < 3);
-      conf = applyH2HFilter(conf, "Under 3.5 Cards");
-      let reasoning = `Kart ort. ${cd.totalAvg} — fair play`;
-
-      // Hakem filtresi: "strict" hakem + Kart Alt → confidence düşür
-      if (refProfile?.cardTendency === "strict") {
-        conf = Math.max(10, conf - 15);
-        reasoning += ` ⚠️ Hakem ${refProfile.name} kartçı (ort. ${refProfile.avgCardsPerMatch})`;
-      } else if (refProfile?.cardTendency === "lenient") {
-        conf = Math.min(95, conf + 5);
-        reasoning += ` ✅ Hakem ${refProfile.name} sakin (ort. ${refProfile.avgCardsPerMatch})`;
-      }
-
-      const ev = cardProb * odds.cardUnder35 - 1;
-      if (conf >= 50) {
-        picks.push({ type: "Under 3.5 Cards", confidence: conf, odds: odds.cardUnder35, reasoning, expectedValue: Math.round(ev * 100) / 100, isValueBet: ev > 0.05 });
-      }
-    }
-  }
+  // --- Kart 3.5 Üst/Alt DEVRE DIŞI ---
+  // Kart verileri de sentetik — gerçek istatistik olmadan pick üretilmiyor.
+  // Hakem profili yalnızca insight olarak kullanılıyor.
 
   return picks;
 }
@@ -922,6 +967,15 @@ function getPickReasoning(type: PickType, confidence: number, prediction: Predic
     "Under 2.5": `Golsüz maç — savunma güçlü, H2H destekliyor`,
     "BTTS Yes": `Her iki hücum güçlü — KG beklentisi${xgNote}`,
     "BTTS No": `Savunma ağırlıklı — en az bir taraf gol atamayabilir`,
+    "1/1": `${level} İY/MS — ev sahibi dominasyonu bekleniyor`,
+    "1/X": `İY ev sahibi önde, MS beraberlik — tempo düşmesi bekleniyor`,
+    "1/2": `İY ev önde ama deplasman geri dönüşü — riskli senaryo`,
+    "X/1": `İY beraberlik, MS ev sahibi — geç gol potansiyeli`,
+    "X/X": `Tam beraberlik — defansif ve dengeli maç${xgNote}`,
+    "X/2": `İY beraberlik, MS deplasman — geç gol potansiyeli`,
+    "2/1": `İY deplasman önde, MS ev sahibi geri dönüşü — riskli`,
+    "2/X": `İY deplasman önde ama MS beraberlik — tempo düşmesi`,
+    "2/2": `${level} İY/MS — deplasman dominasyonu bekleniyor`,
   };
 
   const base = reasons[type] || `${level} tahmin`;
@@ -940,6 +994,10 @@ function extractOdds(oddsData: OddsResponse | null): MatchOdds | undefined {
   const overUnder35 = bookmaker.bets.find((b) => b.id === 26);
   const corners = bookmaker.bets.find((b) => b.name?.toLowerCase().includes("corner"));
   const cards = bookmaker.bets.find((b) => b.name?.toLowerCase().includes("card"));
+
+  // İY/MS (Half Time / Full Time) — bet id=13 veya isim bazlı
+  const htftBet = bookmaker.bets.find((b) => b.id === 13) ||
+    bookmaker.bets.find((b) => b.name?.toLowerCase().includes("half time / full time") || b.name?.toLowerCase().includes("ht/ft"));
 
   // Exact Score (Correct Score) — bet id=10 veya isim bazlı fallback
   const exactScoreBet = bookmaker.bets.find((b) => b.id === 10) ||
@@ -1001,6 +1059,27 @@ function extractOdds(oddsData: OddsResponse | null): MatchOdds | undefined {
     cornerUnder85: corners ? parseFloat(corners.values.find((v) => v.value.includes("Under"))?.odd || "0") || undefined : undefined,
     cardOver35: cards ? parseFloat(cards.values.find((v) => v.value.includes("Over"))?.odd || "0") || undefined : undefined,
     cardUnder35: cards ? parseFloat(cards.values.find((v) => v.value.includes("Under"))?.odd || "0") || undefined : undefined,
+    htft: (() => {
+      if (!htftBet) return undefined;
+      const htftOdds: Record<string, number> = {};
+      // API-Football format: "Home / Home", "Home / Draw", "Draw / Away" etc.
+      const htftMap: Record<string, string> = {
+        "Home / Home": "1/1", "Home / Draw": "1/X", "Home / Away": "1/2",
+        "Draw / Home": "X/1", "Draw / Draw": "X/X", "Draw / Away": "X/2",
+        "Away / Home": "2/1", "Away / Draw": "2/X", "Away / Away": "2/2",
+      };
+      for (const v of htftBet.values) {
+        const key = htftMap[v.value];
+        if (key) {
+          const odd = parseFloat(v.odd);
+          if (odd > 0) {
+            htftOdds[key] = odd;
+            realMarkets.add(`htft_${key}`);
+          }
+        }
+      }
+      return Object.keys(htftOdds).length > 0 ? htftOdds : undefined;
+    })(),
     exactScoreOdds: Object.keys(exactScoreOdds).length > 0 ? exactScoreOdds : undefined,
     bookmaker: bookmaker.name,
     realMarkets,

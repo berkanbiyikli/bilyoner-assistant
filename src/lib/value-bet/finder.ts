@@ -71,45 +71,7 @@ export function findValueBets(predictions: MatchPrediction[]): ValueBet[] {
       },
     ];
 
-    // Korner pazarı (8.5 üst/alt)
-    if (prediction.analysis.cornerData && prediction.odds.cornerOver85 && prediction.odds.cornerOver85 > 1.0) {
-      const cornerOverProb = prediction.analysis.cornerData.overProb / 100;
-      markets.push({
-        market: "Korner 8.5",
-        pick: "Üst",
-        probability: cornerOverProb,
-        bookmakerOdds: prediction.odds.cornerOver85,
-      });
-    }
-    if (prediction.analysis.cornerData && prediction.odds.cornerUnder85 && prediction.odds.cornerUnder85 > 1.0) {
-      const cornerUnderProb = (100 - prediction.analysis.cornerData.overProb) / 100;
-      markets.push({
-        market: "Korner 8.5",
-        pick: "Alt",
-        probability: cornerUnderProb,
-        bookmakerOdds: prediction.odds.cornerUnder85,
-      });
-    }
-
-    // Kart pazarı (3.5 üst/alt)
-    if (prediction.analysis.cardData && prediction.odds.cardOver35 && prediction.odds.cardOver35 > 1.0) {
-      const cardOverProb = prediction.analysis.cardData.overProb / 100;
-      markets.push({
-        market: "Kart 3.5",
-        pick: "Üst",
-        probability: cardOverProb,
-        bookmakerOdds: prediction.odds.cardOver35,
-      });
-    }
-    if (prediction.analysis.cardData && prediction.odds.cardUnder35 && prediction.odds.cardUnder35 > 1.0) {
-      const cardUnderProb = (100 - prediction.analysis.cardData.overProb) / 100;
-      markets.push({
-        market: "Kart 3.5",
-        pick: "Alt",
-        probability: cardUnderProb,
-        bookmakerOdds: prediction.odds.cardUnder35,
-      });
-    }
+    // Korner & Kart pazarları devre dışı — sentetik veri güvenilir değil
 
     for (const m of markets) {
       if (m.probability <= 0.05 || m.probability >= 0.95) continue; // Saçma olasılıkları atla

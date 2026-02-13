@@ -24,6 +24,15 @@ export type PickType =
   | "2 & Over 1.5"
   | "HT Over 0.5"
   | "HT Under 0.5"
+  | "1/1"    // İY 1 - MS 1
+  | "1/X"    // İY 1 - MS X
+  | "1/2"    // İY 1 - MS 2
+  | "X/1"    // İY X - MS 1
+  | "X/X"    // İY X - MS X
+  | "X/2"    // İY X - MS 2
+  | "2/1"    // İY 2 - MS 1
+  | "2/X"    // İY 2 - MS X
+  | "2/2"    // İY 2 - MS 2
   | "Over 8.5 Corners"
   | "Under 8.5 Corners"
   | "Over 3.5 Cards"
@@ -175,6 +184,8 @@ export interface MatchOdds {
   cornerUnder85?: number;
   cardOver35?: number;
   cardUnder35?: number;
+  // İY/MS oranları (Half Time / Full Time)
+  htft?: Record<string, number>; // { "1/1": 2.5, "1/X": 15.0, "X/2": 6.5, ... }
   exactScoreOdds?: Record<string, number>; // { "2-1": 8.0, "3-3": 51.0, ... }
   bookmaker: string;
   /** Gerçek bahisçi verisinden gelen pazarlar. Bu set'te olmayan pazar fallback oran kullanıyor */

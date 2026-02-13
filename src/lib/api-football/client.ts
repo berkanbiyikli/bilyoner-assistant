@@ -23,7 +23,7 @@ const BASE_URL = process.env.API_FOOTBALL_BASE_URL || "https://v3.football.api-s
 // ---- Request Counter (günlük limiti takip et) ----
 let dailyRequestCount = 0;
 let lastResetDate = new Date().toISOString().split("T")[0];
-const MAX_DAILY_REQUESTS = parseInt(process.env.API_FOOTBALL_DAILY_LIMIT || "74000"); // 75K plan, 1000 safety margin
+const MAX_DAILY_REQUESTS = parseInt(process.env.API_FOOTBALL_DAILY_LIMIT || "75000"); // Ultra plan
 
 function checkAndResetCounter() {
   const today = new Date().toISOString().split("T")[0];
@@ -85,11 +85,12 @@ async function apiFetch<T>(
 
   const data: ApiResponse<T> = await res.json();
 
-  // API hata döndüyse (limit aşımı vb.) boş yanıt gibi davran
+  // API hata döndüyse log'la
   if (data.errors && typeof data.errors === "object" && Object.keys(data.errors).length > 0) {
     console.warn(`[API-FOOTBALL] API error for ${endpoint}:`, data.errors);
-    // Limit aşımında counter'ı max'a set et ki sonraki çağrılar yapılmasın
-    if (JSON.stringify(data.errors).includes("request limit")) {
+    // Sadece günlük limit aşımında counter'ı max'a set et (per-minute rate limit değil)
+    const errorStr = JSON.stringify(data.errors);
+    if (errorStr.includes("request limit") && errorStr.includes("day")) {
       dailyRequestCount = MAX_DAILY_REQUESTS;
     }
   }

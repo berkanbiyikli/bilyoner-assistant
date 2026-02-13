@@ -103,8 +103,11 @@ export function PredictionsPage() {
     }
   };
 
+  const [apiMessage, setApiMessage] = useState<string | null>(null);
+
   const fetchPredictions = async () => {
     setLoading(true);
+    setApiMessage(null);
     try {
       const url = selectedDates.length === 1
         ? `/api/predictions?date=${selectedDates[0]}`
@@ -112,6 +115,9 @@ export function PredictionsPage() {
       const res = await fetch(url);
       const data = await res.json();
       setPredictions(data.predictions || []);
+      if (data.source === "fallback" && data.message) {
+        setApiMessage(data.message);
+      }
     } catch (error) {
       console.error("Tahminler yüklenemedi:", error);
     } finally {
@@ -312,6 +318,12 @@ export function PredictionsPage() {
         {/* TAB: Predictions */}
         {activeTab === "predictions" && (
           <>
+            {apiMessage && (
+              <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />
+                <p className="text-sm text-yellow-500">{apiMessage}</p>
+              </div>
+            )}
             <LeagueFilter predictions={predictions} />
             <SystemPerformanceWidget />
             <div className="space-y-3">

@@ -136,6 +136,65 @@ export async function GET(req: NextRequest) {
 
     const allPredictions = [...allDbEnriched, ...allLiveAnalyzed];
 
+    // Eğer hiç tahmin yoksa ve API limiti dolmuşsa, en son tahminleri göster
+    if (allPredictions.length === 0) {
+      const { data: latestPreds } = await supabase
+        .from("predictions")
+        .select("*")
+        .order("kickoff", { ascending: false })
+        .limit(100);
+
+      if (latestPreds && latestPreds.length > 0) {
+        // Son tahminleri grupla
+        const latestGrouped = new Map<number, typeof latestPreds>();
+        for (const p of latestPreds) {
+          const group = latestGrouped.get(p.fixture_id) || [];
+          group.push(p);
+          latestGrouped.set(p.fixture_id, group);
+        }
+
+        const fallbackPredictions = Array.from(latestGrouped.entries()).map(([fixtureId, preds]) => {
+          const sortedPreds = preds!.sort((a, b) => b.confidence - a.confidence);
+          const firstPred = sortedPreds[0];
+          return {
+            fixtureId,
+            fixture: null,
+            league: { id: 0, name: firstPred.league, country: "", logo: "", flag: "", season: 0, round: "" },
+            homeTeam: { id: 0, name: firstPred.home_team, logo: "", winner: null },
+            awayTeam: { id: 0, name: firstPred.away_team, logo: "", winner: null },
+            kickoff: firstPred.kickoff,
+            picks: sortedPreds.map((p) => ({
+              type: p.pick,
+              confidence: p.confidence,
+              odds: p.odds,
+              reasoning: p.analysis_summary || "",
+              expectedValue: p.expected_value,
+              isValueBet: p.is_value_bet,
+            })),
+            analysis: {
+              summary: firstPred.analysis_summary || "",
+              homeAttack: 50, homeDefense: 50,
+              awayAttack: 50, awayDefense: 50,
+              homeForm: 50, awayForm: 50,
+            },
+            odds: undefined,
+            isLive: false,
+          };
+        });
+
+        return NextResponse.json({
+          dates,
+          source: "fallback",
+          message: "Seçilen tarih için tahmin bulunamadı. Son tahminler gösteriliyor.",
+          total: 0,
+          fromDb: 0,
+          fromLive: 0,
+          analyzed: fallbackPredictions.length,
+          predictions: fallbackPredictions,
+        });
+      }
+    }
+
     // Cache'e kaydet
     if (allPredictions.length > 0) {
       setCache(cacheKey, { predictions: allPredictions }, 300);

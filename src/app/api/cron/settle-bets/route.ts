@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
       .from("predictions")
       .select("*")
       .eq("result", "pending")
+      .neq("pick", "no_pick")
       .lte("kickoff", new Date().toISOString());
 
     if (!pending || pending.length === 0) {

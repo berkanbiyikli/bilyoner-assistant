@@ -60,6 +60,7 @@ export async function GET(req: NextRequest) {
         .select("*")
         .gte("kickoff", dayStart)
         .lte("kickoff", dayEnd)
+        .neq("pick", "no_pick")
         .order("confidence", { ascending: false });
 
       const dbFixtureIds = new Set((dbPredictions || []).map((p) => p.fixture_id));
@@ -133,6 +134,7 @@ export async function GET(req: NextRequest) {
       const { data: latestPreds } = await supabase
         .from("predictions")
         .select("*")
+        .neq("pick", "no_pick")
         .order("kickoff", { ascending: false })
         .limit(100);
 

@@ -61,7 +61,26 @@ export async function GET(req: NextRequest) {
     const existingPickKeys = new Set((existingPreds || []).map((e) => `${e.fixture_id}_${e.pick}`));
 
     for (const pred of predictions) {
-      if (pred.picks.length === 0) continue;
+      if (pred.picks.length === 0) {
+        // Pick üretilmeyen maçı da işaretle ki tekrar analiz edilmesin
+        const markerKey = `${pred.fixtureId}_no_pick`;
+        if (!existingPickKeys.has(markerKey)) {
+          await supabase.from("predictions").insert({
+            fixture_id: pred.fixtureId,
+            home_team: pred.homeTeam.name,
+            away_team: pred.awayTeam.name,
+            league: pred.league.name,
+            kickoff: pred.kickoff,
+            pick: "no_pick",
+            odds: 0,
+            confidence: 0,
+            expected_value: 0,
+            is_value_bet: false,
+            analysis_summary: "Analiz sonucu pick üretilmedi",
+          });
+        }
+        continue;
+      }
 
       for (const pick of pred.picks) {
         const key = `${pred.fixtureId}_${pick.type}`;

@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { MatchCard } from "@/components/match-card";
 import { LeagueFilter } from "@/components/league-filter";
+import { PreferenceFilter } from "@/components/preference-filter";
 import { CouponSidebar } from "@/components/coupon-sidebar";
 import { SystemPerformanceWidget } from "@/components/system-performance";
 import { MatchCardSkeleton } from "@/components/skeletons";
-import { useAppStore } from "@/lib/store";
+import { useAppStore, MARKET_PICK_MAP } from "@/lib/store";
 import type { MatchPrediction, CrazyPickResult } from "@/types";
 import { Trophy, Calendar, RefreshCw, Dices, Flame, TrendingUp, Zap, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -155,10 +156,69 @@ export function PredictionsPage() {
     }
   }, [activeTab]);
 
-  const filteredPredictions =
+  const filters = useAppStore((s) => s.filters);
+
+  // Lig filtresi
+  const leagueFiltered =
     selectedLeagues.length > 0
       ? predictions.filter((p) => selectedLeagues.includes(p.league.id))
       : predictions;
+
+  // Tercih filtreleri uygula
+  const filteredPredictions = leagueFiltered
+    .map((p) => {
+      // Pick seviyesinde filtrele
+      let filteredPicks = p.picks || [];
+
+      // Market filtresi
+      if (filters.market !== "all") {
+        const allowedPicks = MARKET_PICK_MAP[filters.market];
+        if (filters.market === "score") {
+          filteredPicks = filteredPicks.filter((pick) => pick.type.startsWith("CS "));
+        } else if (allowedPicks.length > 0) {
+          filteredPicks = filteredPicks.filter((pick) => allowedPicks.includes(pick.type));
+        }
+      }
+
+      // Güven filtresi
+      if (filters.minConfidence > 0) {
+        filteredPicks = filteredPicks.filter((pick) => pick.confidence >= filters.minConfidence);
+      }
+
+      // Oran filtresi
+      if (filters.minOdds > 1.0 || filters.maxOdds < 50.0) {
+        filteredPicks = filteredPicks.filter(
+          (pick) => pick.odds >= filters.minOdds && pick.odds <= filters.maxOdds
+        );
+      }
+
+      // Value bet filtresi
+      if (filters.valueBetsOnly) {
+        filteredPicks = filteredPicks.filter((pick) => pick.isValueBet);
+      }
+
+      if (filteredPicks.length === 0) return null;
+      return { ...p, picks: filteredPicks };
+    })
+    .filter(Boolean) as typeof predictions;
+
+  // Sıralama
+  const sortedPredictions = [...filteredPredictions].sort((a, b) => {
+    const pickA = a.picks[0];
+    const pickB = b.picks[0];
+    if (!pickA || !pickB) return 0;
+
+    switch (filters.sortBy) {
+      case "confidence":
+        return pickB.confidence - pickA.confidence;
+      case "odds":
+        return pickB.odds - pickA.odds;
+      case "ev":
+        return (pickB.expectedValue || 0) - (pickA.expectedValue || 0);
+      default:
+        return 0;
+    }
+  });
 
   return (
     <div className="flex gap-6">
@@ -325,20 +385,25 @@ export function PredictionsPage() {
               </div>
             )}
             <LeagueFilter predictions={predictions} />
+            <PreferenceFilter />
             <SystemPerformanceWidget />
             <div className="space-y-3">
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => <MatchCardSkeleton key={i} />)
-              ) : filteredPredictions.length > 0 ? (
-                filteredPredictions.map((prediction) => (
+              ) : sortedPredictions.length > 0 ? (
+                sortedPredictions.map((prediction) => (
                   <MatchCard key={prediction.fixtureId} prediction={prediction} />
                 ))
               ) : (
                 <div className="rounded-xl border border-border bg-card p-12 text-center">
                   <Trophy className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                  <h3 className="font-semibold text-lg mb-2">Tahmin Bulunamadı</h3>
+                  <h3 className="font-semibold text-lg mb-2">
+                    {predictions.length > 0 ? "Filtreye Uygun Tahmin Yok" : "Tahmin Bulunamadı"}
+                  </h3>
                   <p className="text-sm text-muted-foreground">
-                    Bu tarih için henüz tahmin bulunmuyor. Farklı bir tarih deneyin.
+                    {predictions.length > 0
+                      ? "Filtre ayarlarını değiştirip tekrar deneyin."
+                      : "Bu tarih için henüz tahmin bulunmuyor. Farklı bir tarih deneyin."}
                   </p>
                 </div>
               )}

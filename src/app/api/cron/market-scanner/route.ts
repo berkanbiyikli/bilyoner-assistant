@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { getFixturesByDate } from "@/lib/api-football";
+import { getFixturesByDate, getApiUsage } from "@/lib/api-football";
+import { LEAGUE_IDS } from "@/lib/api-football/leagues";
 import { analyzeMatches } from "@/lib/prediction";
 import { filterSafePredictions } from "@/lib/prediction/safety";
 import { findValueBets } from "@/lib/value-bet";
 import { sendTweet } from "@/lib/bot";
 import { formatValueBetAlert, formatAnalyticTweet } from "@/lib/bot/twitter-manager";
+
+export const maxDuration = 60;
 
 /**
  * Market Scanner Cron — her saat çalışır
@@ -19,22 +22,37 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // API bütçe kontrolü — en az 40 istek kalmamışsa çalışma
+    const apiUsage = getApiUsage();
+    if (apiUsage.remaining < 40) {
+      return NextResponse.json({
+        success: true,
+        scanned: 0,
+        alerts: 0,
+        reason: `API budget low (${apiUsage.remaining} remaining)`,
+        apiUsage,
+      });
+    }
+
     const supabase = createAdminSupabase();
     const now = new Date();
     const date = now.toISOString().split("T")[0];
 
-    // Günün tüm NS maçlarını çek
+    // Günün desteklenen lig NS maçlarını çek
     const allFixtures = await getFixturesByDate(date);
     const fixtures = allFixtures.filter(
-      (f) => f.fixture.status.short === "NS"
+      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
     );
 
-    // Sadece 1-2 saat içinde başlayacak maçları al
+    // Sadece 1-3 saat içinde başlayacak maçları al
     const soonFixtures = fixtures.filter((f) => {
       const kickoff = new Date(f.fixture.date);
       const hoursUntil = (kickoff.getTime() - now.getTime()) / (1000 * 60 * 60);
-      return hoursUntil > 0 && hoursUntil <= 2; // 0-2 saat içinde başlayacak
+      return hoursUntil > 0 && hoursUntil <= 3;
     });
+
+    // Max 8 maç analiz et (API bütçesi: 8 × 4 = 32 istek)
+    const limitedFixtures = soonFixtures.slice(0, 8);
 
     if (soonFixtures.length === 0) {
       return NextResponse.json({
@@ -45,8 +63,18 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    if (limitedFixtures.length === 0) {
+      return NextResponse.json({
+        success: true,
+        scanned: 0,
+        alerts: 0,
+        reason: "No supported league matches starting within 3 hours",
+        apiUsage,
+      });
+    }
+
     // Analiz et
-    const predictions = await analyzeMatches(soonFixtures);
+    const predictions = await analyzeMatches(limitedFixtures);
 
     // Safety check
     const { safe, skipped } = filterSafePredictions(predictions);
@@ -117,16 +145,18 @@ export async function GET(req: NextRequest) {
       if (alertsSent >= 3) break;
     }
 
-    console.log(`[SCANNER] Scanned ${soonFixtures.length} matches, ${highEdgeBets.length} high-edge, ${alertsSent} alerts sent, ${skipped.length} skipped by safety`);
+    const finalUsage = getApiUsage();
+    console.log(`[SCANNER] Scanned ${limitedFixtures.length} matches, ${highEdgeBets.length} high-edge, ${alertsSent} alerts sent, ${skipped.length} skipped by safety (API: ${finalUsage.used}/${finalUsage.limit})`);
 
     return NextResponse.json({
       success: true,
-      scanned: soonFixtures.length,
+      scanned: limitedFixtures.length,
       analyzed: safe.length,
       valueBetsFound: valueBets.length,
       highEdgeBets: highEdgeBets.length,
       alertsSent,
       skippedBySafety: skipped.length,
+      apiUsage: finalUsage,
     });
   } catch (error) {
     console.error("Market scanner cron error:", error);

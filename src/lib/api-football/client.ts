@@ -23,7 +23,7 @@ const BASE_URL = process.env.API_FOOTBALL_BASE_URL || "https://v3.football.api-s
 // ---- Request Counter (günlük limiti takip et) ----
 let dailyRequestCount = 0;
 let lastResetDate = new Date().toISOString().split("T")[0];
-const MAX_DAILY_REQUESTS = parseInt(process.env.API_FOOTBALL_DAILY_LIMIT || "95"); // safety margin
+const MAX_DAILY_REQUESTS = parseInt(process.env.API_FOOTBALL_DAILY_LIMIT || "7400"); // Pro plan: 7500, 100 safety margin
 
 function checkAndResetCounter() {
   const today = new Date().toISOString().split("T")[0];

@@ -22,6 +22,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // --- DUPLICATE CHECK: Bugün zaten tweet atılmış mı? ---
+    const supabaseCheck = createAdminSupabase();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const { data: existingTweets } = await supabaseCheck
+      .from("tweets")
+      .select("id")
+      .eq("type", "daily_picks")
+      .gte("created_at", todayStart.toISOString())
+      .limit(1);
+
+    if (existingTweets && existingTweets.length > 0) {
+      return NextResponse.json({
+        success: true,
+        tweeted: false,
+        reason: "Daily picks already tweeted today — skipping to avoid duplicates",
+      });
+    }
+
     // Günün tüm maçlarını çek
     const date = new Date().toISOString().split("T")[0];
     const allFixtures = await getFixturesByDate(date);

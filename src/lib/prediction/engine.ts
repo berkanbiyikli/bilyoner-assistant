@@ -650,6 +650,9 @@ function generatePicks(
     extraSignal: boolean,
     minConf: number = 45
   ) => {
+    // Gerçek oran yoksa pick üretme (fallback 0 demek API'de veri yok)
+    if (!oddsValue || oddsValue <= 1.0) return;
+
     let conf = calculateConfidence(modelProb, impliedProb, extraSignal);
     conf = hybridConfidence(conf, type);
     conf = applyH2HFilter(conf, type);
@@ -799,19 +802,23 @@ function buildInsights(
     simTopScoreline = `${top.score} (%${top.probability})`;
     notes.push(`🎲 Simülasyon (${sim.simRuns.toLocaleString()} maç): En olası skor ${top.score} (%${top.probability})`);
 
-    // Pazar edge'leri
+    // Pazar edge'leri — sadece gerçek odds varsa
     if (odds) {
-      const impliedOver25 = (1 / odds.over25) * 100;
-      const simOverEdge = sim.simOver25Prob - impliedOver25;
-      if (simOverEdge > 10) {
-        simEdgeNote = `Üst 2.5 piyasadan %${Math.round(simOverEdge)} fazla`;
-        notes.push(`📊 Simülasyon: Üst 2.5 olasılığı %${sim.simOver25Prob.toFixed(1)} — piyasa %${impliedOver25.toFixed(1)} (edge: +%${Math.round(simOverEdge)})`);
+      if (odds.over25 > 1.0) {
+        const impliedOver25 = (1 / odds.over25) * 100;
+        const simOverEdge = sim.simOver25Prob - impliedOver25;
+        if (simOverEdge > 10) {
+          simEdgeNote = `Üst 2.5 piyasadan %${Math.round(simOverEdge)} fazla`;
+          notes.push(`📊 Simülasyon: Üst 2.5 olasılığı %${sim.simOver25Prob.toFixed(1)} — piyasa %${impliedOver25.toFixed(1)} (edge: +%${Math.round(simOverEdge)})`);
+        }
       }
 
-      const impliedBtts = (1 / odds.bttsYes) * 100;
-      const simBttsEdge = sim.simBttsProb - impliedBtts;
-      if (simBttsEdge > 10) {
-        notes.push(`📊 Simülasyon: KG Var olasılığı %${sim.simBttsProb.toFixed(1)} — piyasa %${impliedBtts.toFixed(1)} (edge: +%${Math.round(simBttsEdge)})`);
+      if (odds.bttsYes > 1.0) {
+        const impliedBtts = (1 / odds.bttsYes) * 100;
+        const simBttsEdge = sim.simBttsProb - impliedBtts;
+        if (simBttsEdge > 10) {
+          notes.push(`📊 Simülasyon: KG Var olasılığı %${sim.simBttsProb.toFixed(1)} — piyasa %${impliedBtts.toFixed(1)} (edge: +%${Math.round(simBttsEdge)})`);
+        }
       }
     }
 
@@ -948,24 +955,55 @@ function extractOdds(oddsData: OddsResponse | null): MatchOdds | undefined {
     }
   }
 
+  // Hangi pazarlar gerçek bahisçi verisinden geliyor?
+  const realMarkets = new Set<string>();
+
+  const parseRealOdd = (bet: typeof matchWinner, valueName: string, marketKey: string): number => {
+    const val = bet?.values.find((v) => v.value === valueName)?.odd;
+    if (val) {
+      realMarkets.add(marketKey);
+      return parseFloat(val);
+    }
+    return 0; // Gerçek veri yok — 0 döndür, fallback kullanma
+  };
+
+  const home = parseRealOdd(matchWinner, "Home", "home");
+  const draw = parseRealOdd(matchWinner, "Draw", "draw");
+  const away = parseRealOdd(matchWinner, "Away", "away");
+  const over25 = parseRealOdd(overUnder, "Over 2.5", "over25");
+  const under25 = parseRealOdd(overUnder, "Under 2.5", "under25");
+  const bttsYes = parseRealOdd(btts, "Yes", "bttsYes");
+  const bttsNo = parseRealOdd(btts, "No", "bttsNo");
+  const over15 = parseRealOdd(overUnder15, "Over 1.5", "over15");
+  const under15 = parseRealOdd(overUnder15, "Under 1.5", "under15");
+  const over35 = parseRealOdd(overUnder35, "Over 3.5", "over35");
+  const under35 = parseRealOdd(overUnder35, "Under 3.5", "under35");
+
+  // 1X2 için en az home oranı gerçek olmalı — yoksa tüm odds güvenilmez
+  if (!realMarkets.has("home")) {
+    console.warn(`[ODDS] Bookmaker ${bookmaker.name} has no real 1X2 odds — skipping`);
+    return undefined;
+  }
+
   return {
-    home: parseFloat(matchWinner?.values.find((v) => v.value === "Home")?.odd || "1.5"),
-    draw: parseFloat(matchWinner?.values.find((v) => v.value === "Draw")?.odd || "3.5"),
-    away: parseFloat(matchWinner?.values.find((v) => v.value === "Away")?.odd || "5.0"),
-    over25: parseFloat(overUnder?.values.find((v) => v.value === "Over 2.5")?.odd || "1.8"),
-    under25: parseFloat(overUnder?.values.find((v) => v.value === "Under 2.5")?.odd || "2.0"),
-    bttsYes: parseFloat(btts?.values.find((v) => v.value === "Yes")?.odd || "1.7"),
-    bttsNo: parseFloat(btts?.values.find((v) => v.value === "No")?.odd || "2.1"),
-    over15: parseFloat(overUnder15?.values.find((v) => v.value === "Over 1.5")?.odd || "1.3"),
-    under15: parseFloat(overUnder15?.values.find((v) => v.value === "Under 1.5")?.odd || "3.5"),
-    over35: parseFloat(overUnder35?.values.find((v) => v.value === "Over 3.5")?.odd || "2.5"),
-    under35: parseFloat(overUnder35?.values.find((v) => v.value === "Under 3.5")?.odd || "1.5"),
+    home: home || 1.5,
+    draw: draw || 3.5,
+    away: away || 5.0,
+    over25: over25 || 0,     // API'de gerçek veri yoksa 0 — pick üretme
+    under25: under25 || 0,
+    bttsYes: bttsYes || 0,
+    bttsNo: bttsNo || 0,
+    over15: over15 || 0,
+    under15: under15 || 0,
+    over35: over35 || 0,
+    under35: under35 || 0,
     cornerOver85: corners ? parseFloat(corners.values.find((v) => v.value.includes("Over"))?.odd || "0") || undefined : undefined,
     cornerUnder85: corners ? parseFloat(corners.values.find((v) => v.value.includes("Under"))?.odd || "0") || undefined : undefined,
     cardOver35: cards ? parseFloat(cards.values.find((v) => v.value.includes("Over"))?.odd || "0") || undefined : undefined,
     cardUnder35: cards ? parseFloat(cards.values.find((v) => v.value.includes("Under"))?.odd || "0") || undefined : undefined,
     exactScoreOdds: Object.keys(exactScoreOdds).length > 0 ? exactScoreOdds : undefined,
     bookmaker: bookmaker.name,
+    realMarkets,
   };
 }
 

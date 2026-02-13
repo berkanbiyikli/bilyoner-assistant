@@ -17,6 +17,24 @@ function confidenceEmoji(confidence: number): string {
   return CONFIDENCE_EMOJI.low;
 }
 
+// Pick type → MatchOdds market key eşleştirmesi
+const PICK_TO_MARKET: Record<string, string> = {
+  "1": "home", "X": "draw", "2": "away",
+  "1X": "home", "X2": "away", "12": "home",
+  "Over 2.5": "over25", "Under 2.5": "under25",
+  "Over 1.5": "over15", "Under 1.5": "under15",
+  "Over 3.5": "over35", "Under 3.5": "under35",
+  "BTTS Yes": "bttsYes", "BTTS No": "bttsNo",
+};
+
+/** Bir pick'in oranı gerçek bahisçi verisinden mi geliyor? */
+function isRealOdds(prediction: MatchPrediction, pickType: string): boolean {
+  if (!prediction.odds?.realMarkets) return false;
+  const market = PICK_TO_MARKET[pickType];
+  if (!market) return false;
+  return prediction.odds.realMarkets.has(market);
+}
+
 function formatPickLine(prediction: MatchPrediction): string {
   const pick = prediction.picks[0];
   if (!pick) return "";
@@ -27,7 +45,12 @@ function formatPickLine(prediction: MatchPrediction): string {
   const valueBadge = pick.isValueBet ? " 💎" : "";
   const evStr = pick.expectedValue > 0 ? ` EV:+${(pick.expectedValue * 100).toFixed(0)}%` : "";
 
-  let line = `${emoji} ${home} vs ${away}\n   ➜ ${pick.type} @${pick.odds.toFixed(2)} (%${pick.confidence})${valueBadge}${evStr}`;
+  // Sadece gerçek odds varsa oran göster
+  const oddsStr = isRealOdds(prediction, pick.type)
+    ? ` @${pick.odds.toFixed(2)}`
+    : "";
+
+  let line = `${emoji} ${home} vs ${away}\n   ➜ ${pick.type}${oddsStr} (%${pick.confidence})${valueBadge}${evStr}`;
 
   // xG bilgisi varsa ekle
   if (prediction.insights && (prediction.insights.xgHome > 0 || prediction.insights.xgAway > 0)) {
@@ -73,6 +96,9 @@ function generateMatchStories(predictions: MatchPrediction[]): string[] {
     const insights = p.insights;
     const sim = analysis.simulation;
 
+    // Oran sadece gerçekse göster
+    const oddsTag = isRealOdds(p, pick.type) ? ` @${pick.odds.toFixed(2)}` : "";
+
     // --- Senaryo 1: Patlama Uyarısı (xG Verimsizlik) ---
     if (
       insights &&
@@ -83,7 +109,7 @@ function generateMatchStories(predictions: MatchPrediction[]): string[] {
       const xgTeam = (analysis.homeXg ?? 0) > (analysis.awayXg ?? 0) ? home : away;
       const xgVal = Math.max(analysis.homeXg ?? 0, analysis.awayXg ?? 0).toFixed(1);
       stories.push(
-        `⚠️ PATLAMA UYARISI\n\n${xgTeam} son maçlarda beklentinin altında kaldı ama xG beklentisi ${xgVal}!\nForvetlerin suskunluğu bu akşam bozulabilir.\n\n➜ ${pick.type} @${pick.odds.toFixed(2)} (%${pick.confidence})\n\n#xG #patlama #bahis`
+        `⚠️ PATLAMA UYARISI\n\n${xgTeam} son maçlarda beklentinin altında kaldı ama xG beklentisi ${xgVal}!\nForvetlerin suskunluğu bu akşam bozulabilir.\n\n➜ ${pick.type}${oddsTag} (%${pick.confidence})\n\n#xG #patlama #bahis`
       );
       continue;
     }
@@ -97,7 +123,7 @@ function generateMatchStories(predictions: MatchPrediction[]): string[] {
       const lateTeam = analysis.goalTiming.home.last15 > analysis.goalTiming.away.last15 ? home : away;
       const latePct = Math.max(analysis.goalTiming.home.last15, analysis.goalTiming.away.last15);
       stories.push(
-        `⏰ SON DAKİKA CANAVARI\n\n${lateTeam} gollerinin %${Math.round(latePct)}'ını son 15 dakikada atıyor!\nCanlı bahisçiler 75'ten sonrasını beklesin.\n\n➜ ${pick.type} @${pick.odds.toFixed(2)} (%${pick.confidence})\n\n#canlıbahis #sondakika`
+        `⏰ SON DAKİKA CANAVARI\n\n${lateTeam} gollerinin %${Math.round(latePct)}'ını son 15 dakikada atıyor!\nCanlı bahisçiler 75'ten sonrasını beklesin.\n\n➜ ${pick.type}${oddsTag} (%${pick.confidence})\n\n#canlıbahis #sondakika`
       );
       continue;
     }
@@ -110,8 +136,9 @@ function generateMatchStories(predictions: MatchPrediction[]): string[] {
       !stories.some((s) => s.includes("SAVUNMA"))
     ) {
       const avg = (analysis.h2hGoalAvg ?? 1.8).toFixed(1);
+      const underOddsTag = isRealOdds(p, "Under 2.5") ? ` @${pick.odds.toFixed(2)}` : "";
       stories.push(
-        `🧱 SAVUNMA DUVARI\n\n${home} ve ${away} savunmaları çelik gibi — H2H ort. ${avg} gol.\nBahisçiler Üst fiyatlıyor ama tarih Alt diyor.\n\n➜ Under 2.5 @${pick.odds.toFixed(2)} (%${pick.confidence})\n\n#savunma #alt #bahis`
+        `🧱 SAVUNMA DUVARI\n\n${home} ve ${away} savunmaları çelik gibi — H2H ort. ${avg} gol.\nBahisçiler Üst fiyatlıyor ama tarih Alt diyor.\n\n➜ Under 2.5${underOddsTag} (%${pick.confidence})\n\n#savunma #alt #bahis`
       );
       continue;
     }
@@ -128,7 +155,7 @@ function generateMatchStories(predictions: MatchPrediction[]): string[] {
         .map((s, i) => `${i + 1}. ${s.score} (%${s.probability})`)
         .join("\n");
       stories.push(
-        `🎲 SİMÜLASYON EDGE\n\n10.000 simülasyonda:\n${scoreList}\n\n${insights.simEdgeNote}!\n\n➜ ${pick.type} @${pick.odds.toFixed(2)}\n\n#montecarlo #simülasyon`
+        `🎲 SİMÜLASYON EDGE\n\n10.000 simülasyonda:\n${scoreList}\n\n${insights.simEdgeNote}!\n\n➜ ${pick.type}${oddsTag}\n\n#montecarlo #simülasyon`
       );
       continue;
     }
@@ -143,7 +170,7 @@ function generateMatchStories(predictions: MatchPrediction[]): string[] {
         const player = criticals[0];
         const team = player.team === "home" ? home : away;
         stories.push(
-          `🚑 KİLİT EKSİK ŞOKU\n\n${team}'ın yıldızı ${player.name} (${player.position}) bu maçta yok!\nSebep: ${player.reason}\n\n➜ ${pick.type} @${pick.odds.toFixed(2)} (%${pick.confidence})\n\n#sakatlık #kadro #bahis`
+          `🚑 KİLİT EKSİK ŞOKU\n\n${team}'ın yıldızı ${player.name} (${player.position}) bu maçta yok!\nSebep: ${player.reason}\n\n➜ ${pick.type}${oddsTag} (%${pick.confidence})\n\n#sakatlık #kadro #bahis`
         );
         continue;
       }
@@ -218,7 +245,8 @@ export function formatDailyPicksTweet(predictions: MatchPrediction[]): string[] 
   if (valueBets.length > 0) {
     const valueLines = valueBets.map((p) => {
       const vp = p.picks.find((pk) => pk.isValueBet)!;
-      return `💎 ${p.homeTeam.name} vs ${p.awayTeam.name}\n   ➜ ${vp.type} @${vp.odds.toFixed(2)} (EV: +${(vp.expectedValue * 100).toFixed(0)}% | %${vp.confidence})`;
+      const oddsStr = isRealOdds(p, vp.type) ? ` @${vp.odds.toFixed(2)}` : "";
+      return `💎 ${p.homeTeam.name} vs ${p.awayTeam.name}\n   ➨ ${vp.type}${oddsStr} (EV: +${(vp.expectedValue * 100).toFixed(0)}% | %${vp.confidence})`;
     }).join("\n\n");
 
     tweets.push(`💎 Value Bet'ler\nOran analizi ile tespit edilen değerli bahisler:\n\n${valueLines}\n\n#valuebet #bahis`);
@@ -239,7 +267,9 @@ export function formatDailyPicksTweet(predictions: MatchPrediction[]): string[] 
     const specialLines = specialPicks.map((p) => {
       const sp = p.picks.find((pk) => ["Over 8.5 Corners", "Under 8.5 Corners", "Over 3.5 Cards", "Under 3.5 Cards"].includes(pk.type))!;
       const icon = sp.type.includes("Corner") ? "🚩" : "🟨";
-      return `${icon} ${p.homeTeam.name} vs ${p.awayTeam.name}\n   ➜ ${sp.type} @${sp.odds.toFixed(2)} (%${sp.confidence})`;
+      // Korner/kart oranları her zaman API'den geliyor (opsiyonel alan), fallback yok
+      const oddsStr = sp.odds > 1.0 ? ` @${sp.odds.toFixed(2)}` : "";
+      return `${icon} ${p.homeTeam.name} vs ${p.awayTeam.name}\n   ➨ ${sp.type}${oddsStr} (%${sp.confidence})`;
     }).join("\n\n");
 
     tweets.push(`🚩🟨 Korner & Kart Tahminleri\n\n${specialLines}\n\n#korner #kart #bahis`);
@@ -282,7 +312,8 @@ export function formatCouponTweet(
     .map((p) => {
       const pick = p.picks[0]; // Zaten confidence'a göre sıralı
       const confEmoji = confidenceEmoji(pick.confidence);
-      return `${confEmoji} ${p.homeTeam.name} vs ${p.awayTeam.name} → ${pick.type} @${pick.odds.toFixed(2)} (%${pick.confidence})`;
+      const oddsStr = isRealOdds(p, pick.type) ? ` @${pick.odds.toFixed(2)}` : "";
+      return `${confEmoji} ${p.homeTeam.name} vs ${p.awayTeam.name} → ${pick.type}${oddsStr} (%${pick.confidence})`;
     })
     .join("\n");
 

@@ -177,6 +177,8 @@ export interface MatchOdds {
   cardUnder35?: number;
   exactScoreOdds?: Record<string, number>; // { "2-1": 8.0, "3-3": 51.0, ... }
   bookmaker: string;
+  /** Gerçek bahisçi verisinden gelen pazarlar. Bu set'te olmayan pazar fallback oran kullanıyor */
+  realMarkets: Set<string>;
 }
 
 // ---- Coupon ----

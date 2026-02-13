@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { getFixtureById } from "@/lib/api-football";
+import { getFixtureById, getFixtureStatistics, getFixtureEvents } from "@/lib/api-football";
 import {
   sendTweet,
   formatResultTweet,
@@ -58,6 +58,40 @@ export async function GET(req: NextRequest) {
         // Bu fixture'ın tahminlerini bul
         const fixturePreds = pending.filter((p) => p.fixture_id === fixtureId);
 
+        // Korner/kart/HT verileri için fixture istatistikleri çek (lazy, bir kez)
+        let fixtureStats: Awaited<ReturnType<typeof getFixtureStatistics>> | null = null;
+        const getStats = async () => {
+          if (!fixtureStats) {
+            try {
+              fixtureStats = await getFixtureStatistics(fixtureId);
+            } catch { fixtureStats = []; }
+          }
+          return fixtureStats;
+        };
+
+        const getStatValue = async (type: string): Promise<number> => {
+          const stats = await getStats();
+          let total = 0;
+          for (const team of stats) {
+            const stat = team.statistics?.find((s: { type: string }) => s.type === type);
+            if (stat?.value != null) total += Number(stat.value) || 0;
+          }
+          return total;
+        };
+
+        // İlk yarı gol bilgisi (fixture events'tan)
+        let firstHalfGoals: number | null = null;
+        const getFirstHalfGoals = async (): Promise<number> => {
+          if (firstHalfGoals !== null) return firstHalfGoals;
+          try {
+            const events = await getFixtureEvents(fixtureId);
+            firstHalfGoals = events.filter(
+              (e) => e.type === "Goal" && (e.time?.elapsed ?? 99) <= 45
+            ).length;
+          } catch { firstHalfGoals = 0; }
+          return firstHalfGoals!;
+        };
+
         for (const pred of fixturePreds) {
           let result: "won" | "lost" = "lost";
 
@@ -76,6 +110,54 @@ export async function GET(req: NextRequest) {
             case "Under 3.5": result = totalGoals < 3.5 ? "won" : "lost"; break;
             case "BTTS Yes": result = homeGoals > 0 && awayGoals > 0 ? "won" : "lost"; break;
             case "BTTS No": result = homeGoals === 0 || awayGoals === 0 ? "won" : "lost"; break;
+            // Kombine pick'ler
+            case "1 & Over 1.5": result = homeGoals > awayGoals && totalGoals > 1.5 ? "won" : "lost"; break;
+            case "2 & Over 1.5": result = awayGoals > homeGoals && totalGoals > 1.5 ? "won" : "lost"; break;
+            // İlk yarı
+            case "HT Over 0.5": {
+              const htGoals = await getFirstHalfGoals();
+              result = htGoals > 0 ? "won" : "lost";
+              break;
+            }
+            case "HT Under 0.5": {
+              const htGoals = await getFirstHalfGoals();
+              result = htGoals === 0 ? "won" : "lost";
+              break;
+            }
+            // Korner
+            case "Over 8.5 Corners": {
+              const corners = await getStatValue("Corner Kicks");
+              result = corners > 8.5 ? "won" : "lost";
+              break;
+            }
+            case "Under 8.5 Corners": {
+              const corners = await getStatValue("Corner Kicks");
+              result = corners < 8.5 ? "won" : "lost";
+              break;
+            }
+            // Kart
+            case "Over 3.5 Cards": {
+              const yellowCards = await getStatValue("Yellow Cards");
+              const redCards = await getStatValue("Red Cards");
+              result = (yellowCards + redCards) > 3.5 ? "won" : "lost";
+              break;
+            }
+            case "Under 3.5 Cards": {
+              const yellowCards = await getStatValue("Yellow Cards");
+              const redCards = await getStatValue("Red Cards");
+              result = (yellowCards + redCards) < 3.5 ? "won" : "lost";
+              break;
+            }
+            default: {
+              // Exact Score: "CS 2-1" gibi
+              if (pred.pick.startsWith("CS ")) {
+                const predictedScore = pred.pick.replace("CS ", "");
+                result = actualScore === predictedScore ? "won" : "lost";
+              } else {
+                console.warn(`[SETTLE] Unknown pick type: ${pred.pick} — defaulting to lost`);
+              }
+              break;
+            }
           }
 
           await supabase
@@ -109,24 +191,55 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Sonuç tweet'i (günde 1 kez)
+    // Sonuç tweet'i (günde 1 kez) — duplicate check
     let outcomeReplies = 0;
     if (settled > 0) {
-      const total = won + lost;
-      const roi = total > 0 ? ((won / total) * 100 - 50) : 0;
-      const tweet = formatResultTweet(won, lost, total, roi);
-      const tweetResult = await sendTweet(tweet);
+      // Bugün zaten result tweet atılmış mı?
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data: existingResultTweets } = await supabase
+        .from("tweets")
+        .select("id")
+        .eq("type", "result")
+        .gte("created_at", todayStart.toISOString())
+        .limit(1);
 
-      if (tweetResult.success && tweetResult.tweetId) {
-        await supabase.from("tweets").insert({
-          tweet_id: tweetResult.tweetId,
-          type: "result",
-          content: tweet,
-        });
+      if (!existingResultTweets || existingResultTweets.length === 0) {
+        const total = won + lost;
+        const roi = total > 0 ? ((won / total) * 100 - 50) : 0;
+        const tweet = formatResultTweet(won, lost, total, roi);
+        const tweetResult = await sendTweet(tweet);
+
+        if (tweetResult.success && tweetResult.tweetId) {
+          await supabase.from("tweets").insert({
+            tweet_id: tweetResult.tweetId,
+            type: "result",
+            content: tweet,
+          });
+        }
+      } else {
+        console.log("[SETTLE] Result tweet already sent today — skipping");
       }
 
       // --- THE THREADER: Her settle edilen maça thread chain reply ---
+      // Daha önce outcome reply atılmış fixture'ları takip et
+      const { data: existingOutcomeReplies } = await supabase
+        .from("tweets")
+        .select("fixture_id")
+        .eq("type", "outcome_reply")
+        .gte("created_at", todayStart.toISOString());
+
+      const alreadyRepliedFixtures = new Set<number>(
+        existingOutcomeReplies?.map((r) => r.fixture_id as number).filter(Boolean) || []
+      );
+
       for (const fixtureId of fixtureIds) {
+        // Bu fixture'a zaten outcome reply atılmışsa atla
+        if (alreadyRepliedFixtures.has(fixtureId)) {
+          console.log(`[SETTLE] Outcome reply already sent for fixture ${fixtureId} — skipping`);
+          continue;
+        }
+
         try {
           const chain = await findThreadChain(fixtureId);
           if (!chain) continue;

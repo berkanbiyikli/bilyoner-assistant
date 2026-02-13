@@ -60,17 +60,30 @@ export async function GET(req: NextRequest) {
 
         // Korner/kart/HT verileri için fixture istatistikleri çek (lazy, bir kez)
         let fixtureStats: Awaited<ReturnType<typeof getFixtureStatistics>> | null = null;
+        let statsAvailable = false; // İstatistik verisi gerçekten var mı?
+
         const getStats = async () => {
           if (!fixtureStats) {
             try {
               fixtureStats = await getFixtureStatistics(fixtureId);
-            } catch { fixtureStats = []; }
+              // İstatistik verisi var mı kontrol et — en az 1 takım ve 1 istatistik olmalı
+              statsAvailable = (fixtureStats?.length ?? 0) > 0 &&
+                fixtureStats!.some((t) => t.statistics && t.statistics.length > 0);
+              if (!statsAvailable) {
+                console.warn(`[SETTLE] No stats available for fixture ${fixtureId} — will skip stats-dependent picks`);
+              }
+            } catch (err) {
+              console.error(`[SETTLE] Stats fetch failed for fixture ${fixtureId}:`, err);
+              fixtureStats = [];
+              statsAvailable = false;
+            }
           }
           return fixtureStats;
         };
 
-        const getStatValue = async (type: string): Promise<number> => {
+        const getStatValue = async (type: string): Promise<number | null> => {
           const stats = await getStats();
+          if (!statsAvailable) return null; // Veri yok → null döndür (pending kalacak)
           let total = 0;
           for (const team of stats) {
             const stat = team.statistics?.find((s: { type: string }) => s.type === type);
@@ -81,19 +94,28 @@ export async function GET(req: NextRequest) {
 
         // İlk yarı gol bilgisi (fixture events'tan)
         let firstHalfGoals: number | null = null;
-        const getFirstHalfGoals = async (): Promise<number> => {
-          if (firstHalfGoals !== null) return firstHalfGoals;
+        let htGoalsChecked = false;
+        const getFirstHalfGoals = async (): Promise<number | null> => {
+          if (htGoalsChecked) return firstHalfGoals;
+          htGoalsChecked = true;
           try {
             const events = await getFixtureEvents(fixtureId);
+            if (!events || events.length === 0) {
+              console.warn(`[SETTLE] No events for fixture ${fixtureId} — HT goals unknown`);
+              return null;
+            }
             firstHalfGoals = events.filter(
               (e) => e.type === "Goal" && (e.time?.elapsed ?? 99) <= 45
             ).length;
-          } catch { firstHalfGoals = 0; }
-          return firstHalfGoals!;
+          } catch {
+            console.error(`[SETTLE] Events fetch failed for fixture ${fixtureId}`);
+            firstHalfGoals = null;
+          }
+          return firstHalfGoals;
         };
 
         for (const pred of fixturePreds) {
-          let result: "won" | "lost" = "lost";
+          let result: "won" | "lost" | null = "lost"; // null = skip (keep pending)
 
           switch (pred.pick) {
             case "1": result = homeGoals > awayGoals ? "won" : "lost"; break;
@@ -116,36 +138,80 @@ export async function GET(req: NextRequest) {
             // İlk yarı
             case "HT Over 0.5": {
               const htGoals = await getFirstHalfGoals();
+              if (htGoals === null) { result = null; break; }
               result = htGoals > 0 ? "won" : "lost";
               break;
             }
             case "HT Under 0.5": {
               const htGoals = await getFirstHalfGoals();
+              if (htGoals === null) { result = null; break; }
               result = htGoals === 0 ? "won" : "lost";
               break;
             }
             // Korner
             case "Over 8.5 Corners": {
               const corners = await getStatValue("Corner Kicks");
+              if (corners === null) { result = null; break; } // Veri yok → pending kal
               result = corners > 8.5 ? "won" : "lost";
               break;
             }
             case "Under 8.5 Corners": {
               const corners = await getStatValue("Corner Kicks");
+              if (corners === null) { result = null; break; }
               result = corners < 8.5 ? "won" : "lost";
+              break;
+            }
+            case "Over 9.5 Corners": {
+              const corners = await getStatValue("Corner Kicks");
+              if (corners === null) { result = null; break; }
+              result = corners > 9.5 ? "won" : "lost";
+              break;
+            }
+            case "Under 9.5 Corners": {
+              const corners = await getStatValue("Corner Kicks");
+              if (corners === null) { result = null; break; }
+              result = corners < 9.5 ? "won" : "lost";
+              break;
+            }
+            case "Over 10.5 Corners": {
+              const corners = await getStatValue("Corner Kicks");
+              if (corners === null) { result = null; break; }
+              result = corners > 10.5 ? "won" : "lost";
+              break;
+            }
+            case "Under 10.5 Corners": {
+              const corners = await getStatValue("Corner Kicks");
+              if (corners === null) { result = null; break; }
+              result = corners < 10.5 ? "won" : "lost";
               break;
             }
             // Kart
             case "Over 3.5 Cards": {
               const yellowCards = await getStatValue("Yellow Cards");
               const redCards = await getStatValue("Red Cards");
+              if (yellowCards === null || redCards === null) { result = null; break; }
               result = (yellowCards + redCards) > 3.5 ? "won" : "lost";
               break;
             }
             case "Under 3.5 Cards": {
               const yellowCards = await getStatValue("Yellow Cards");
               const redCards = await getStatValue("Red Cards");
+              if (yellowCards === null || redCards === null) { result = null; break; }
               result = (yellowCards + redCards) < 3.5 ? "won" : "lost";
+              break;
+            }
+            case "Over 4.5 Cards": {
+              const yellowCards = await getStatValue("Yellow Cards");
+              const redCards = await getStatValue("Red Cards");
+              if (yellowCards === null || redCards === null) { result = null; break; }
+              result = (yellowCards + redCards) > 4.5 ? "won" : "lost";
+              break;
+            }
+            case "Under 4.5 Cards": {
+              const yellowCards = await getStatValue("Yellow Cards");
+              const redCards = await getStatValue("Red Cards");
+              if (yellowCards === null || redCards === null) { result = null; break; }
+              result = (yellowCards + redCards) < 4.5 ? "won" : "lost";
               break;
             }
             default: {
@@ -158,6 +224,12 @@ export async function GET(req: NextRequest) {
               }
               break;
             }
+          }
+
+          // result === null → veri eksik, pending bırak
+          if (result === null) {
+            console.log(`[SETTLE] Skipping ${pred.pick} for fixture ${fixtureId} — stats not available yet`);
+            continue;
           }
 
           await supabase

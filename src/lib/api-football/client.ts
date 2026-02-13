@@ -15,13 +15,33 @@ import type {
   H2HResponse,
   FixtureEvent,
 } from "@/types/api-football";
+import { getCached, setCache } from "@/lib/cache";
 
 const API_KEY = process.env.API_FOOTBALL_KEY!;
 const BASE_URL = process.env.API_FOOTBALL_BASE_URL || "https://v3.football.api-sports.io";
 
+// ---- Request Counter (günlük limiti takip et) ----
+let dailyRequestCount = 0;
+let lastResetDate = new Date().toISOString().split("T")[0];
+const MAX_DAILY_REQUESTS = parseInt(process.env.API_FOOTBALL_DAILY_LIMIT || "95"); // safety margin
+
+function checkAndResetCounter() {
+  const today = new Date().toISOString().split("T")[0];
+  if (today !== lastResetDate) {
+    dailyRequestCount = 0;
+    lastResetDate = today;
+  }
+}
+
+export function getApiUsage() {
+  checkAndResetCounter();
+  return { used: dailyRequestCount, limit: MAX_DAILY_REQUESTS, remaining: MAX_DAILY_REQUESTS - dailyRequestCount };
+}
+
 interface FetchOptions {
   revalidate?: number;
   cache?: RequestCache;
+  cacheTtl?: number; // in-memory cache TTL in seconds
 }
 
 async function apiFetch<T>(
@@ -29,6 +49,21 @@ async function apiFetch<T>(
   params: Record<string, string | number> = {},
   options: FetchOptions = {}
 ): Promise<ApiResponse<T>> {
+  // In-memory cache kontrolü
+  const cacheKey = `api:${endpoint}:${JSON.stringify(params)}`;
+  const cacheTtl = options.cacheTtl || 0;
+  if (cacheTtl > 0) {
+    const cached = getCached<ApiResponse<T>>(cacheKey);
+    if (cached) return cached;
+  }
+
+  // Günlük limit kontrolü
+  checkAndResetCounter();
+  if (dailyRequestCount >= MAX_DAILY_REQUESTS) {
+    console.warn(`[API-FOOTBALL] Daily limit reached (${dailyRequestCount}/${MAX_DAILY_REQUESTS}) — returning empty`);
+    return { get: endpoint, parameters: params, errors: [], results: 0, paging: { current: 1, total: 1 }, response: [] } as unknown as ApiResponse<T>;
+  }
+
   const url = new URL(endpoint, BASE_URL);
   Object.entries(params).forEach(([key, value]) => {
     url.searchParams.set(key, String(value));
@@ -42,17 +77,35 @@ async function apiFetch<T>(
     cache: options.cache,
   });
 
+  dailyRequestCount++;
+
   if (!res.ok) {
     throw new Error(`API-Football error: ${res.status} ${res.statusText}`);
   }
 
-  return res.json();
+  const data: ApiResponse<T> = await res.json();
+
+  // API hata döndüyse (limit aşımı vb.) boş yanıt gibi davran
+  if (data.errors && typeof data.errors === "object" && Object.keys(data.errors).length > 0) {
+    console.warn(`[API-FOOTBALL] API error for ${endpoint}:`, data.errors);
+    // Limit aşımında counter'ı max'a set et ki sonraki çağrılar yapılmasın
+    if (JSON.stringify(data.errors).includes("request limit")) {
+      dailyRequestCount = MAX_DAILY_REQUESTS;
+    }
+  }
+
+  // Cache'e kaydet
+  if (cacheTtl > 0 && data.response && (Array.isArray(data.response) ? data.response.length > 0 : true)) {
+    setCache(cacheKey, data, cacheTtl);
+  }
+
+  return data;
 }
 
 // ---- Fixtures ----
 
 export async function getFixturesByDate(date: string): Promise<FixtureResponse[]> {
-  const data = await apiFetch<FixtureResponse>("/fixtures", { date }, { revalidate: 300 });
+  const data = await apiFetch<FixtureResponse>("/fixtures", { date }, { revalidate: 300, cacheTtl: 600 });
   return data.response;
 }
 
@@ -63,18 +116,18 @@ export async function getFixturesByLeague(
   const data = await apiFetch<FixtureResponse>(
     "/fixtures",
     { league: leagueId, season },
-    { revalidate: 600 }
+    { revalidate: 600, cacheTtl: 1800 }
   );
   return data.response;
 }
 
 export async function getFixtureById(fixtureId: number): Promise<FixtureResponse | null> {
-  const data = await apiFetch<FixtureResponse>("/fixtures", { id: fixtureId }, { revalidate: 60 });
+  const data = await apiFetch<FixtureResponse>("/fixtures", { id: fixtureId }, { revalidate: 60, cacheTtl: 300 });
   return data.response[0] ?? null;
 }
 
 export async function getLiveFixtures(): Promise<FixtureResponse[]> {
-  const data = await apiFetch<FixtureResponse>("/fixtures", { live: "all" }, { cache: "no-store" });
+  const data = await apiFetch<FixtureResponse>("/fixtures", { live: "all" }, { cache: "no-store", cacheTtl: 30 });
   return data.response;
 }
 
@@ -87,7 +140,7 @@ export async function getStandings(
   const data = await apiFetch<StandingsResponse>(
     "/standings",
     { league: leagueId, season },
-    { revalidate: 3600 }
+    { revalidate: 3600, cacheTtl: 7200 }
   );
   return data.response[0] ?? null;
 }
@@ -103,7 +156,7 @@ export async function getH2H(
   const data = await apiFetch<H2HResponse>(
     "/fixtures/headtohead",
     { h2h, last },
-    { revalidate: 3600 }
+    { revalidate: 3600, cacheTtl: 7200 }
   );
   return data.response;
 }
@@ -114,7 +167,7 @@ export async function getPrediction(fixtureId: number): Promise<PredictionRespon
   const data = await apiFetch<PredictionResponse>(
     "/predictions",
     { fixture: fixtureId },
-    { revalidate: 1800 }
+    { revalidate: 1800, cacheTtl: 3600 }
   );
   return data.response[0] ?? null;
 }
@@ -125,7 +178,7 @@ export async function getOdds(fixtureId: number): Promise<OddsResponse | null> {
   const data = await apiFetch<OddsResponse>(
     "/odds",
     { fixture: fixtureId },
-    { revalidate: 900 }
+    { revalidate: 900, cacheTtl: 1800 }
   );
   return data.response[0] ?? null;
 }
@@ -138,7 +191,7 @@ export async function getFixtureStatistics(
   const data = await apiFetch<FixtureStatisticsResponse>(
     "/fixtures/statistics",
     { fixture: fixtureId },
-    { revalidate: 300 }
+    { revalidate: 300, cacheTtl: 1800 }
   );
   return data.response;
 }
@@ -149,7 +202,7 @@ export async function getInjuries(fixtureId: number): Promise<InjuryResponse[]> 
   const data = await apiFetch<InjuryResponse>(
     "/injuries",
     { fixture: fixtureId },
-    { revalidate: 3600 }
+    { revalidate: 3600, cacheTtl: 7200 }
   );
   return data.response;
 }
@@ -160,7 +213,7 @@ export async function getLineups(fixtureId: number): Promise<LineupResponse[]> {
   const data = await apiFetch<LineupResponse>(
     "/fixtures/lineups",
     { fixture: fixtureId },
-    { revalidate: 300 }
+    { revalidate: 300, cacheTtl: 1800 }
   );
   return data.response;
 }
@@ -171,7 +224,7 @@ export async function getFixtureEvents(fixtureId: number): Promise<FixtureEvent[
   const data = await apiFetch<FixtureEvent>(
     "/fixtures/events",
     { fixture: fixtureId },
-    { revalidate: 60 }
+    { revalidate: 60, cacheTtl: 300 }
   );
   return data.response;
 }

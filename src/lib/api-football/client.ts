@@ -20,10 +20,9 @@ import { getCached, setCache } from "@/lib/cache";
 const API_KEY = process.env.API_FOOTBALL_KEY!;
 const BASE_URL = process.env.API_FOOTBALL_BASE_URL || "https://v3.football.api-sports.io";
 
-// ---- Request Counter (günlük limiti takip et) ----
+// ---- Request Counter (sadece log amaçlı, engelleme yok) ----
 let dailyRequestCount = 0;
 let lastResetDate = new Date().toISOString().split("T")[0];
-const MAX_DAILY_REQUESTS = parseInt(process.env.API_FOOTBALL_DAILY_LIMIT || "75000"); // Ultra plan
 
 function checkAndResetCounter() {
   const today = new Date().toISOString().split("T")[0];
@@ -35,7 +34,7 @@ function checkAndResetCounter() {
 
 export function getApiUsage() {
   checkAndResetCounter();
-  return { used: dailyRequestCount, limit: MAX_DAILY_REQUESTS, remaining: MAX_DAILY_REQUESTS - dailyRequestCount };
+  return { used: dailyRequestCount, limit: 75000, remaining: 75000 - dailyRequestCount };
 }
 
 interface FetchOptions {
@@ -55,13 +54,6 @@ async function apiFetch<T>(
   if (cacheTtl > 0) {
     const cached = getCached<ApiResponse<T>>(cacheKey);
     if (cached) return cached;
-  }
-
-  // Günlük limit kontrolü
-  checkAndResetCounter();
-  if (dailyRequestCount >= MAX_DAILY_REQUESTS) {
-    console.warn(`[API-FOOTBALL] Daily limit reached (${dailyRequestCount}/${MAX_DAILY_REQUESTS}) — returning empty`);
-    return { get: endpoint, parameters: params, errors: [], results: 0, paging: { current: 1, total: 1 }, response: [] } as unknown as ApiResponse<T>;
   }
 
   const url = new URL(endpoint, BASE_URL);
@@ -88,11 +80,6 @@ async function apiFetch<T>(
   // API hata döndüyse log'la
   if (data.errors && typeof data.errors === "object" && Object.keys(data.errors).length > 0) {
     console.warn(`[API-FOOTBALL] API error for ${endpoint}:`, data.errors);
-    // Sadece günlük limit aşımında counter'ı max'a set et (per-minute rate limit değil)
-    const errorStr = JSON.stringify(data.errors);
-    if (errorStr.includes("request limit") && errorStr.includes("day")) {
-      dailyRequestCount = MAX_DAILY_REQUESTS;
-    }
   }
 
   // Cache'e kaydet

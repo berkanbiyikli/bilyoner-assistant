@@ -264,6 +264,68 @@ export function LeagueFilter({ predictions }: LeagueFilterProps) {
         >
           ⚽ Tümü ({predictions?.length || 0})
         </button>
+
+        {/* Büyük Ligler preset (priority 1) */}
+        {(() => {
+          const majorLeagueIds = LEAGUES.filter((l) => l.priority === 1).map((l) => l.id);
+          const availableMajorIds = availableLeagues
+            .filter((l) => majorLeagueIds.includes(l.id))
+            .map((l) => l.id);
+          if (availableMajorIds.length === 0) return null;
+          const majorCount = predictions?.filter((p) => majorLeagueIds.includes(p.league.id)).length || 0;
+          const isMajorActive =
+            availableMajorIds.length > 0 &&
+            availableMajorIds.every((id) => selectedLeagues.includes(id)) &&
+            selectedLeagues.length === availableMajorIds.length;
+          return (
+            <button
+              onClick={() => setSelectedLeagues(isMajorActive ? [] : availableMajorIds)}
+              className={cn(
+                "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors border flex items-center gap-1.5",
+                isMajorActive
+                  ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
+                  : "border-yellow-500/30 text-yellow-600 dark:text-yellow-400 hover:border-yellow-500/60 hover:bg-yellow-500/5"
+              )}
+            >
+              🏆 Büyük Ligler ({majorCount})
+            </button>
+          );
+        })()}
+
+        {/* Popüler Ligler preset (priority 1 + 2) */}
+        {(() => {
+          const popularLeagueIds = LEAGUES.filter((l) => l.priority <= 2).map((l) => l.id);
+          const availablePopularIds = availableLeagues
+            .filter((l) => popularLeagueIds.includes(l.id))
+            .map((l) => l.id);
+          // Eğer popüler ve büyük lig sayısı aynıysa tekrar gösterme
+          const majorLeagueIds = LEAGUES.filter((l) => l.priority === 1).map((l) => l.id);
+          const availableMajorIds = availableLeagues
+            .filter((l) => majorLeagueIds.includes(l.id))
+            .map((l) => l.id);
+          if (availablePopularIds.length === 0 || availablePopularIds.length === availableMajorIds.length) return null;
+          const popularCount = predictions?.filter((p) => popularLeagueIds.includes(p.league.id)).length || 0;
+          const isPopularActive =
+            availablePopularIds.length > 0 &&
+            availablePopularIds.every((id) => selectedLeagues.includes(id)) &&
+            selectedLeagues.length === availablePopularIds.length;
+          return (
+            <button
+              onClick={() => setSelectedLeagues(isPopularActive ? [] : availablePopularIds)}
+              className={cn(
+                "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors border flex items-center gap-1.5",
+                isPopularActive
+                  ? "border-blue-500 bg-blue-500/10 text-blue-500"
+                  : "border-blue-500/30 text-blue-600 dark:text-blue-400 hover:border-blue-500/60 hover:bg-blue-500/5"
+              )}
+            >
+              ⭐ Popüler ({popularCount})
+            </button>
+          );
+        })()}
+
+        {availableLeagues.length > 3 && <div className="h-5 w-px bg-border mx-0.5" />}
+
         {availableLeagues.map((league) => (
           <button
             key={league.id}

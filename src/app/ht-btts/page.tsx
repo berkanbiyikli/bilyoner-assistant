@@ -52,11 +52,18 @@ export default function HtBttsPage() {
   const [error, setError] = useState<string | null>(null);
   const [gradeFilter, setGradeFilter] = useState<GradeFilter>("B");
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
+  const [loadingTime, setLoadingTime] = useState(0);
 
   useEffect(() => {
+    let timer: NodeJS.Timeout;
     const fetchData = async () => {
       setLoading(true);
       setError(null);
+      setLoadingTime(0);
+
+      // Loading süresi göstergesi
+      timer = setInterval(() => setLoadingTime((t) => t + 1), 1000);
+
       try {
         const grade = gradeFilter === "ALL" ? "D" : gradeFilter;
         const res = await fetch(`/api/ht-btts?grade=${grade}&all=true`);
@@ -67,10 +74,12 @@ export default function HtBttsPage() {
         setError("IY KG verileri yüklenemedi. Lütfen tekrar deneyin.");
         console.error("HT BTTS fetch error:", err);
       } finally {
+        clearInterval(timer);
         setLoading(false);
       }
     };
     fetchData();
+    return () => clearInterval(timer);
   }, [gradeFilter]);
 
   const toggleCard = (fixtureId: number) => {
@@ -159,7 +168,20 @@ export default function HtBttsPage() {
       {loading && (
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">Maçlar analiz ediliyor...</p>
+          <p className="text-sm text-muted-foreground">
+            {loadingTime < 5
+              ? "Maçlar analiz ediliyor..."
+              : loadingTime < 15
+              ? `Monte Carlo simülasyonu çalışıyor... (${loadingTime}s)`
+              : loadingTime < 30
+              ? `Çok faktörlü analiz devam ediyor... (${loadingTime}s)`
+              : `Neredeyse bitti... (${loadingTime}s)`}
+          </p>
+          {loadingTime >= 5 && (
+            <p className="text-xs text-muted-foreground/60">
+              İlk yükleme 20-40 saniye sürebilir. Sonraki yüklemeler cache&apos;ten gelir.
+            </p>
+          )}
         </div>
       )}
 

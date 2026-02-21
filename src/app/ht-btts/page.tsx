@@ -65,8 +65,8 @@ export default function HtBttsPage() {
       timer = setInterval(() => setLoadingTime((t) => t + 1), 1000);
 
       try {
-        const grade = gradeFilter === "ALL" ? "D" : gradeFilter;
-        const res = await fetch(`/api/ht-btts?grade=${grade}&all=true`);
+        // Her zaman tüm maçları çek, filtreleme client-side
+        const res = await fetch("/api/ht-btts?grade=D&all=true");
         if (!res.ok) throw new Error("API hatası");
         const json: ApiResponse = await res.json();
         setData(json);
@@ -80,7 +80,7 @@ export default function HtBttsPage() {
     };
     fetchData();
     return () => clearInterval(timer);
-  }, [gradeFilter]);
+  }, []); // Sadece 1 kez çek
 
   const toggleCard = (fixtureId: number) => {
     setExpandedCards((prev) => {
@@ -91,7 +91,12 @@ export default function HtBttsPage() {
     });
   };
 
-  const analyses = data?.analyses ?? [];
+  // Client-side grade filtresi
+  const gradeOrder: Record<string, number> = { "A+": 5, A: 4, B: 3, C: 2, D: 1 };
+  const allAnalyses = data?.allAnalyses ?? data?.analyses ?? [];
+  const analyses = gradeFilter === "ALL"
+    ? allAnalyses
+    : allAnalyses.filter((a) => (gradeOrder[a.grade] ?? 0) >= (gradeOrder[gradeFilter] ?? 1));
 
   return (
     <div className="space-y-6">

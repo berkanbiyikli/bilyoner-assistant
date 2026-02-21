@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFixturesByDate, getApiUsage } from "@/lib/api-football";
+import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById } from "@/lib/api-football";
 import { analyzeMatches } from "@/lib/prediction";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
@@ -34,8 +34,22 @@ export async function GET(req: NextRequest) {
     const existingFixtureIds = new Set((existingPreds || []).map((p) => p.fixture_id));
     const newFixtures = nsFixtures.filter((f) => !existingFixtureIds.has(f.fixture.id));
     
+    // Büyük ligleri önceliklendir: LEAGUE_IDS'deki ligler önce, priority'ye göre sırala
+    const sortedFixtures = [...newFixtures].sort((a, b) => {
+      const aInLeagues = LEAGUE_IDS.includes(a.league.id);
+      const bInLeagues = LEAGUE_IDS.includes(b.league.id);
+      if (aInLeagues && !bInLeagues) return -1;
+      if (!aInLeagues && bInLeagues) return 1;
+      if (aInLeagues && bInLeagues) {
+        const aPriority = getLeagueById(a.league.id)?.priority ?? 99;
+        const bPriority = getLeagueById(b.league.id)?.priority ?? 99;
+        return aPriority - bPriority;
+      }
+      return 0;
+    });
+
     // Batch: max 15 maç per cron run (15 × 4 = 60 API call, ~45s)
-    const fixtures = newFixtures.slice(0, 15);
+    const fixtures = sortedFixtures.slice(0, 15);
     console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${nsFixtures.length} NS, ${newFixtures.length} yeni, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {

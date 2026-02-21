@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFixturesByDate, getApiUsage } from "@/lib/api-football";
+import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById } from "@/lib/api-football";
 import { analyzeMatches } from "@/lib/prediction";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
@@ -112,10 +112,21 @@ export async function GET(req: NextRequest) {
 
       allDbEnriched.push(...dbEnriched);
 
-      // 4) DB'de OLMAYAN NS maçları canlı analiz et
+      // 4) DB'de OLMAYAN NS maçları canlı analiz et — büyük ligler öncelikli
       const unseenFixtures = allFixtures.filter(
         (f) => f.fixture.status.short === "NS" && !dbFixtureIds.has(f.fixture.id)
-      ).slice(0, 15);
+      ).sort((a, b) => {
+        const aInLeagues = LEAGUE_IDS.includes(a.league.id);
+        const bInLeagues = LEAGUE_IDS.includes(b.league.id);
+        if (aInLeagues && !bInLeagues) return -1;
+        if (!aInLeagues && bInLeagues) return 1;
+        if (aInLeagues && bInLeagues) {
+          const aPriority = getLeagueById(a.league.id)?.priority ?? 99;
+          const bPriority = getLeagueById(b.league.id)?.priority ?? 99;
+          return aPriority - bPriority;
+        }
+        return 0;
+      }).slice(0, 15);
 
       if (unseenFixtures.length > 0) {
         try {

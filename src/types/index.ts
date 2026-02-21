@@ -24,6 +24,8 @@ export type PickType =
   | "2 & Over 1.5"
   | "HT Over 0.5"
   | "HT Under 0.5"
+  | "HT BTTS Yes"
+  | "HT BTTS No"
   | "1/1"    // İY 1 - MS 1
   | "1/X"    // İY 1 - MS X
   | "1/2"    // İY 1 - MS 2
@@ -71,8 +73,14 @@ export interface MonteCarloResult {
   simOver25Prob: number;    // %
   simOver35Prob: number;    // %
   simBttsProb: number;      // %
+  simHtOver05Prob: number;   // İlk yarı 0.5 üst %
+  simHtOver15Prob: number;   // İlk yarı 1.5 üst %
+  simHtBttsProb: number;     // İlk yarı KG Var %
+  simHtHomeGoalProb: number; // İlk yarı ev sahibi gol atar %
+  simHtAwayGoalProb: number; // İlk yarı deplasman gol atar %
   topScorelines: { score: string; probability: number }[]; // En olası 5 skor
   allScorelines: { score: string; probability: number }[]; // Tüm skorlar (>0.5%)
+  htScorelines?: { score: string; probability: number }[]; // İlk yarı skorları
   simRuns: number;          // Simülasyon sayısı (10000)
 }
 
@@ -395,6 +403,44 @@ export interface ValueBet {
   edge: number; // percentage edge
   confidence: number;
   kellyStake: number; // as percentage of bankroll
+}
+
+// ---- IY KG (First Half BTTS) Analysis ----
+export interface HtBttsAnalysis {
+  fixtureId: number;
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  leagueId: number;
+  kickoff: string;
+  // İlk yarı lambda'ları
+  homeLambdaHT: number;
+  awayLambdaHT: number;
+  // Olasılıklar
+  htBttsProb: number;         // İlk yarı KG Var olasılığı %
+  htHomeGoalProb: number;     // İlk yarı ev sahibi gol atar %
+  htAwayGoalProb: number;     // İlk yarı deplasman gol atar %
+  htOver05Prob: number;       // İlk yarı 0.5 üst %
+  htOver15Prob: number;       // İlk yarı 1.5 üst %
+  // Oran bilgisi
+  bookmakerOdds?: number;     // Bahisçi IY KG Var oranı
+  fairOdds: number;           // Hesaplanan adil oran
+  edge: number;               // % edge
+  kellyStake: number;         // Kelly criterion stake %
+  // Güç faktörleri
+  factors: HtBttsFactor[];
+  confidence: number;         // 0-100 güven skoru
+  grade: "A+" | "A" | "B" | "C" | "D"; // Tercih derecesi
+  reasoning: string;
+  // IY skor tahminleri
+  topHtScores: { score: string; probability: number }[];
+}
+
+export interface HtBttsFactor {
+  name: string;
+  value: number;              // -100 to +100 (negatif = IY KG aleyhine)
+  description: string;
+  weight: number;             // 0-1 (bu faktörün toplam etkisi)
 }
 
 // ---- Calibration (Self-Learning) ----

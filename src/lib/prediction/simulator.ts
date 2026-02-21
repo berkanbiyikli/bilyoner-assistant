@@ -139,6 +139,19 @@ export function simulateMatch(
   homeLambda = Math.max(0.3, Math.min(4.0, homeLambda));
   awayLambda = Math.max(0.3, Math.min(4.0, awayLambda));
 
+  // --- İlk yarı lambda hesaplama ---
+  // Ampirik olarak gollerin ~%42'si ilk yarıda atılır
+  // Gol zamanlaması verisi varsa takıma özel oran kullan
+  const htFactorHome = analysis.goalTiming
+    ? Math.max(0.30, Math.min(0.55, analysis.goalTiming.home.first45 / 100))
+    : 0.42;
+  const htFactorAway = analysis.goalTiming
+    ? Math.max(0.30, Math.min(0.55, analysis.goalTiming.away.first45 / 100))
+    : 0.42;
+
+  const homeLambdaHT = homeLambda * htFactorHome;
+  const awayLambdaHT = awayLambda * htFactorAway;
+
   // --- Simülasyon ---
   let homeWins = 0;
   let draws = 0;
@@ -148,14 +161,28 @@ export function simulateMatch(
   let over35 = 0;
   let bttsYes = 0;
 
+  // İlk yarı sayaçları
+  let htOver05 = 0;
+  let htOver15 = 0;
+  let htBttsYes = 0;
+  let htHomeGoal = 0;
+  let htAwayGoal = 0;
+
   const scoreMap = new Map<string, number>();
+  const htScoreMap = new Map<string, number>();
 
   for (let i = 0; i < SIM_RUNS; i++) {
+    // Maç sonu (full time) simülasyonu
     const homeGoals = poissonRandom(homeLambda);
     const awayGoals = poissonRandom(awayLambda);
     const totalGoals = homeGoals + awayGoals;
 
-    // Sonuç sayaçları
+    // İlk yarı simülasyonu (ayrı Poisson çekimi)
+    const homeGoalsHT = poissonRandom(homeLambdaHT);
+    const awayGoalsHT = poissonRandom(awayLambdaHT);
+    const totalGoalsHT = homeGoalsHT + awayGoalsHT;
+
+    // Sonuç sayaçları (full time)
     if (homeGoals > awayGoals) homeWins++;
     else if (homeGoals === awayGoals) draws++;
     else awayWins++;
@@ -165,9 +192,19 @@ export function simulateMatch(
     if (totalGoals > 3.5) over35++;
     if (homeGoals > 0 && awayGoals > 0) bttsYes++;
 
-    // Skor haritası
+    // İlk yarı sayaçları
+    if (totalGoalsHT > 0.5) htOver05++;
+    if (totalGoalsHT > 1.5) htOver15++;
+    if (homeGoalsHT > 0 && awayGoalsHT > 0) htBttsYes++;
+    if (homeGoalsHT > 0) htHomeGoal++;
+    if (awayGoalsHT > 0) htAwayGoal++;
+
+    // Skor haritaları
     const scoreKey = `${homeGoals}-${awayGoals}`;
     scoreMap.set(scoreKey, (scoreMap.get(scoreKey) || 0) + 1);
+
+    const htScoreKey = `${homeGoalsHT}-${awayGoalsHT}`;
+    htScoreMap.set(htScoreKey, (htScoreMap.get(htScoreKey) || 0) + 1);
   }
 
   // --- Sonuçları normalize et ---
@@ -191,6 +228,15 @@ export function simulateMatch(
       probability: toPercent(count),
     }));
 
+  // İlk yarı en olası skorlar
+  const htScorelines = Array.from(htScoreMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([score, count]) => ({
+      score,
+      probability: toPercent(count),
+    }));
+
   return {
     simHomeWinProb: toPercent(homeWins),
     simDrawProb: toPercent(draws),
@@ -199,8 +245,14 @@ export function simulateMatch(
     simOver25Prob: toPercent(over25),
     simOver35Prob: toPercent(over35),
     simBttsProb: toPercent(bttsYes),
+    simHtOver05Prob: toPercent(htOver05),
+    simHtOver15Prob: toPercent(htOver15),
+    simHtBttsProb: toPercent(htBttsYes),
+    simHtHomeGoalProb: toPercent(htHomeGoal),
+    simHtAwayGoalProb: toPercent(htAwayGoal),
     topScorelines,
     allScorelines,
+    htScorelines,
     simRuns: SIM_RUNS,
   };
 }
@@ -236,6 +288,14 @@ export function getSimProbability(
       return sim.simBttsProb;
     case "BTTS No":
       return 100 - sim.simBttsProb;
+    case "HT BTTS Yes":
+      return sim.simHtBttsProb;
+    case "HT BTTS No":
+      return sim.simHtBttsProb != null ? 100 - sim.simHtBttsProb : undefined;
+    case "HT Over 0.5":
+      return sim.simHtOver05Prob;
+    case "HT Under 0.5":
+      return sim.simHtOver05Prob != null ? 100 - sim.simHtOver05Prob : undefined;
     default: {
       // Exact Score desteği: "CS 2-1" → allScorelines'tan oku
       if (pickType.startsWith("CS ")) {

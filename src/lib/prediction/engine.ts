@@ -701,6 +701,19 @@ function generatePicks(
     addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, false, 50);
   }
 
+  // --- İY KG Var (HT BTTS Yes) ---
+  // İlk yarıda her iki takımın da gol atma olasılığı
+  if (sim && sim.simHtBttsProb != null && sim.simHtBttsProb > 15) {
+    const htBttsProb = sim.simHtBttsProb / 100;
+    // IY KG oran tahmini: MS KG oranından türetme (~1.45x çarpan) veya gerçek oran
+    const htBttsOdds = odds.bttsYes > 1.0 ? odds.bttsYes * 1.45 : 0;
+    if (htBttsOdds > 1.0) {
+      const impliedHtBtts = 1 / htBttsOdds;
+      addPick("HT BTTS Yes", htBttsProb, impliedHtBtts, htBttsOdds, 
+        analysis.homeAttack > 65 && analysis.awayAttack > 60, 50);
+    }
+  }
+
   // --- İY/MS (Half Time / Full Time) ---
   if (odds.htft && Object.keys(odds.htft).length > 0) {
     // İY/MS olasılıkları hesapla: Basit Poisson yarı-maç modeli
@@ -865,6 +878,15 @@ function buildInsights(
           notes.push(`📊 Simülasyon: KG Var olasılığı %${sim.simBttsProb.toFixed(1)} — piyasa %${impliedBtts.toFixed(1)} (edge: +%${Math.round(simBttsEdge)})`);
         }
       }
+
+      // İY KG bilgisi
+      if (sim.simHtBttsProb != null && sim.simHtBttsProb > 18) {
+        notes.push(`⚽ IY KG Var: %${sim.simHtBttsProb.toFixed(1)} — Ev gol: %${(sim.simHtHomeGoalProb ?? 0).toFixed(0)}, Dep gol: %${(sim.simHtAwayGoalProb ?? 0).toFixed(0)}`);
+        if (sim.htScorelines?.length) {
+          const htScores = sim.htScorelines.slice(0, 3).map((s) => `${s.score} (%${s.probability})`).join(", ");
+          notes.push(`🎯 İY skor: ${htScores}`);
+        }
+      }
     }
 
     // İkinci ve üçüncü skor
@@ -967,6 +989,8 @@ function getPickReasoning(type: PickType, confidence: number, prediction: Predic
     "Under 2.5": `Golsüz maç — savunma güçlü, H2H destekliyor`,
     "BTTS Yes": `Her iki hücum güçlü — KG beklentisi${xgNote}`,
     "BTTS No": `Savunma ağırlıklı — en az bir taraf gol atamayabilir`,
+    "HT BTTS Yes": `İlk yarıda her iki takım da gol bulabilir — hücum dengeleri güçlü${xgNote}`,
+    "HT BTTS No": `İlk yarı gol olasılığı düşük — savunma ağırlıklı başlangıç`,
     "1/1": `${level} İY/MS — ev sahibi dominasyonu bekleniyor`,
     "1/X": `İY ev sahibi önde, MS beraberlik — tempo düşmesi bekleniyor`,
     "1/2": `İY ev önde ama deplasman geri dönüşü — riskli senaryo`,

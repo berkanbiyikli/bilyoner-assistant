@@ -14,6 +14,7 @@ import {
   Brain,
   Sparkles,
   Dices,
+  Target,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { href: "/live", label: "Canlı", icon: Radio },
   { href: "/coupons", label: "Kuponlar", icon: Ticket },
   { href: "/value-bets", label: "Value Bet", icon: Gem },
+  { href: "/ht-btts", label: "IY KG", icon: Target },
   { href: "/bankroll", label: "Bankroll", icon: Wallet },
   { href: "/stats", label: "İstatistik", icon: TrendingUp },
   { href: "/dashboard", label: "Dashboard", icon: Sparkles },

@@ -29,7 +29,7 @@ export function analyzeHtBtts(predictions: MatchPrediction[]): HtBttsAnalysis[] 
   const results: HtBttsAnalysis[] = [];
 
   for (const pred of predictions) {
-    if (!pred.analysis || !pred.odds) continue;
+    if (!pred.analysis) continue;
 
     const analysis = pred.analysis;
     const sim = analysis.simulation;
@@ -252,7 +252,8 @@ export function analyzeHtBtts(predictions: MatchPrediction[]): HtBttsAnalysis[] 
 
     // Oran & edge hesabı
     const fairOdds = 1 / (htBttsProb / 100);
-    const bookmakerOdds = pred.odds.bttsYes > 1.0 ? pred.odds.bttsYes * 1.45 : undefined; // IY KG ≈ MS KG × 1.45 yaklaşımı
+    const bttsYes = pred.odds?.bttsYes ?? 0;
+    const bookmakerOdds = bttsYes > 1.0 ? bttsYes * 1.45 : undefined; // IY KG ≈ MS KG × 1.45 yaklaşımı
     const edge = bookmakerOdds ? ((bookmakerOdds / fairOdds) - 1) * 100 : 0;
 
     // Kelly criterion

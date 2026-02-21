@@ -65,12 +65,12 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      // Max 20 maç analiz et (API limit + hız)
-      const limitedFixtures = fixtures.slice(0, 20);
+      // Max 50 maç analiz et (API limit + hız)
+      const limitedFixtures = fixtures.slice(0, 50);
       totalMatches = limitedFixtures.length;
 
-      // Maçları analiz et (batch 3, 2s arası)
-      const predictions = await analyzeMatches(limitedFixtures, 3);
+      // Maçları analiz et (batch 5, 1.5s arası — hızlı)
+      const predictions = await analyzeMatches(limitedFixtures, 5);
 
       // IY KG analizlerini üret
       allAnalyses = analyzeHtBtts(predictions);

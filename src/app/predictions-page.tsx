@@ -164,8 +164,24 @@ export function PredictionsPage() {
       ? predictions.filter((p) => selectedLeagues.includes(p.league.id))
       : predictions;
 
+  // Bitmiş maçları filtrele (FT, AET, PEN, AWD, WO, CANC, ABD, PST statusleri)
+  const FINISHED_STATUSES = ["FT", "AET", "PEN", "AWD", "WO", "CANC", "ABD"];
+  const activeMatches = leagueFiltered.filter((p) => {
+    // fixture yoksa kickoff saatine bak
+    const fixtureStatus = p.fixture?.fixture?.status?.short;
+    if (fixtureStatus && FINISHED_STATUSES.includes(fixtureStatus)) return false;
+    // Kickoff'u geçmiş ve fixture bilgisi olmayan maçları da kontrol et
+    if (!fixtureStatus && p.kickoff) {
+      const kickoffTime = new Date(p.kickoff).getTime();
+      const now = Date.now();
+      // 2 saatten fazla geçmişse muhtemelen bitmiştir
+      if (now - kickoffTime > 2 * 60 * 60 * 1000) return false;
+    }
+    return true;
+  });
+
   // Tercih filtreleri uygula
-  const filteredPredictions = leagueFiltered
+  const filteredPredictions = activeMatches
     .map((p) => {
       // Pick seviyesinde filtrele
       let filteredPicks = p.picks || [];
@@ -202,8 +218,14 @@ export function PredictionsPage() {
     })
     .filter(Boolean) as typeof predictions;
 
-  // Sıralama
+  // Sıralama: Önce kickoff saatine göre (yakın olan önce), sonra tercih filtresine göre
   const sortedPredictions = [...filteredPredictions].sort((a, b) => {
+    // Öncelik 1: Kickoff saati (erken olan önce)
+    const kickoffA = a.kickoff ? new Date(a.kickoff).getTime() : 0;
+    const kickoffB = b.kickoff ? new Date(b.kickoff).getTime() : 0;
+    if (kickoffA !== kickoffB) return kickoffA - kickoffB;
+
+    // Aynı saatteki maçları tercih filtresine göre sırala
     const pickA = a.picks[0];
     const pickB = b.picks[0];
     if (!pickA || !pickB) return 0;

@@ -140,8 +140,22 @@ function extractXgData(prediction: PredictionResponse | null): XgData {
   const homeGoalsFor = parseFloat(homeTeam?.last_5?.goals?.for?.average || "1.2");
   const awayGoalsFor = parseFloat(awayTeam?.last_5?.goals?.for?.average || "1.0");
 
-  const homeAtt = parseStrength(homeTeam?.last_5?.att);
-  const awayAtt = parseStrength(awayTeam?.last_5?.att);
+  // Hücum gücünü önce last_5'ten, yoksa comparison'dan al
+  let homeAtt = parseStrength(homeTeam?.last_5?.att);
+  let awayAtt = parseStrength(awayTeam?.last_5?.att);
+
+  // Fallback: comparison.att alanı
+  if (homeAtt === 50 && awayAtt === 50 && prediction.comparison) {
+    const compAtt = prediction.comparison["att"] || prediction.comparison["Att"] || prediction.comparison["attack"];
+    if (compAtt) {
+      const cH = parseStrength(compAtt.home);
+      const cA = parseStrength(compAtt.away);
+      if (cH !== 50 || cA !== 50) {
+        homeAtt = cH;
+        awayAtt = cA;
+      }
+    }
+  }
 
   // xG proxy: Hücum gücü * gol verimliliği / 60 (referans)
   const homeXg = homeGoalsFor * (homeAtt / 60);
@@ -357,10 +371,26 @@ function findSimilarMatch(
 ): MatchSimilarity | undefined {
   if (!prediction || h2h.length === 0) return undefined;
 
-  const homeAtt = parseStrength(prediction.teams?.home?.last_5?.att);
-  const homeDef = parseStrength(prediction.teams?.home?.last_5?.def);
-  const awayAtt = parseStrength(prediction.teams?.away?.last_5?.att);
-  const awayDef = parseStrength(prediction.teams?.away?.last_5?.def);
+  let homeAtt = parseStrength(prediction.teams?.home?.last_5?.att);
+  let homeDef = parseStrength(prediction.teams?.home?.last_5?.def);
+  let awayAtt = parseStrength(prediction.teams?.away?.last_5?.att);
+  let awayDef = parseStrength(prediction.teams?.away?.last_5?.def);
+
+  // Fallback: comparison verisi
+  if (homeAtt === 50 && awayAtt === 50 && prediction.comparison) {
+    const compAtt = prediction.comparison["att"] || prediction.comparison["Att"] || prediction.comparison["attack"];
+    const compDef = prediction.comparison["def"] || prediction.comparison["Def"] || prediction.comparison["defence"];
+    if (compAtt) {
+      const cH = parseStrength(compAtt.home);
+      const cA = parseStrength(compAtt.away);
+      if (cH !== 50 || cA !== 50) { homeAtt = cH; awayAtt = cA; }
+    }
+    if (compDef) {
+      const cH = parseStrength(compDef.home);
+      const cA = parseStrength(compDef.away);
+      if (cH !== 50 || cA !== 50) { homeDef = cH; awayDef = cA; }
+    }
+  }
 
   let bestMatch: H2HResponse | null = null;
   let bestSimilarity = 0;
@@ -443,6 +473,8 @@ function buildAnalysis(
   let awayAttack = 50;
   let homeDefense = 50;
   let awayDefense = 50;
+  let homeFormScore = 50;
+  let awayFormScore = 50;
 
   if (prediction) {
     homeWinProb = parseInt(prediction.predictions.percent.home) || 33;
@@ -456,20 +488,90 @@ function buildAnalysis(
       drawProb = 100 - homeWinProb - awayWinProb;
     }
 
-    if (prediction.teams?.home?.last_5) {
-      homeAttack = parseStrength(prediction.teams.home.last_5.att);
-      homeDefense = parseStrength(prediction.teams.home.last_5.def);
-    }
-    if (prediction.teams?.away?.last_5) {
-      awayAttack = parseStrength(prediction.teams.away.last_5.att);
-      awayDefense = parseStrength(prediction.teams.away.last_5.def);
+    // 1) comparison alanından istatistikleri al (en güvenilir kaynak)
+    const comp = prediction.comparison;
+    if (comp) {
+      const compAtt = comp["att"] || comp["Att"] || comp["attack"];
+      const compDef = comp["def"] || comp["Def"] || comp["defence"];
+      const compForm = comp["form"] || comp["Form"];
+      const compTotal = comp["total"] || comp["Total"];
+
+      if (compAtt) {
+        const hAtt = parseStrength(compAtt.home);
+        const aAtt = parseStrength(compAtt.away);
+        if (hAtt !== 50 || aAtt !== 50) {
+          homeAttack = hAtt;
+          awayAttack = aAtt;
+        }
+      }
+      if (compDef) {
+        const hDef = parseStrength(compDef.home);
+        const aDef = parseStrength(compDef.away);
+        if (hDef !== 50 || aDef !== 50) {
+          homeDefense = hDef;
+          awayDefense = aDef;
+        }
+      }
+      if (compForm) {
+        const hForm = parseStrength(compForm.home);
+        const aForm = parseStrength(compForm.away);
+        if (hForm !== 50 || aForm !== 50) {
+          homeFormScore = hForm;
+          awayFormScore = aForm;
+        }
+      }
+      // comparison.total → genel güç göstergesi, form'a harmanlayalım
+      if (compTotal) {
+        const hTotal = parseStrength(compTotal.home);
+        const aTotal = parseStrength(compTotal.away);
+        if (hTotal !== 50 || aTotal !== 50) {
+          homeFormScore = Math.round(homeFormScore * 0.6 + hTotal * 0.4);
+          awayFormScore = Math.round(awayFormScore * 0.6 + aTotal * 0.4);
+        }
+      }
+
+      console.log(`[STATS] comparison data found for fixture ${fixture.fixture.id}:`, {
+        att: compAtt, def: compDef, form: compForm, total: compTotal,
+        parsed: { homeAttack, awayAttack, homeDefense, awayDefense, homeFormScore, awayFormScore }
+      });
     }
 
+    // 2) last_5 verisinden üzerine override (eğer gerçek veri varsa)
+    if (prediction.teams?.home?.last_5) {
+      const l5Att = parseStrength(prediction.teams.home.last_5.att);
+      const l5Def = parseStrength(prediction.teams.home.last_5.def);
+      // Sadece gerçek veri geldiyse override et (50 = veri yok demek)
+      if (l5Att !== 50) homeAttack = Math.round((homeAttack + l5Att) / 2);
+      if (l5Def !== 50) homeDefense = Math.round((homeDefense + l5Def) / 2);
+    }
+    if (prediction.teams?.away?.last_5) {
+      const l5Att = parseStrength(prediction.teams.away.last_5.att);
+      const l5Def = parseStrength(prediction.teams.away.last_5.def);
+      if (l5Att !== 50) awayAttack = Math.round((awayAttack + l5Att) / 2);
+      if (l5Def !== 50) awayDefense = Math.round((awayDefense + l5Def) / 2);
+    }
+
+    // 3) form string'inden form ayarı (WWDLW gibi)
     if (prediction.teams?.home?.last_5?.form) {
       homeAttack = adjustByForm(homeAttack, prediction.teams.home.last_5.form);
+      homeFormScore = adjustByForm(homeFormScore, prediction.teams.home.last_5.form);
     }
     if (prediction.teams?.away?.last_5?.form) {
       awayAttack = adjustByForm(awayAttack, prediction.teams.away.last_5.form);
+      awayFormScore = adjustByForm(awayFormScore, prediction.teams.away.last_5.form);
+    }
+
+    // 4) Liga form string'i de ekstra kaynak olarak kullan
+    if (prediction.teams?.home?.league?.form && homeFormScore === 50) {
+      homeFormScore = adjustByForm(50, prediction.teams.home.league.form.slice(-5));
+    }
+    if (prediction.teams?.away?.league?.form && awayFormScore === 50) {
+      awayFormScore = adjustByForm(50, prediction.teams.away.league.form.slice(-5));
+    }
+
+    // Hâlâ 50'de mi kaldı? Log uyarısı
+    if (homeAttack === 50 && awayAttack === 50 && homeDefense === 50 && awayDefense === 50) {
+      console.warn(`[STATS] ⚠️ Fixture ${fixture.fixture.id}: Tüm istatistikler varsayılan (50). API verisi eksik olabilir.`);
     }
   }
 
@@ -535,8 +637,8 @@ function buildAnalysis(
   const summary = buildSmartSummary(prediction, advanced, homeWinProb, awayWinProb, fixture);
 
   return {
-    homeForm: homeWinProb,
-    awayForm: awayWinProb,
+    homeForm: homeFormScore !== 50 ? homeFormScore : homeWinProb,
+    awayForm: awayFormScore !== 50 ? awayFormScore : awayWinProb,
     drawProb,
     homeAttack,
     awayAttack,

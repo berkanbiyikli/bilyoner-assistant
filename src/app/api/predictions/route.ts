@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById } from "@/lib/api-football";
-import { analyzeMatches } from "@/lib/prediction";
+import { analyzeMatch, analyzeMatches } from "@/lib/prediction";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
 import type { FixtureResponse } from "@/types/api-football";
@@ -73,13 +73,44 @@ export async function GET(req: NextRequest) {
         fixtureGrouped.set(dbPred.fixture_id, group);
       }
 
+      // DB tahminlerini fixture ile eşleştir + varsa canlı analiz çalıştır
+      const dbFixturesForAnalysis: FixtureResponse[] = [];
+      const dbFixtureMap = new Map<number, typeof dbPredictions>();
+
+      for (const [fixtureId, preds] of fixtureGrouped.entries()) {
+        const fixture = allFixtures.find((f) => f.fixture.id === fixtureId);
+        if (fixture) {
+          dbFixturesForAnalysis.push(fixture);
+        }
+        dbFixtureMap.set(fixtureId, preds);
+      }
+
+      // Fixture'ı olan DB maçları için paralel analiz çalıştır (istatistik verisi için)
+      const dbAnalysisResults = new Map<number, Awaited<ReturnType<typeof analyzeMatch>>>();
+      if (dbFixturesForAnalysis.length > 0) {
+        const analysisPromises = dbFixturesForAnalysis.map(async (fixture) => {
+          try {
+            const result = await analyzeMatch(fixture);
+            dbAnalysisResults.set(fixture.fixture.id, result);
+          } catch (err) {
+            console.warn(`[PREDICTIONS] DB fixture analiz hatası (${fixture.fixture.id}):`, err);
+          }
+        });
+        // Max 5 paralel
+        for (let i = 0; i < analysisPromises.length; i += 5) {
+          await Promise.allSettled(analysisPromises.slice(i, i + 5));
+        }
+      }
+
       const dbEnriched = Array.from(fixtureGrouped.entries()).map(([fixtureId, preds]) => {
         const fixture = allFixtures.find((f) => f.fixture.id === fixtureId);
         if (!preds) return null;
 
-        // Fixture API'den gelmemiş olabilir — fallback
         const sortedPreds = preds.sort((a, b) => b.confidence - a.confidence);
         const firstPred = sortedPreds[0];
+
+        // Canlı analiz sonucu varsa onu kullan, yoksa fallback
+        const liveAnalysis = dbAnalysisResults.get(fixtureId);
 
         return {
           fixtureId,
@@ -96,7 +127,7 @@ export async function GET(req: NextRequest) {
             expectedValue: p.expected_value,
             isValueBet: p.is_value_bet,
           })),
-          analysis: {
+          analysis: liveAnalysis?.analysis ?? {
             summary: firstPred.analysis_summary || "",
             homeAttack: 50,
             homeDefense: 50,
@@ -105,7 +136,8 @@ export async function GET(req: NextRequest) {
             homeForm: 50,
             awayForm: 50,
           },
-          odds: undefined,
+          insights: liveAnalysis?.insights,
+          odds: liveAnalysis?.odds,
           isLive: fixture ? fixture.fixture.status.short !== "NS" && fixture.fixture.status.short !== "FT" : false,
         };
       }).filter(Boolean);

@@ -39,8 +39,8 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   const homeId = fixture.teams.home.id;
   const awayId = fixture.teams.away.id;
 
-  // Cache kontrol
-  const cacheKey = `prediction-v3-${fixtureId}`;
+  // Cache kontrol (v4: comparison + form fix)
+  const cacheKey = `prediction-v4-${fixtureId}`;
   const cached = getCached<MatchPrediction>(cacheKey);
   if (cached) return cached;
 
@@ -496,29 +496,18 @@ function buildAnalysis(
       const compForm = comp["form"] || comp["Form"];
       const compTotal = comp["total"] || comp["Total"];
 
+      // comparison verisi varsa doğrudan kullan (50 bile olsa gerçek veri)
       if (compAtt) {
-        const hAtt = parseStrength(compAtt.home);
-        const aAtt = parseStrength(compAtt.away);
-        if (hAtt !== 50 || aAtt !== 50) {
-          homeAttack = hAtt;
-          awayAttack = aAtt;
-        }
+        homeAttack = parseStrength(compAtt.home);
+        awayAttack = parseStrength(compAtt.away);
       }
       if (compDef) {
-        const hDef = parseStrength(compDef.home);
-        const aDef = parseStrength(compDef.away);
-        if (hDef !== 50 || aDef !== 50) {
-          homeDefense = hDef;
-          awayDefense = aDef;
-        }
+        homeDefense = parseStrength(compDef.home);
+        awayDefense = parseStrength(compDef.away);
       }
       if (compForm) {
-        const hForm = parseStrength(compForm.home);
-        const aForm = parseStrength(compForm.away);
-        if (hForm !== 50 || aForm !== 50) {
-          homeFormScore = hForm;
-          awayFormScore = aForm;
-        }
+        homeFormScore = parseStrength(compForm.home);
+        awayFormScore = parseStrength(compForm.away);
       }
       // comparison.total → genel güç göstergesi, form'a harmanlayalım
       if (compTotal) {
@@ -1214,11 +1203,22 @@ function extractOdds(oddsData: OddsResponse | null): MatchOdds | undefined {
 
 function parseStrength(str: string | undefined): number {
   if (!str) return 50;
-  const num = parseInt(str.replace("%", ""));
-  return isNaN(num) ? 50 : num;
+  const cleaned = str.replace("%", "").trim();
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 50 : Math.round(num);
 }
 
 function adjustByForm(base: number, form: string): number {
+  // Yüzde formatı gelirse ("67%") doğrudan parse et
+  if (form.includes("%")) {
+    const pct = parseFloat(form.replace("%", ""));
+    if (!isNaN(pct) && pct !== 50) {
+      // Yüzde ile base'i ağırlıklı harmanlama
+      return Math.max(10, Math.min(95, Math.round(base * 0.5 + pct * 0.5)));
+    }
+    return base;
+  }
+  // WWDLW formatı
   const wins = (form.match(/W/g) || []).length;
   const losses = (form.match(/L/g) || []).length;
   const bonus = (wins - losses) * 3;

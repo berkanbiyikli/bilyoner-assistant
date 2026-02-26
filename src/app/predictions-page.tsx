@@ -164,24 +164,21 @@ export function PredictionsPage() {
       ? predictions.filter((p) => selectedLeagues.includes(p.league.id))
       : predictions;
 
-  // Bitmiş maçları filtrele (FT, AET, PEN, AWD, WO, CANC, ABD, PST statusleri)
+  // Bitmiş maç tespiti (filtreleme yok — hepsi gösterilir, bitmiş olanlar alta sıralanır)
   const FINISHED_STATUSES = ["FT", "AET", "PEN", "AWD", "WO", "CANC", "ABD"];
-  const activeMatches = leagueFiltered.filter((p) => {
-    // fixture yoksa kickoff saatine bak
+  const isMatchFinished = (p: MatchPrediction) => {
     const fixtureStatus = p.fixture?.fixture?.status?.short;
-    if (fixtureStatus && FINISHED_STATUSES.includes(fixtureStatus)) return false;
-    // Kickoff'u geçmiş ve fixture bilgisi olmayan maçları da kontrol et
+    if (fixtureStatus && FINISHED_STATUSES.includes(fixtureStatus)) return true;
     if (!fixtureStatus && p.kickoff) {
       const kickoffTime = new Date(p.kickoff).getTime();
       const now = Date.now();
-      // 2 saatten fazla geçmişse muhtemelen bitmiştir
-      if (now - kickoffTime > 2 * 60 * 60 * 1000) return false;
+      if (now - kickoffTime > 3 * 60 * 60 * 1000) return true;
     }
-    return true;
-  });
+    return false;
+  };
 
-  // Tercih filtreleri uygula
-  const filteredPredictions = activeMatches
+  // Tercih filtreleri uygula — tüm maçlara (bitmiş dahil)
+  const filteredPredictions = leagueFiltered
     .map((p) => {
       // Pick seviyesinde filtrele
       let filteredPicks = p.picks || [];
@@ -218,8 +215,13 @@ export function PredictionsPage() {
     })
     .filter(Boolean) as typeof predictions;
 
-  // Sıralama: Önce kickoff saatine göre (yakın olan önce), sonra tercih filtresine göre
+  // Sıralama: Bitmiş maçlar alta, sonra kickoff saatine göre, sonra tercih filtresine göre
   const sortedPredictions = [...filteredPredictions].sort((a, b) => {
+    // Öncelik 0: Bitmiş maçlar en alta
+    const aFinished = isMatchFinished(a) ? 1 : 0;
+    const bFinished = isMatchFinished(b) ? 1 : 0;
+    if (aFinished !== bFinished) return aFinished - bFinished;
+
     // Öncelik 1: Kickoff saati (erken olan önce)
     const kickoffA = a.kickoff ? new Date(a.kickoff).getTime() : 0;
     const kickoffB = b.kickoff ? new Date(b.kickoff).getTime() : 0;
@@ -413,9 +415,33 @@ export function PredictionsPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => <MatchCardSkeleton key={i} />)
               ) : sortedPredictions.length > 0 ? (
-                sortedPredictions.map((prediction) => (
-                  <MatchCard key={prediction.fixtureId} prediction={prediction} />
-                ))
+                <>
+                  {/* Aktif maçlar */}
+                  {sortedPredictions.filter((p) => !isMatchFinished(p)).length > 0 && (
+                    sortedPredictions
+                      .filter((p) => !isMatchFinished(p))
+                      .map((prediction) => (
+                        <MatchCard key={prediction.fixtureId} prediction={prediction} />
+                      ))
+                  )}
+                  {/* Bitmiş maçlar ayracı */}
+                  {sortedPredictions.some((p) => isMatchFinished(p)) && sortedPredictions.some((p) => !isMatchFinished(p)) && (
+                    <div className="flex items-center gap-3 py-2">
+                      <div className="h-px flex-1 bg-border" />
+                      <span className="text-xs text-muted-foreground font-medium">Bitmiş Maçlar</span>
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
+                  {/* Bitmiş maçlar (soluk) */}
+                  {sortedPredictions
+                    .filter((p) => isMatchFinished(p))
+                    .map((prediction) => (
+                      <div key={prediction.fixtureId} className="opacity-60">
+                        <MatchCard prediction={prediction} />
+                      </div>
+                    ))
+                  }
+                </>
               ) : (
                 <div className="rounded-xl border border-border bg-card p-12 text-center">
                   <Trophy className="mx-auto h-12 w-12 text-muted-foreground mb-4" />

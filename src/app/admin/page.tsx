@@ -116,7 +116,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"overview" | "calibration" | "markets">("overview");
   const [resetting, setResetting] = useState(false);
-  const [resetResult, setResetResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [resetResult, setResetResult] = useState<{ success: boolean; message: string; details?: Record<string, unknown> } | null>(null);
 
   const handleReset = useCallback(async () => {
     if (!window.confirm("⚠️ TÜM istatistikleri sıfırlamak istediğinize emin misiniz?\n\nBu işlem:\n- Tüm tahmin geçmişini siler\n- Validasyon kayıtlarını temizler\n- Kalibrasyon verilerini sıfırlar\n\nGeri alınamaz!")) return;
@@ -131,7 +131,11 @@ export default function AdminDashboard() {
         body: JSON.stringify({ confirm: "RESET_ALL_STATS" }),
       });
       const data = await res.json();
-      setResetResult({ success: data.success, message: data.message || data.error });
+      setResetResult({
+        success: data.success,
+        message: data.message || data.error,
+        details: data.details,
+      });
       if (data.success) {
         setStats(null);
         setCalibration(null);
@@ -141,7 +145,7 @@ export default function AdminDashboard() {
       setResetResult({ success: false, message: "Reset başarısız: " + String(err) });
     } finally {
       setResetting(false);
-      setTimeout(() => setResetResult(null), 8000);
+      setTimeout(() => setResetResult(null), 15000);
     }
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -210,13 +214,20 @@ export default function AdminDashboard() {
       {/* Reset Result Banner */}
       {resetResult && (
         <div className={cn(
-          "px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-2",
+          "px-4 py-3 rounded-lg text-sm font-medium",
           resetResult.success
             ? "bg-green-900/30 text-green-400 border border-green-800/50"
             : "bg-red-900/30 text-red-400 border border-red-800/50"
         )}>
-          {resetResult.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-          {resetResult.message}
+          <div className="flex items-center gap-2">
+            {resetResult.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+            {resetResult.message}
+          </div>
+          {resetResult.details && (
+            <pre className="mt-2 text-xs text-zinc-400 bg-zinc-900/50 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+              {JSON.stringify(resetResult.details, null, 2)}
+            </pre>
+          )}
         </div>
       )}
 

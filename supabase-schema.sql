@@ -144,11 +144,12 @@ CREATE POLICY coupons_delete ON coupons FOR DELETE USING (auth.uid() = user_id);
 CREATE POLICY bankroll_select ON bankroll_entries FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY bankroll_insert ON bankroll_entries FOR INSERT WITH CHECK (auth.uid() = user_id);
 
--- Predictions: public read, server insert/update
+-- Predictions: public read, server insert/update/delete
 ALTER TABLE predictions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY predictions_select ON predictions FOR SELECT USING (true);
 CREATE POLICY predictions_insert ON predictions FOR INSERT WITH CHECK (true);
 CREATE POLICY predictions_update ON predictions FOR UPDATE USING (true);
+CREATE POLICY predictions_delete ON predictions FOR DELETE USING (true);
 
 -- Tweets: public read, server insert
 ALTER TABLE tweets ENABLE ROW LEVEL SECURITY;
@@ -156,8 +157,36 @@ CREATE POLICY tweets_select ON tweets FOR SELECT USING (true);
 CREATE POLICY tweets_insert ON tweets FOR INSERT WITH CHECK (true);
 CREATE POLICY tweets_update ON tweets FOR UPDATE USING (true);
 
--- Validation Records: public read, server insert/update
+-- Validation Records: public read, server insert/update/delete
 ALTER TABLE validation_records ENABLE ROW LEVEL SECURITY;
 CREATE POLICY validation_select ON validation_records FOR SELECT USING (true);
 CREATE POLICY validation_insert ON validation_records FOR INSERT WITH CHECK (true);
 CREATE POLICY validation_update ON validation_records FOR UPDATE USING (true);
+CREATE POLICY validation_delete ON validation_records FOR DELETE USING (true);
+
+-- ============================================
+-- RPC: Reset All Stats (SECURITY DEFINER = bypass RLS)
+-- ============================================
+CREATE OR REPLACE FUNCTION reset_all_stats()
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  val_count INTEGER;
+  pred_count INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO val_count FROM validation_records;
+  SELECT COUNT(*) INTO pred_count FROM predictions;
+
+  DELETE FROM validation_records;
+  DELETE FROM predictions;
+
+  RETURN json_build_object(
+    'validation_deleted', val_count,
+    'predictions_deleted', pred_count,
+    'total', val_count + pred_count
+  );
+END;
+$$;

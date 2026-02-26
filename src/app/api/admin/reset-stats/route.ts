@@ -1,15 +1,15 @@
 // ============================================
-// Reset Stats API
+// Reset Stats API v4
 // Tüm tahmin ve validasyon verilerini sıfırla
-// Yeni algoritma testleri için temiz sayfa
+// RPC fonksiyonu ile RLS bypass garanti
 // ============================================
 
 import { NextResponse } from "next/server";
-import { createAdminSupabase } from "@/lib/supabase/admin";
+import { createClient } from "@supabase/supabase-js";
 import { clearCache } from "@/lib/cache";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -21,94 +21,145 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = createAdminSupabase();
-    const results: Record<string, { success: boolean; deleted: number; error?: string }> = {};
-    let totalDeleted = 0;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    const usedKey = serviceKey ? "service_role" : "anon";
 
-    // 1. validation_records — tümünü sil (gte ile tarih filtresiz hepsini yakala)
-    const { data: valDel, error: valErr } = await supabase
+    const supabase = createClient(url, serviceKey || anonKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      db: { schema: "public" },
+    });
+
+    const details: Record<string, unknown> = { key_type: usedKey };
+
+    // === 1. Mevcut kayıt sayıları ===
+    const { count: valBefore } = await supabase
       .from("validation_records")
-      .delete()
-      .gte("created_at", "2000-01-01T00:00:00Z")
-      .select("id");
-    
-    results.validation_records = {
-      success: !valErr,
-      deleted: valDel?.length || 0,
-      error: valErr?.message,
-    };
-    totalDeleted += valDel?.length || 0;
-
-    // 2. predictions — settle edilmişleri sil
-    const { data: predDel, error: predErr } = await supabase
+      .select("*", { count: "exact", head: true });
+    const { count: predBefore } = await supabase
       .from("predictions")
-      .delete()
-      .in("result", ["won", "lost", "void"])
-      .select("id");
-    
-    results.predictions_settled = {
-      success: !predErr,
-      deleted: predDel?.length || 0,
-      error: predErr?.message,
-    };
-    totalDeleted += predDel?.length || 0;
+      .select("*", { count: "exact", head: true });
 
-    // 3. predictions — pending olanları da sil
-    const { data: pendDel, error: pendErr } = await supabase
+    details.before = {
+      validation_records: valBefore ?? 0,
+      predictions: predBefore ?? 0,
+    };
+
+    // === 2. Öncelik: RPC ile sil (SECURITY DEFINER, RLS bypass) ===
+    let rpcWorked = false;
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      "reset_all_stats" as never
+    );
+    if (!rpcError) {
+      rpcWorked = true;
+      details.method = "rpc_reset_all_stats";
+      details.rpc_result = rpcData;
+    } else {
+      details.rpc_error = rpcError.message;
+      details.method = "fallback_direct_delete";
+
+      // === 3a. Fallback: Direct delete — validation_records ===
+      let valDel = 0;
+      for (let i = 0; i < 30; i++) {
+        const { data: batch } = await supabase
+          .from("validation_records")
+          .select("id")
+          .limit(1000);
+        if (!batch || batch.length === 0) break;
+
+        const ids = batch.map((r) => r.id);
+        const { data: deleted, error: delErr } = await supabase
+          .from("validation_records")
+          .delete()
+          .in("id", ids)
+          .select("id");
+
+        if (delErr) {
+          details.val_delete_error = delErr.message;
+          break;
+        }
+        const actualDel = deleted?.length ?? 0;
+        valDel += actualDel;
+        // Eğer delete çağrısı 0 dönüyorsa RLS engeli var
+        if (actualDel === 0 && batch.length > 0) {
+          details.val_rls_blocked = true;
+          break;
+        }
+      }
+      details.validation_deleted = valDel;
+
+      // === 3b. Fallback: Direct delete — predictions ===
+      let predDel = 0;
+      for (let i = 0; i < 30; i++) {
+        const { data: batch } = await supabase
+          .from("predictions")
+          .select("id")
+          .limit(1000);
+        if (!batch || batch.length === 0) break;
+
+        const ids = batch.map((r) => r.id);
+        const { data: deleted, error: delErr } = await supabase
+          .from("predictions")
+          .delete()
+          .in("id", ids)
+          .select("id");
+
+        if (delErr) {
+          details.pred_delete_error = delErr.message;
+          break;
+        }
+        const actualDel = deleted?.length ?? 0;
+        predDel += actualDel;
+        if (actualDel === 0 && batch.length > 0) {
+          details.pred_rls_blocked = true;
+          // Son çare: hepsini result='reset' yap (stats'da sayılmaz)
+          const { error: updErr } = await supabase
+            .from("predictions")
+            .update({ result: "void" })
+            .neq("result", "void");
+          details.voided = updErr ? `Update hata: ${updErr.message}` : "Tüm kayıtlar void yapıldı";
+          break;
+        }
+      }
+      details.predictions_deleted = predDel;
+    }
+
+    // === 4. Son kontrol ===
+    const { count: valAfter } = await supabase
+      .from("validation_records")
+      .select("*", { count: "exact", head: true });
+    const { count: predAfter } = await supabase
       .from("predictions")
-      .delete()
-      .eq("result", "pending")
-      .select("id");
+      .select("*", { count: "exact", head: true });
 
-    results.predictions_pending = {
-      success: !pendErr,
-      deleted: pendDel?.length || 0,
-      error: pendErr?.message,
+    details.after = {
+      validation_records: valAfter ?? 0,
+      predictions: predAfter ?? 0,
     };
-    totalDeleted += pendDel?.length || 0;
 
-    // 4. Kalan varsa — ikinci geçiş (Supabase 1000 row limit)
-    let extraDeleted = 0;
-    for (let i = 0; i < 5; i++) {
-      const { data: extraVal } = await supabase
-        .from("validation_records")
-        .delete()
-        .gte("created_at", "2000-01-01T00:00:00Z")
-        .select("id");
-      const { data: extraPred } = await supabase
-        .from("predictions")
-        .delete()
-        .gte("created_at", "2000-01-01T00:00:00Z")
-        .select("id");
-      
-      const batchCount = (extraVal?.length || 0) + (extraPred?.length || 0);
-      extraDeleted += batchCount;
-      if (batchCount === 0) break; // Kalan yok
-    }
-    totalDeleted += extraDeleted;
-    if (extraDeleted > 0) {
-      results.extra_cleanup = { success: true, deleted: extraDeleted };
-    }
-
-    // 5. Tüm in-memory cache temizle
+    // === 5. Cache temizle ===
     clearCache();
-    results.cache = { success: true, deleted: 0 };
 
-    const allSuccess = Object.values(results).every((r) => r.success);
+    const totalBefore = (valBefore ?? 0) + (predBefore ?? 0);
+    const totalAfter = (valAfter ?? 0) + (predAfter ?? 0);
+    const totalDeleted = totalBefore - totalAfter;
+    const success = totalAfter === 0;
 
-    console.log(`[RESET] Completed. Total deleted: ${totalDeleted}`, results);
+    console.log(`[RESET-v4] key=${usedKey} rpc=${rpcWorked} before=${totalBefore} after=${totalAfter}`, JSON.stringify(details));
 
     return NextResponse.json({
-      success: allSuccess,
-      message: allSuccess
+      success,
+      message: success
         ? `Tüm istatistikler sıfırlandı. ${totalDeleted} kayıt silindi.`
-        : "Bazı tablolarda hata oluştu.",
+        : `Kısmi reset: ${totalDeleted} silindi, ${totalAfter} kaldı. Detaylara bakın.`,
       totalDeleted,
-      details: results,
+      remaining: totalAfter,
+      details,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("[RESET] Error:", error);
+    console.error("[RESET-v4] Error:", error);
     return NextResponse.json(
       { error: "Reset sırasında hata oluştu", details: String(error) },
       { status: 500 }

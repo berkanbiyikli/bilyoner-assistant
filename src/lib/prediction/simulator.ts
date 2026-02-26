@@ -114,9 +114,19 @@ export function simulateMatch(
   const baseAwayLambda = analysis.awayXg ?? (analysis.awayAttack / 100) * 1.5;
 
   // Savunma etkisi: Rakip savunma güçlüyse lambda düşer
-  // 50 = nötr, 70+ = güçlü savunma → lambda'yı %15'e kadar düşür
-  const awayDefFactor = 1 - Math.max(0, (analysis.awayDefense - 50) / 200); // 0.9 – 1.0
-  const homeDefFactor = 1 - Math.max(0, (analysis.homeDefense - 50) / 200);
+  // 50 = nötr. 70+ = güçlü savunma → lambda'yı %25'e kadar düşür
+  // 30- = zayıf savunma → lambda'yı %12'ye kadar artır
+  const defFactor = (defenseScore: number): number => {
+    if (defenseScore >= 50) {
+      // Güçlü savunma: 50→70 → 1.0→0.80 (nonlinear)
+      return 1 - Math.pow((defenseScore - 50) / 50, 1.3) * 0.25;
+    } else {
+      // Zayıf savunma: 50→30 → 1.0→1.12
+      return 1 + Math.pow((50 - defenseScore) / 50, 1.2) * 0.12;
+    }
+  };
+  const awayDefFactor = defFactor(analysis.awayDefense);
+  const homeDefFactor = defFactor(analysis.homeDefense);
 
   // Sakatlık etkisi: Kilit forvet eksikliği lambda'yı düşürür
   const homeInjuryFactor = 1 - Math.min(0.25, analysis.injuryImpact.home / 80);
@@ -135,9 +145,9 @@ export function simulateMatch(
   let homeLambda = baseHomeLambda * awayDefFactor * homeInjuryFactor * homeAdvantageFactor * refTempoFactor * homeImportanceFactor;
   let awayLambda = baseAwayLambda * homeDefFactor * awayInjuryFactor * refTempoFactor * awayImportanceFactor;
 
-  // Lambda aralığını sınırla (0.3 – 4.0 arası mantıklı)
-  homeLambda = Math.max(0.3, Math.min(4.0, homeLambda));
-  awayLambda = Math.max(0.3, Math.min(4.0, awayLambda));
+  // Lambda aralığını sınırla (0.25 – 3.8 arası mantıklı)
+  homeLambda = Math.max(0.25, Math.min(3.8, homeLambda));
+  awayLambda = Math.max(0.25, Math.min(3.8, awayLambda));
 
   // --- İlk yarı lambda hesaplama ---
   // Ampirik olarak gollerin ~%42'si ilk yarıda atılır

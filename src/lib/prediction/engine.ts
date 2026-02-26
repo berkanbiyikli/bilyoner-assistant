@@ -157,9 +157,18 @@ function extractXgData(prediction: PredictionResponse | null): XgData {
     }
   }
 
-  // xG proxy: Hücum gücü * gol verimliliği / 60 (referans)
-  const homeXg = homeGoalsFor * (homeAtt / 60);
-  const awayXg = awayGoalsFor * (awayAtt / 60);
+  // xG proxy: Dixon-Coles benzeri yaklaşım
+  // Gerçek xG yoksa: gol ortalaması × (hücum gücü / lig ortalaması) × savunma zayıflığı faktörü
+  // 50 = lig ortalaması referansı, 60+ hücum güçlü, 40- zayıf
+  const homeAttFactor = Math.max(0.5, homeAtt / 50);  // 1.0 = ortalama, 1.4 = güçlü
+  const awayAttFactor = Math.max(0.5, awayAtt / 50);
+  
+  // Savunma zayıflık faktörü (düşük savunma = daha fazla gol yenme)
+  const awayDefWeak = Math.max(0.7, (100 - awayAtt) / 50); // Rakip savunma zayıfsa bonus
+  const homeDefWeak = Math.max(0.7, (100 - homeAtt) / 50);
+
+  const homeXg = homeGoalsFor * homeAttFactor * 0.85 + homeGoalsFor * 0.15; // %85 model, %15 raw 
+  const awayXg = awayGoalsFor * awayAttFactor * 0.85 + awayGoalsFor * 0.15;
 
   return {
     homeXg: Math.round(homeXg * 100) / 100,
@@ -701,21 +710,48 @@ function generatePicks(
   const sim = analysis.simulation;
   const refProfile = analysis.refereeProfile;
 
-  const homeProbability = analysis.homeForm / 100;
-  const awayProbability = analysis.awayForm / 100;
-  const drawProbability = (analysis.drawProb ?? (100 - analysis.homeForm - analysis.awayForm)) / 100;
+  // === OLASI PROBLEM: Form skoru ≠ Kazanma olasılığı ===
+  // Form skoru (0-100) nispi güç göstergesi. Olasılık için API + sim + odds harmanla.
+  // API'nin prediction.percent değerleri (zaten buildAnalysis'te alındı) daha güvenilir.
+  // Sim olasılıkları en güvenilir kaynak — 10K iterasyon Poisson.
 
-  const impliedHome = 1 / odds.home;
-  const impliedAway = 1 / odds.away;
-  const impliedDraw = 1 / odds.draw;
+  // 1) API-based probability (buildAnalysis'te homeForm/awayForm olarak gelenleri taban al)
+  const apiHomeProb = analysis.homeForm / 100;
+  const apiAwayProb = analysis.awayForm / 100;
+  const apiDrawProb = (analysis.drawProb ?? (100 - analysis.homeForm - analysis.awayForm)) / 100;
+
+  // 2) Sim-based probability (en güvenilir)
+  const simHomeProb = sim ? sim.simHomeWinProb / 100 : apiHomeProb;
+  const simAwayProb = sim ? sim.simAwayWinProb / 100 : apiAwayProb;
+  const simDrawProb = sim ? sim.simDrawProb / 100 : apiDrawProb;
+
+  // 3) Odds-implied probability (piyasa bilgisi — vig düzeltmeli)
+  const rawImplied = 1 / odds.home + 1 / odds.draw + 1 / odds.away;
+  const vigFactor = rawImplied > 0 ? 1 / rawImplied : 1; // Vig kaldır
+  const impliedHome = (1 / odds.home) * vigFactor;
+  const impliedAway = (1 / odds.away) * vigFactor;
+  const impliedDraw = (1 / odds.draw) * vigFactor;
+
+  // 4) Hibrit olasılık: Sim (%50) + API (%25) + Odds (%25) → en dengeli tahmin
+  const blendProb = (simP: number, apiP: number, oddsP: number): number => {
+    return simP * 0.50 + apiP * 0.25 + oddsP * 0.25;
+  };
+  const homeProbability = blendProb(simHomeProb, apiHomeProb, impliedHome);
+  const awayProbability = blendProb(simAwayProb, apiAwayProb, impliedAway);
+  const drawProbability = blendProb(simDrawProb, apiDrawProb, impliedDraw);
 
   // Hibrit confidence hesaplama: self-calibrating ağırlıklar
   const hybridConfidence = (heuristicConf: number, pickType: string): number => {
     if (!sim) return heuristicConf;
     const simProb = getSimProbability(sim, pickType);
     if (simProb === undefined) return heuristicConf;
-    const simConf = Math.min(95, simProb); // simProb zaten % cinsinden
-    return Math.round(heuristicConf * weights.heuristic + simConf * weights.sim);
+    const simConf = Math.min(92, simProb); // simProb zaten % cinsinden
+    // Ağırlıklı harmanlama + over-confidence freni
+    const blended = heuristicConf * weights.heuristic + simConf * weights.sim;
+    // Sim ve heuristic çok farklıysa → güveni düşür (belirsizlik)
+    const divergence = Math.abs(heuristicConf - simConf);
+    const penalty = divergence > 20 ? Math.min(8, (divergence - 20) * 0.3) : 0;
+    return Math.round(Math.max(10, blended - penalty));
   };
 
   // H2H benzerlik filtresi: çelişen pick'lerin confidence'ını düşür
@@ -769,27 +805,66 @@ function generatePicks(
   if (drawProbability >= 0.25) addPick("X", drawProbability, impliedDraw, odds.draw, false);
   if (awayProbability >= 0.35) addPick("2", awayProbability, impliedAway, odds.away, analysis.h2hAdvantage === "away");
 
-  // --- Üst/Alt 2.5 ---
+  // --- Üst/Alt 2.5 --- (SIM-DRIVEN: simülasyon olasılığı birincil kaynak)
   const avgAttack = (analysis.homeAttack + analysis.awayAttack) / 2;
   const avgDefense = (analysis.homeDefense + analysis.awayDefense) / 2;
   const goalIndicator = avgAttack - avgDefense;
   const h2hGoalAvg = analysis.h2hGoalAvg ?? 0;
-  const xgBonus = ((analysis.homeXg ?? 1.2) + (analysis.awayXg ?? 1.0)) > 2.6 ? 0.05 : 0;
+  const xgTotal = (analysis.homeXg ?? 1.2) + (analysis.awayXg ?? 1.0);
+  const xgBonus = xgTotal > 2.6 ? 0.05 : 0;
 
-  if (goalIndicator > 8 || (goalIndicator > 3 && h2hGoalAvg > 2.5)) {
-    const overProb = Math.min(0.75, (avgAttack / 100) * 0.7 + (h2hGoalAvg > 2.5 ? 0.15 : 0) + xgBonus);
-    addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0, 50);
+  // Sim varsa sim'i kullan, yoksa heuristic
+  if (sim && sim.simOver25Prob > 48) {
+    // Sim diyor ki %48+ olasılıkla 2.5 üstü gol olacak
+    const overProb = sim.simOver25Prob / 100;
+    addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0 || xgTotal > 3.0, 48);
+  } else if (goalIndicator > 5 || (goalIndicator > 0 && h2hGoalAvg > 2.5) || xgTotal > 2.8) {
+    // Heuristic fallback — daha gevşek eşik
+    const overProb = Math.min(0.72, (avgAttack / 100) * 0.6 + (h2hGoalAvg > 2.5 ? 0.12 : 0) + xgBonus + (xgTotal > 2.8 ? 0.08 : 0));
+    addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0, 48);
   }
 
-  if (goalIndicator < -8 || (goalIndicator < -3 && h2hGoalAvg < 2.2)) {
-    const underProb = Math.min(0.75, (avgDefense / 100) * 0.7 + (h2hGoalAvg < 2.0 ? 0.15 : 0));
-    addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8, 50);
+  if (sim && (100 - sim.simOver25Prob) > 48) {
+    // Sim %48+ alt 2.5
+    const underProb = (100 - sim.simOver25Prob) / 100;
+    addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8 || xgTotal < 1.8, 48);
+  } else if (goalIndicator < -5 || (goalIndicator < 0 && h2hGoalAvg < 2.2) || xgTotal < 1.8) {
+    const underProb = Math.min(0.72, (avgDefense / 100) * 0.6 + (h2hGoalAvg < 2.0 ? 0.12 : 0) + (xgTotal < 1.8 ? 0.08 : 0));
+    addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8, 48);
   }
 
-  // --- KG Var ---
-  if (analysis.homeAttack > 60 && analysis.awayAttack > 55) {
-    const bttsProb = Math.min(0.75, ((analysis.homeAttack + analysis.awayAttack) / 200) * 0.85);
-    addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, false, 50);
+  // --- Üst/Alt 1.5 ve 3.5 (sim-driven) ---
+  if (sim) {
+    if (sim.simOver15Prob > 70) {
+      addPick("Over 1.5", sim.simOver15Prob / 100, 1 / odds.over15, odds.over15, xgTotal > 2.5, 55);
+    }
+    if ((100 - sim.simOver15Prob) > 30) {
+      addPick("Under 1.5", (100 - sim.simOver15Prob) / 100, 1 / odds.under15, odds.under15, xgTotal < 1.5, 55);
+    }
+    if (sim.simOver35Prob > 35) {
+      addPick("Over 3.5", sim.simOver35Prob / 100, 1 / odds.over35, odds.over35, xgTotal > 3.5, 48);
+    }
+    if ((100 - sim.simOver35Prob) > 60) {
+      addPick("Under 3.5", (100 - sim.simOver35Prob) / 100, 1 / odds.under35, odds.under35, xgTotal < 2.5, 48);
+    }
+  }
+
+  // --- KG Var --- (SIM-DRIVEN + xG-based)
+  if (sim && sim.simBttsProb > 42) {
+    // Sim %42+ KG
+    const bttsProb = sim.simBttsProb / 100;
+    addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, xgTotal > 2.5, 48);
+  } else if (analysis.homeAttack > 55 && analysis.awayAttack > 50 && xgTotal > 2.2) {
+    // Heuristic fallback — daha geniş koşul
+    const bttsProb = Math.min(0.72, ((analysis.homeAttack + analysis.awayAttack) / 200) * 0.80 + (xgTotal > 2.6 ? 0.05 : 0));
+    addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, false, 48);
+  }
+
+  // --- KG Yok ---
+  if (sim && (100 - sim.simBttsProb) > 50) {
+    const bttsNoProb = (100 - sim.simBttsProb) / 100;
+    const weakAttack = analysis.homeAttack < 45 || analysis.awayAttack < 45;
+    addPick("BTTS No", bttsNoProb, 1 / odds.bttsNo, odds.bttsNo, weakAttack, 50);
   }
 
   // --- İY KG Var (HT BTTS Yes) ---
@@ -1060,10 +1135,26 @@ function buildInsights(
 function calculateConfidence(modelProb: number, impliedProb: number, extraSignal: boolean): number {
   let confidence = modelProb * 100;
   const edge = modelProb - impliedProb;
-  if (edge > 0) confidence += Math.min(15, edge * 100);
-  else confidence += Math.max(-10, edge * 50);
-  if (extraSignal) confidence += 5;
-  return Math.round(Math.max(10, Math.min(95, confidence)));
+
+  // Logaritmik edge ağırlıklandırma — küçük edge'lerde temkinli, büyüklerde agresif
+  if (edge > 0) {
+    // Pozitif edge: log scale ile artan bonus (max 18)
+    const edgeBonus = Math.min(18, Math.log1p(edge * 8) * 10);
+    confidence += edgeBonus;
+  } else {
+    // Negatif edge: kare kök scale ile ceza (daha sert düşüş)
+    const edgePenalty = Math.min(15, Math.sqrt(Math.abs(edge)) * 12);
+    confidence -= edgePenalty;
+  }
+
+  if (extraSignal) confidence += 4;
+
+  // Over-confidence freni: %80+ confidence'larda damping
+  if (confidence > 80) {
+    confidence = 80 + (confidence - 80) * 0.5;
+  }
+
+  return Math.round(Math.max(10, Math.min(92, confidence)));
 }
 
 function getPickReasoning(type: PickType, confidence: number, prediction: PredictionResponse | null, analysis: MatchAnalysis): string {

@@ -35,6 +35,7 @@ import {
   Activity,
   BarChart3,
   Sliders,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -114,6 +115,35 @@ export default function AdminDashboard() {
   const [calibration, setCalibration] = useState<CalibrationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"overview" | "calibration" | "markets">("overview");
+  const [resetting, setResetting] = useState(false);
+  const [resetResult, setResetResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleReset = useCallback(async () => {
+    if (!window.confirm("⚠️ TÜM istatistikleri sıfırlamak istediğinize emin misiniz?\n\nBu işlem:\n- Tüm tahmin geçmişini siler\n- Validasyon kayıtlarını temizler\n- Kalibrasyon verilerini sıfırlar\n\nGeri alınamaz!")) return;
+    if (!window.confirm("🚨 Son onay: Gerçekten tüm verileri silmek istiyor musunuz?")) return;
+
+    setResetting(true);
+    setResetResult(null);
+    try {
+      const res = await fetch("/api/admin/reset-stats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "RESET_ALL_STATS" }),
+      });
+      const data = await res.json();
+      setResetResult({ success: data.success, message: data.message || data.error });
+      if (data.success) {
+        setStats(null);
+        setCalibration(null);
+        setTimeout(() => fetchData(), 500);
+      }
+    } catch (err) {
+      setResetResult({ success: false, message: "Reset başarısız: " + String(err) });
+    } finally {
+      setResetting(false);
+      setTimeout(() => setResetResult(null), 8000);
+    }
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -158,14 +188,37 @@ export default function AdminDashboard() {
             Prediction engine analitikleri & kalibrasyon
           </p>
         </div>
-        <button
-          onClick={fetchData}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Yenile
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleReset}
+            disabled={resetting}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-900/40 hover:bg-red-800/60 text-red-400 hover:text-red-300 border border-red-800/50 transition disabled:opacity-50"
+          >
+            <Trash2 className={cn("w-4 h-4", resetting && "animate-pulse")} />
+            {resetting ? "Sıfırlanıyor..." : "Stats Sıfırla"}
+          </button>
+          <button
+            onClick={fetchData}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Yenile
+          </button>
+        </div>
       </div>
+
+      {/* Reset Result Banner */}
+      {resetResult && (
+        <div className={cn(
+          "px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-2",
+          resetResult.success
+            ? "bg-green-900/30 text-green-400 border border-green-800/50"
+            : "bg-red-900/30 text-red-400 border border-red-800/50"
+        )}>
+          {resetResult.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+          {resetResult.message}
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div className="flex gap-2 border-b border-zinc-800 pb-1">

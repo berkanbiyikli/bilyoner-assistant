@@ -9,11 +9,10 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { clearCache } from "@/lib/cache";
 
 export const runtime = "nodejs";
-export const maxDuration = 15;
+export const maxDuration = 30;
 
 export async function POST(request: Request) {
   try {
-    // Basit güvenlik: Admin secret veya body'de onay
     const body = await request.json().catch(() => ({}));
     if (body.confirm !== "RESET_ALL_STATS") {
       return NextResponse.json(
@@ -24,84 +23,80 @@ export async function POST(request: Request) {
 
     const supabase = createAdminSupabase();
     const results: Record<string, { success: boolean; deleted: number; error?: string }> = {};
+    let totalDeleted = 0;
 
-    // 1. validation_records tablosunu temizle
-    const { data: valRecords, error: valError } = await supabase
+    // 1. validation_records — tümünü sil (gte ile tarih filtresiz hepsini yakala)
+    const { data: valDel, error: valErr } = await supabase
       .from("validation_records")
-      .select("id", { count: "exact" });
+      .delete()
+      .gte("created_at", "2000-01-01T00:00:00Z")
+      .select("id");
     
-    const valCount = valRecords?.length || 0;
+    results.validation_records = {
+      success: !valErr,
+      deleted: valDel?.length || 0,
+      error: valErr?.message,
+    };
+    totalDeleted += valDel?.length || 0;
+
+    // 2. predictions — settle edilmişleri sil
+    const { data: predDel, error: predErr } = await supabase
+      .from("predictions")
+      .delete()
+      .in("result", ["won", "lost", "void"])
+      .select("id");
     
-    if (valCount > 0) {
-      const { error } = await supabase
+    results.predictions_settled = {
+      success: !predErr,
+      deleted: predDel?.length || 0,
+      error: predErr?.message,
+    };
+    totalDeleted += predDel?.length || 0;
+
+    // 3. predictions — pending olanları da sil
+    const { data: pendDel, error: pendErr } = await supabase
+      .from("predictions")
+      .delete()
+      .eq("result", "pending")
+      .select("id");
+
+    results.predictions_pending = {
+      success: !pendErr,
+      deleted: pendDel?.length || 0,
+      error: pendErr?.message,
+    };
+    totalDeleted += pendDel?.length || 0;
+
+    // 4. Kalan varsa — ikinci geçiş (Supabase 1000 row limit)
+    let extraDeleted = 0;
+    for (let i = 0; i < 5; i++) {
+      const { data: extraVal } = await supabase
         .from("validation_records")
         .delete()
-        .neq("id", "00000000-0000-0000-0000-000000000000"); // Tümünü sil (dummy condition)
-      
-      results.validation_records = {
-        success: !error,
-        deleted: error ? 0 : valCount,
-        error: error?.message,
-      };
-    } else {
-      results.validation_records = { success: true, deleted: 0 };
-    }
-
-    // 2. predictions tablosundaki result'ları sıfırla (won/lost → silinecek)
-    const { data: predRecords } = await supabase
-      .from("predictions")
-      .select("id", { count: "exact" })
-      .in("result", ["won", "lost", "void"]);
-    
-    const predCount = predRecords?.length || 0;
-
-    if (predCount > 0) {
-      const { error } = await supabase
+        .gte("created_at", "2000-01-01T00:00:00Z")
+        .select("id");
+      const { data: extraPred } = await supabase
         .from("predictions")
         .delete()
-        .in("result", ["won", "lost", "void"]);
+        .gte("created_at", "2000-01-01T00:00:00Z")
+        .select("id");
       
-      results.predictions_settled = {
-        success: !error,
-        deleted: error ? 0 : predCount,
-        error: error?.message,
-      };
-    } else {
-      results.predictions_settled = { success: true, deleted: 0 };
+      const batchCount = (extraVal?.length || 0) + (extraPred?.length || 0);
+      extraDeleted += batchCount;
+      if (batchCount === 0) break; // Kalan yok
+    }
+    totalDeleted += extraDeleted;
+    if (extraDeleted > 0) {
+      results.extra_cleanup = { success: true, deleted: extraDeleted };
     }
 
-    // 3. Pending tahminleri de sil (temiz başlangıç)
-    const { data: pendingRecords } = await supabase
-      .from("predictions")
-      .select("id", { count: "exact" })
-      .eq("result", "pending");
-
-    const pendingCount = pendingRecords?.length || 0;
-
-    if (pendingCount > 0) {
-      const { error } = await supabase
-        .from("predictions")
-        .delete()
-        .eq("result", "pending");
-      
-      results.predictions_pending = {
-        success: !error,
-        deleted: error ? 0 : pendingCount,
-        error: error?.message,
-      };
-    } else {
-      results.predictions_pending = { success: true, deleted: 0 };
-    }
-
-    // 4. Tüm in-memory cache'i temizle (optimizer, calibration, prediction cache dahil)
+    // 5. Tüm in-memory cache temizle
     clearCache();
     results.cache = { success: true, deleted: 0 };
 
-    // Toplam silinen
-    const totalDeleted = Object.values(results).reduce((sum, r) => sum + r.deleted, 0);
     const allSuccess = Object.values(results).every((r) => r.success);
 
-    console.log(`[RESET] Stats reset completed. Total deleted: ${totalDeleted}`, results);
+    console.log(`[RESET] Completed. Total deleted: ${totalDeleted}`, results);
 
     return NextResponse.json({
       success: allSuccess,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById } from "@/lib/api-football";
 import { analyzeMatch, analyzeMatches } from "@/lib/prediction";
+import { getSimProbability } from "@/lib/prediction/simulator";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
 import type { FixtureResponse } from "@/types/api-football";
@@ -119,14 +120,21 @@ export async function GET(req: NextRequest) {
           homeTeam: fixture?.teams.home ?? { id: 0, name: firstPred.home_team, logo: "", winner: null },
           awayTeam: fixture?.teams.away ?? { id: 0, name: firstPred.away_team, logo: "", winner: null },
           kickoff: firstPred.kickoff,
-          picks: sortedPreds.map((p) => ({
-            type: p.pick,
-            confidence: p.confidence,
-            odds: p.odds,
-            reasoning: p.analysis_summary || "",
-            expectedValue: p.expected_value,
-            isValueBet: p.is_value_bet,
-          })),
+          picks: sortedPreds.map((p) => {
+            // Sim olasılığı: canlı analiz varsa simülasyondan hesapla
+            const simProb = liveAnalysis?.analysis?.simulation
+              ? getSimProbability(liveAnalysis.analysis.simulation, p.pick)
+              : undefined;
+            return {
+              type: p.pick,
+              confidence: p.confidence,
+              odds: p.odds,
+              reasoning: p.analysis_summary || "",
+              expectedValue: p.expected_value,
+              isValueBet: p.is_value_bet,
+              simProbability: simProb,
+            };
+          }),
           analysis: liveAnalysis?.analysis ?? {
             summary: firstPred.analysis_summary || "",
             homeAttack: 50,

@@ -31,6 +31,8 @@ import { simulateMatch, getSimProbability } from "@/lib/prediction/simulator";
 import { getRefereeProfile } from "@/lib/prediction/referees";
 import { calculateMatchImportance, type MatchImportance } from "@/lib/prediction/importance";
 import { getOptimalWeights } from "@/lib/prediction/validator";
+import { analyzeForm, type FormAnalysis } from "@/lib/prediction/form-analyzer";
+import { calculateEloFromMatches, eloToWinProbabilities, calculateH2HElo } from "@/lib/prediction/elo";
 
 const CACHE_TTL = 30 * 60; // 30 dakika
 
@@ -68,6 +70,21 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   const xgData = extractXgData(prediction);
   const similarity = findSimilarMatch(prediction, h2h);
 
+  // === YENİ: Form Decay Analizi ===
+  const homeFormString = prediction?.teams?.home?.last_5?.form || prediction?.teams?.home?.league?.form?.slice(-5) || "";
+  const awayFormString = prediction?.teams?.away?.last_5?.form || prediction?.teams?.away?.league?.form?.slice(-5) || "";
+  const homeFormAnalysis = analyzeForm(homeFormString);
+  const awayFormAnalysis = analyzeForm(awayFormString);
+
+  // === YENİ: H2H Elo Analizi ===
+  const h2hElo = h2h.length >= 2 ? calculateH2HElo(
+    h2h.map(m => ({
+      homeGoals: m.goals?.home ?? 0,
+      awayGoals: m.goals?.away ?? 0,
+      wasHome: m.teams.home.id === homeId,
+    }))
+  ) : undefined;
+
   // Hakem profili
   const refereeProfile = getRefereeProfile(fixture.fixture.referee);
 
@@ -78,13 +95,16 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
     xgData,
     similarity,
     keyMissingPlayers,
+    homeFormAnalysis,
+    awayFormAnalysis,
+    h2hElo,
   }, refereeProfile);
 
   const matchOdds = extractOdds(odds);
 
   // Monte Carlo simülasyon (analiz + odds hazır olduktan sonra)
-  // Liga bazlı ev sahibi avantajı + motivasyon çarpanı → dinamik lambda
-  const simulation = simulateMatch(analysis, matchOdds, fixture.league.id, importance);
+  // Liga bazlı ev sahibi avantajı + motivasyon çarpanı + form decay → dinamik lambda
+  const simulation = simulateMatch(analysis, matchOdds, fixture.league.id, importance, homeFormAnalysis, awayFormAnalysis);
   analysis.simulation = simulation;
 
   // Self-calibrating ağırlıklar al (cache'li)
@@ -93,7 +113,7 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   const picks = generatePicks(analysis, matchOdds, prediction, fixture, weights);
 
   // Derinlemesine bilgiler (insights)
-  const insights = buildInsights(analysis, xgData, goalTiming, keyMissingPlayers, matchOdds, importance);
+  const insights = buildInsights(analysis, xgData, goalTiming, keyMissingPlayers, matchOdds, importance, homeFormAnalysis, awayFormAnalysis);
 
   const result: MatchPrediction = {
     fixtureId,
@@ -465,6 +485,9 @@ interface AdvancedData {
   xgData: XgData;
   similarity?: MatchSimilarity;
   keyMissingPlayers: KeyMissingPlayer[];
+  homeFormAnalysis?: FormAnalysis;
+  awayFormAnalysis?: FormAnalysis;
+  h2hElo?: { relativeAdvantage: number; confidence: number };
 }
 
 function buildAnalysis(
@@ -581,6 +604,48 @@ function buildAnalysis(
     awayAttack = Math.min(95, awayAttack + Math.round(advanced.xgData.awayXgDelta * 5));
   }
 
+  // === YENİ: Form Decay Etkisi ===
+  // Ağırlıklı form skoru (exponential decay) API form'unun üzerine yazabilir
+  if (advanced.homeFormAnalysis && advanced.homeFormAnalysis.weightedForm !== 50) {
+    // Ağırlıklı harmanlama: mevcut form %40 + decay form %60
+    homeFormScore = Math.round(homeFormScore * 0.4 + advanced.homeFormAnalysis.weightedForm * 0.6);
+  }
+  if (advanced.awayFormAnalysis && advanced.awayFormAnalysis.weightedForm !== 50) {
+    awayFormScore = Math.round(awayFormScore * 0.4 + advanced.awayFormAnalysis.weightedForm * 0.6);
+  }
+
+  // Streak etkisi: Momentum galibiyetlere bonusu
+  if (advanced.homeFormAnalysis?.streak.type === "win" && advanced.homeFormAnalysis.streak.length >= 3) {
+    homeAttack = Math.min(95, homeAttack + Math.min(8, advanced.homeFormAnalysis.streak.length * 2));
+    homeWinProb = Math.min(85, homeWinProb + 3);
+  }
+  if (advanced.awayFormAnalysis?.streak.type === "win" && advanced.awayFormAnalysis.streak.length >= 3) {
+    awayAttack = Math.min(95, awayAttack + Math.min(8, advanced.awayFormAnalysis.streak.length * 2));
+    awayWinProb = Math.min(85, awayWinProb + 3);
+  }
+  // Mağlubiyet serisi cezası
+  if (advanced.homeFormAnalysis?.streak.type === "loss" && advanced.homeFormAnalysis.streak.length >= 3) {
+    homeAttack = Math.max(15, homeAttack - Math.min(10, advanced.homeFormAnalysis.streak.length * 2));
+    homeWinProb = Math.max(5, homeWinProb - 4);
+  }
+  if (advanced.awayFormAnalysis?.streak.type === "loss" && advanced.awayFormAnalysis.streak.length >= 3) {
+    awayAttack = Math.max(15, awayAttack - Math.min(10, advanced.awayFormAnalysis.streak.length * 2));
+    awayWinProb = Math.max(5, awayWinProb - 4);
+  }
+
+  // === YENİ: H2H Elo Etkisi ===
+  if (advanced.h2hElo && advanced.h2hElo.confidence > 0.3) {
+    const eloAdv = advanced.h2hElo.relativeAdvantage;
+    const eloWeight = advanced.h2hElo.confidence * 0.5; // Max %40 etki
+    if (eloAdv > 30) {
+      // Ev sahibi H2H'de üstün
+      homeWinProb = Math.min(85, homeWinProb + Math.round(eloAdv * eloWeight * 0.03));
+    } else if (eloAdv < -30) {
+      // Deplasman H2H'de üstün
+      awayWinProb = Math.min(85, awayWinProb + Math.round(Math.abs(eloAdv) * eloWeight * 0.03));
+    }
+  }
+
   // H2H analizi
   let h2hAdvantage: "home" | "away" | "neutral" = "neutral";
   let h2hGoalAvg = 0;
@@ -690,6 +755,20 @@ function buildSmartSummary(
     parts.push(`⏰ Geç gol olasılığı yüksek (%${advanced.goalTiming.lateGoalProb})`);
   }
 
+  // Form serisi bilgisi
+  if (advanced.homeFormAnalysis?.streak.type === "win" && advanced.homeFormAnalysis.streak.length >= 4) {
+    parts.push(`🔥 ${fixture.teams.home.name} ${advanced.homeFormAnalysis.streak.length} maçlık galibiyet serisi`);
+  }
+  if (advanced.awayFormAnalysis?.streak.type === "win" && advanced.awayFormAnalysis.streak.length >= 4) {
+    parts.push(`🔥 ${fixture.teams.away.name} ${advanced.awayFormAnalysis.streak.length} maçlık galibiyet serisi`);
+  }
+  if (advanced.homeFormAnalysis?.streak.type === "loss" && advanced.homeFormAnalysis.streak.length >= 3) {
+    parts.push(`❄️ ${fixture.teams.home.name} ${advanced.homeFormAnalysis.streak.length} maçlık mağlubiyet serisi`);
+  }
+  if (advanced.awayFormAnalysis?.streak.type === "loss" && advanced.awayFormAnalysis.streak.length >= 3) {
+    parts.push(`❄️ ${fixture.teams.away.name} ${advanced.awayFormAnalysis.streak.length} maçlık mağlubiyet serisi`);
+  }
+
   return parts.join(" | ") || "Analiz mevcut değil";
 }
 
@@ -732,13 +811,21 @@ function generatePicks(
   const impliedAway = (1 / odds.away) * vigFactor;
   const impliedDraw = (1 / odds.draw) * vigFactor;
 
-  // 4) Hibrit olasılık: Sim (%50) + API (%25) + Odds (%25) → en dengeli tahmin
-  const blendProb = (simP: number, apiP: number, oddsP: number): number => {
-    return simP * 0.50 + apiP * 0.25 + oddsP * 0.25;
+  // 4) Hibrit olasılık: Sim (%45) + API (%20) + Odds (%25) + Elo (%10) → en dengeli tahmin
+  // Elo olasılıkları hesapla (H2H Elo varsa daha güvenilir, yoksa API attack/defense'den)
+  const homeEloApprox = 1500 + (analysis.homeAttack - 50) * 4 + (analysis.homeForm > 50 ? (analysis.homeForm - 50) * 2 : 0);
+  const awayEloApprox = 1500 + (analysis.awayAttack - 50) * 4 + (analysis.awayForm > 50 ? (analysis.awayForm - 50) * 2 : 0);
+  const eloProbs = eloToWinProbabilities(homeEloApprox, awayEloApprox);
+  const eloHome = eloProbs.homeWin / 100;
+  const eloAway = eloProbs.awayWin / 100;
+  const eloDraw = eloProbs.draw / 100;
+
+  const blendProb = (simP: number, apiP: number, oddsP: number, eloP: number): number => {
+    return simP * 0.45 + apiP * 0.20 + oddsP * 0.25 + eloP * 0.10;
   };
-  const homeProbability = blendProb(simHomeProb, apiHomeProb, impliedHome);
-  const awayProbability = blendProb(simAwayProb, apiAwayProb, impliedAway);
-  const drawProbability = blendProb(simDrawProb, apiDrawProb, impliedDraw);
+  const homeProbability = blendProb(simHomeProb, apiHomeProb, impliedHome, eloHome);
+  const awayProbability = blendProb(simAwayProb, apiAwayProb, impliedAway, eloAway);
+  const drawProbability = blendProb(simDrawProb, apiDrawProb, impliedDraw, eloDraw);
 
   // Hibrit confidence hesaplama: self-calibrating ağırlıklar
   const hybridConfidence = (heuristicConf: number, pickType: string): number => {
@@ -1012,7 +1099,9 @@ function buildInsights(
   goalTiming: GoalTimingData,
   keyMissing: KeyMissingPlayer[],
   odds?: MatchOdds,
-  importance?: MatchImportance
+  importance?: MatchImportance,
+  homeForm?: FormAnalysis,
+  awayForm?: FormAnalysis
 ): MatchInsights {
   const notes: string[] = [];
 
@@ -1104,6 +1193,32 @@ function buildInsights(
     const tendencyLabel = ref.cardTendency === "strict" ? "kartçı" : ref.cardTendency === "lenient" ? "sakin" : "dengeli";
     const tempoLabel = ref.tempoImpact === "low-tempo" ? " — tempo düşürücü ⚠️" : ref.tempoImpact === "high-tempo" ? " — akıcı oyun ✅" : "";
     notes.push(`🟨 Hakem ${ref.name} maç başı ort. ${ref.avgCardsPerMatch} kart — ${tendencyLabel}${tempoLabel}`);
+  }
+
+  // === YENİ: Form Decay & Streak Insights ===
+  if (homeForm?.streak.type === "win" && homeForm.streak.length >= 3) {
+    notes.push(`🔥 Ev sahibi ${homeForm.streak.length} maçlık galibiyet serisi — momentum yüksek`);
+  }
+  if (awayForm?.streak.type === "win" && awayForm.streak.length >= 3) {
+    notes.push(`🔥 Deplasman ${awayForm.streak.length} maçlık galibiyet serisi — momentum yüksek`);
+  }
+  if (homeForm?.streak.type === "loss" && homeForm.streak.length >= 3) {
+    notes.push(`❄️ Ev sahibi ${homeForm.streak.length} maçlık mağlubiyet serisi — düşüşte`);
+  }
+  if (awayForm?.streak.type === "loss" && awayForm.streak.length >= 3) {
+    notes.push(`❄️ Deplasman ${awayForm.streak.length} maçlık mağlubiyet serisi — düşüşte`);
+  }
+  if (homeForm?.trend === "rising") {
+    notes.push(`📈 Ev sahibi form yükselişte (ağırlıklı: %${homeForm.weightedForm})`);
+  }
+  if (awayForm?.trend === "rising") {
+    notes.push(`📈 Deplasman form yükselişte (ağırlıklı: %${awayForm.weightedForm})`);
+  }
+  if (homeForm?.trend === "falling") {
+    notes.push(`📉 Ev sahibi form düşüşte (ağırlıklı: %${homeForm.weightedForm})`);
+  }
+  if (awayForm?.trend === "falling") {
+    notes.push(`📉 Deplasman form düşüşte (ağırlıklı: %${awayForm.weightedForm})`);
   }
 
   if (analysis.cornerData && analysis.cornerData.totalAvg > 10) {

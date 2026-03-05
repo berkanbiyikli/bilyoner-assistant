@@ -496,3 +496,63 @@ function findLeagueId(leagueName: string): number {
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
+
+// ---- Market Kalibrasyon: Simulator'a Geri Besleme ----
+
+const MARKET_CALIBRATION_KEY = "market-calibration-adj";
+const MARKET_CALIBRATION_TTL = 12 * 3600; // 12 saat
+
+export interface MarketCalibrationAdjustment {
+  /** Gol beklentisi ayarı: negatif = lambda'yı düşür (over-confident pazarlar) */
+  goalLambdaAdjustment: number;
+  /** Ev sahibi galibiyet ayarı */
+  homeWinAdjustment: number;
+  /** BTTS ayarı */
+  bttsAdjustment: number;
+  /** Son güncelleme */
+  updatedAt: string;
+}
+
+/**
+ * Optimizer'ın market calibration sonuçlarından simulator'a geri besleme
+ * Son optimization sonucuna bakarak pazar bazlı lambda düzeltmeleri üretir
+ */
+export function getMarketCalibrationAdjustment(): MarketCalibrationAdjustment | null {
+  const cached = getCached<MarketCalibrationAdjustment>(MARKET_CALIBRATION_KEY);
+  if (cached) return cached;
+
+  // Son optimization sonucunu al
+  const lastResult = getLastOptimizationResult();
+  if (!lastResult || lastResult.marketCalibrations.length === 0) return null;
+
+  let goalAdj = 0;
+  let homeAdj = 0;
+  let bttsAdj = 0;
+
+  for (const mc of lastResult.marketCalibrations) {
+    if (mc.market.includes("Over") && mc.lambdaAdjustment !== 0) {
+      goalAdj += mc.lambdaAdjustment;
+    }
+    if (mc.market === "1" && mc.lambdaAdjustment !== 0) {
+      homeAdj += mc.lambdaAdjustment;
+    }
+    if (mc.market === "BTTS Yes" && mc.lambdaAdjustment !== 0) {
+      bttsAdj += mc.lambdaAdjustment;
+    }
+  }
+
+  // Sınırla: max ±5%
+  goalAdj = Math.max(-0.05, Math.min(0.05, goalAdj));
+  homeAdj = Math.max(-0.05, Math.min(0.05, homeAdj));
+  bttsAdj = Math.max(-0.05, Math.min(0.05, bttsAdj));
+
+  const result: MarketCalibrationAdjustment = {
+    goalLambdaAdjustment: Math.round(goalAdj * 1000) / 1000,
+    homeWinAdjustment: Math.round(homeAdj * 1000) / 1000,
+    bttsAdjustment: Math.round(bttsAdj * 1000) / 1000,
+    updatedAt: new Date().toISOString(),
+  };
+
+  setCache(MARKET_CALIBRATION_KEY, result, MARKET_CALIBRATION_TTL);
+  return result;
+}

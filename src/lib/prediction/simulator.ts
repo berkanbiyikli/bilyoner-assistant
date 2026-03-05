@@ -1,11 +1,15 @@
 // ============================================
-// Monte Carlo Simülasyon Motoru
-// Poisson dağılımı ile maç simülasyonu (10.000 iterasyon)
+// Monte Carlo Simülasyon Motoru v2
+// Dixon-Coles Bivariate Poisson + Form Decay + Elo
+// Hibrit model: 10.000 MC iterasyon + analitik DC doğrulama
 // ============================================
 
 import type { MatchAnalysis, MatchOdds, MonteCarloResult, RefereeProfile } from "@/types";
 import type { MatchImportance } from "@/lib/prediction/importance";
-import { getCalibratedHomeAdvantage } from "@/lib/prediction/optimizer";
+import { getCalibratedHomeAdvantage, getMarketCalibrationAdjustment } from "@/lib/prediction/optimizer";
+import { estimateRho, calculateAnalyticProbabilities, dixonColesTau } from "@/lib/prediction/dixon-coles";
+import type { FormAnalysis } from "@/lib/prediction/form-analyzer";
+import { formToLambdaMultiplier } from "@/lib/prediction/form-analyzer";
 
 const SIM_RUNS = 10_000;
 
@@ -97,17 +101,22 @@ function poissonRandom(lambda: number): number {
 /**
  * Maçı 10.000 kez simüle et ve olasılık dağılımlarını döndür
  *
- * Lambda hesabı:
+ * Lambda hesabı (v2 — Dixon-Coles hybrid):
  * - Base: xG veya (attack/100 * 1.5) fallback
- * - Ev sahibi avantajı: ×1.05
+ * - Ev sahibi avantajı: ×1.05 (liga bazlı, kalibre edilmiş)
  * - Sakatlık düzeltmesi: kilit eksikler lambda'yı düşürür
  * - Savunma etkisi: rakip savunma güçlüyse lambda düşer
+ * - Form decay: son maçlar ağırlıklı momentum çarpanı
+ * - Market kalibrasyon: optimizer'dan gelen pazar düzeltmeleri
+ * - Dixon-Coles: Düşük skor korelasyonu (ρ parametresi)
  */
 export function simulateMatch(
   analysis: MatchAnalysis,
   odds?: MatchOdds,
   leagueId?: number,
-  importance?: MatchImportance
+  importance?: MatchImportance,
+  homeFormAnalysis?: FormAnalysis,
+  awayFormAnalysis?: FormAnalysis
 ): MonteCarloResult {
   // --- Lambda hesaplama ---
   const baseHomeLambda = analysis.homeXg ?? (analysis.homeAttack / 100) * 1.5;
@@ -145,9 +154,32 @@ export function simulateMatch(
   let homeLambda = baseHomeLambda * awayDefFactor * homeInjuryFactor * homeAdvantageFactor * refTempoFactor * homeImportanceFactor;
   let awayLambda = baseAwayLambda * homeDefFactor * awayInjuryFactor * refTempoFactor * awayImportanceFactor;
 
+  // Form Decay etkisi: Son maçların momentum çarpanı
+  if (homeFormAnalysis) {
+    const homeFormMul = formToLambdaMultiplier(homeFormAnalysis);
+    homeLambda *= homeFormMul.attackMultiplier;
+    awayLambda *= homeFormMul.defenseMultiplier; // Ev sahibi iyi formdaysa rakip daha az atar
+  }
+  if (awayFormAnalysis) {
+    const awayFormMul = formToLambdaMultiplier(awayFormAnalysis);
+    awayLambda *= awayFormMul.attackMultiplier;
+    homeLambda *= awayFormMul.defenseMultiplier;
+  }
+
+  // Market-specific kalibrasyon: Optimizer'dan gelen pazar düzeltmeleri
+  const marketAdj = getMarketCalibrationAdjustment();
+  if (marketAdj) {
+    // Over pazarları over-confident ise lambda'yı düşür
+    homeLambda *= (1 + (marketAdj.goalLambdaAdjustment ?? 0));
+    awayLambda *= (1 + (marketAdj.goalLambdaAdjustment ?? 0));
+  }
+
   // Lambda aralığını sınırla (0.25 – 3.8 arası mantıklı)
   homeLambda = Math.max(0.25, Math.min(3.8, homeLambda));
   awayLambda = Math.max(0.25, Math.min(3.8, awayLambda));
+
+  // === Dixon-Coles Korelasyon Parametresi ===
+  const rho = estimateRho(homeLambda, awayLambda, analysis.homeDefense, analysis.awayDefense, leagueId);
 
   // --- İlk yarı lambda hesaplama ---
   // Ampirik olarak gollerin ~%42'si ilk yarıda atılır
@@ -182,9 +214,23 @@ export function simulateMatch(
   const htScoreMap = new Map<string, number>();
 
   for (let i = 0; i < SIM_RUNS; i++) {
-    // Maç sonu (full time) simülasyonu
-    const homeGoals = poissonRandom(homeLambda);
-    const awayGoals = poissonRandom(awayLambda);
+    // Maç sonu (full time) simülasyonu — Dixon-Coles düzeltmeli
+    let homeGoals = poissonRandom(homeLambda);
+    let awayGoals = poissonRandom(awayLambda);
+
+    // Dixon-Coles düşük skor düzeltmesi (rejection sampling)
+    // Düşük skorlarda (0-0, 1-0, 0-1, 1-1) tau ile olasılığı ayarla
+    if (homeGoals <= 1 && awayGoals <= 1) {
+      const tau = dixonColesTau(homeGoals, awayGoals, homeLambda, awayLambda, rho);
+      // tau < 1 → bu skor daha az olası, reddet ve yeniden çek
+      // tau > 1 → bu skor daha olası, kabul et
+      if (tau < 1 && Math.random() > tau) {
+        // Rejection: yeniden Poisson çek (korelasyonu kısmen uygula)
+        homeGoals = poissonRandom(homeLambda);
+        awayGoals = poissonRandom(awayLambda);
+      }
+    }
+
     const totalGoals = homeGoals + awayGoals;
 
     // İlk yarı simülasyonu (ayrı Poisson çekimi)
@@ -220,6 +266,16 @@ export function simulateMatch(
   // --- Sonuçları normalize et ---
   const toPercent = (count: number) => Math.round((count / SIM_RUNS) * 1000) / 10;
 
+  // === Dixon-Coles Analitik Cross-Validation ===
+  // MC sonuçlarını analitik DC olasılıklarıyla harmanlayarak daha doğru sonuç elde et
+  const dcAnalytic = calculateAnalyticProbabilities(homeLambda, awayLambda, rho);
+
+  // Hibrit: %70 MC + %30 DC Analitik (MC varyansı yüksek olabilir, DC stabilize eder)
+  const hybridPercent = (mcCount: number, dcValue: number): number => {
+    const mcPercent = (mcCount / SIM_RUNS) * 100;
+    return Math.round((mcPercent * 0.70 + dcValue * 0.30) * 10) / 10;
+  };
+
   // En olası 5 skor
   const topScorelines = Array.from(scoreMap.entries())
     .sort((a, b) => b[1] - a[1])
@@ -248,13 +304,13 @@ export function simulateMatch(
     }));
 
   return {
-    simHomeWinProb: toPercent(homeWins),
-    simDrawProb: toPercent(draws),
-    simAwayWinProb: toPercent(awayWins),
-    simOver15Prob: toPercent(over15),
-    simOver25Prob: toPercent(over25),
-    simOver35Prob: toPercent(over35),
-    simBttsProb: toPercent(bttsYes),
+    simHomeWinProb: hybridPercent(homeWins, dcAnalytic.homeWin),
+    simDrawProb: hybridPercent(draws, dcAnalytic.draw),
+    simAwayWinProb: hybridPercent(awayWins, dcAnalytic.awayWin),
+    simOver15Prob: hybridPercent(over15, dcAnalytic.over15),
+    simOver25Prob: hybridPercent(over25, dcAnalytic.over25),
+    simOver35Prob: hybridPercent(over35, dcAnalytic.over35),
+    simBttsProb: hybridPercent(bttsYes, dcAnalytic.bttsYes),
     simHtOver05Prob: toPercent(htOver05),
     simHtOver15Prob: toPercent(htOver15),
     simHtBttsProb: toPercent(htBttsYes),

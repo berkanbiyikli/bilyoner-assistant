@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Radio,
   Zap,
@@ -13,6 +13,12 @@ import {
   Shield,
   Swords,
   RefreshCw,
+  Flame,
+  TrendingUp,
+  AlertTriangle,
+  Eye,
+  Crosshair,
+  Timer,
 } from "lucide-react";
 import type {
   FixtureResponse,
@@ -24,6 +30,42 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 // ---- Types ----
+
+type AlertLevel = "HOT" | "WARM" | "INFO";
+
+interface LiveOpportunity {
+  level: AlertLevel;
+  market: string;
+  message: string;
+  reasoning: string;
+  confidence: number;
+  timeWindow: string;
+}
+
+interface MomentumData {
+  homeScore: number;
+  awayScore: number;
+  dominantTeam: "home" | "away" | "balanced";
+  trend: "increasing" | "decreasing" | "stable";
+  description: string;
+}
+
+interface DangerLevel {
+  homeAttack: number;
+  awayAttack: number;
+  goalProbability: number;
+  description: string;
+}
+
+interface LiveMatchAnalysis {
+  momentum: MomentumData;
+  danger: DangerLevel;
+  opportunities: LiveOpportunity[];
+  insights: string[];
+  matchTemperature: number;
+  nextGoalTeam: "home" | "away" | "either" | "unlikely";
+  scorePressure: number;
+}
 
 interface PredictionPick {
   type: string;
@@ -46,6 +88,7 @@ interface EnrichedLiveMatch {
   lineups: LineupResponse[] | null;
   prediction: MatchPrediction | null;
   liveInsights: string[];
+  analysis: LiveMatchAnalysis | null;
 }
 
 // ---- Stat config ----
@@ -93,6 +136,7 @@ export default function LivePage() {
   const [expandedMatch, setExpandedMatch] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<Record<number, string>>({});
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [showOnlyOpportunities, setShowOnlyOpportunities] = useState(false);
 
   const fetchLive = useCallback(async () => {
     try {
@@ -117,21 +161,74 @@ export default function LivePage() {
     setExpandedMatch((prev) => (prev === fixtureId ? null : fixtureId));
   };
 
-  const getTab = (fixtureId: number) => activeTab[fixtureId] || "stats";
+  const getTab = (fixtureId: number) => activeTab[fixtureId] || "analysis";
   const setTab = (fixtureId: number, tab: string) => {
     setActiveTab((prev) => ({ ...prev, [fixtureId]: tab }));
   };
 
+  // HOT fırsatları olan maçları topla
+  const allHotOpportunities = useMemo(() => {
+    const hot: Array<{ match: EnrichedLiveMatch; opportunity: LiveOpportunity }> = [];
+    for (const m of matches) {
+      if (m.analysis?.opportunities) {
+        for (const opp of m.analysis.opportunities) {
+          if (opp.level === "HOT") {
+            hot.push({ match: m, opportunity: opp });
+          }
+        }
+      }
+    }
+    return hot.sort((a, b) => b.opportunity.confidence - a.opportunity.confidence);
+  }, [matches]);
+
+  // Maçları sırala
+  const sortedMatches = useMemo(() => {
+    const filtered = showOnlyOpportunities
+      ? matches.filter(m => m.analysis?.opportunities && m.analysis.opportunities.length > 0)
+      : matches;
+
+    return [...filtered].sort((a, b) => {
+      const aHot = a.analysis?.opportunities?.filter(o => o.level === "HOT").length || 0;
+      const bHot = b.analysis?.opportunities?.filter(o => o.level === "HOT").length || 0;
+      if (aHot !== bHot) return bHot - aHot;
+      const aTemp = a.analysis?.matchTemperature || 0;
+      const bTemp = b.analysis?.matchTemperature || 0;
+      return bTemp - aTemp;
+    });
+  }, [matches, showOnlyOpportunities]);
+
   // Liga bazlı grupla
   const leagueGroups = new Map<string, EnrichedLiveMatch[]>();
-  for (const m of matches) {
+  for (const m of sortedMatches) {
     const key = `${m.fixture.league.country} - ${m.fixture.league.name}`;
     if (!leagueGroups.has(key)) leagueGroups.set(key, []);
     leagueGroups.get(key)!.push(m);
   }
 
+  const totalOpportunities = matches.reduce((sum, m) => sum + (m.analysis?.opportunities?.length || 0), 0);
+
+  // Pick status helper
+  const getPickLiveStatus = (
+    pickType: string, homeGoals: number, awayGoals: number, elapsed: number
+  ): { icon: string; color: string } => {
+    const totalGoals = homeGoals + awayGoals;
+    switch (pickType) {
+      case "1": return homeGoals > awayGoals ? { icon: "✅", color: "text-green-400" } : homeGoals === awayGoals ? { icon: "⏳", color: "text-yellow-400" } : { icon: "❌", color: "text-red-400" };
+      case "X": return homeGoals === awayGoals ? { icon: "✅", color: "text-green-400" } : { icon: "❌", color: "text-red-400" };
+      case "2": return awayGoals > homeGoals ? { icon: "✅", color: "text-green-400" } : awayGoals === homeGoals ? { icon: "⏳", color: "text-yellow-400" } : { icon: "❌", color: "text-red-400" };
+      case "Over 2.5": return totalGoals >= 3 ? { icon: "✅", color: "text-green-400" } : { icon: elapsed >= 70 ? "⚠️" : "⏳", color: elapsed >= 70 ? "text-orange-400" : "text-yellow-400" };
+      case "Over 1.5": return totalGoals >= 2 ? { icon: "✅", color: "text-green-400" } : { icon: elapsed >= 70 ? "⚠️" : "⏳", color: elapsed >= 70 ? "text-orange-400" : "text-yellow-400" };
+      case "Under 2.5": return totalGoals >= 3 ? { icon: "❌", color: "text-red-400" } : { icon: "✅", color: "text-green-400" };
+      case "BTTS Yes": return homeGoals > 0 && awayGoals > 0 ? { icon: "✅", color: "text-green-400" } : homeGoals > 0 || awayGoals > 0 ? { icon: "⏳", color: "text-yellow-400" } : { icon: "⏳", color: "text-zinc-500" };
+      case "BTTS No": return homeGoals > 0 && awayGoals > 0 ? { icon: "❌", color: "text-red-400" } : { icon: "✅", color: "text-green-400" };
+      case "1X": return homeGoals >= awayGoals ? { icon: "✅", color: "text-green-400" } : { icon: "❌", color: "text-red-400" };
+      case "X2": return awayGoals >= homeGoals ? { icon: "✅", color: "text-green-400" } : { icon: "❌", color: "text-red-400" };
+      default: return { icon: "—", color: "text-zinc-500" };
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -140,7 +237,7 @@ export default function LivePage() {
             Canlı Maçlar
           </h1>
           <p className="text-sm text-zinc-400 mt-1">
-            İstatistikler · Olaylar · Kadro · Tahmin Takibi — 30 sn&apos;de bir güncellenir
+            Anlık Fırsatlar · Momentum · Tehlike Analizi — 30 sn&apos;de bir güncellenir
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -148,10 +245,7 @@ export default function LivePage() {
             Son: {lastUpdate.toLocaleTimeString("tr-TR")}
           </span>
           <button
-            onClick={() => {
-              setLoading(true);
-              fetchLive();
-            }}
+            onClick={() => { setLoading(true); fetchLive(); }}
             className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
           >
             <RefreshCw className={cn("w-4 h-4 text-zinc-400", loading && "animate-spin")} />
@@ -166,29 +260,93 @@ export default function LivePage() {
         </div>
       </div>
 
+      {/* Filters */}
+      {totalOpportunities > 0 && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowOnlyOpportunities(!showOnlyOpportunities)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all",
+              showOnlyOpportunities
+                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:border-zinc-600"
+            )}
+          >
+            <Flame className="w-4 h-4" />
+            Sadece Fırsatlar ({totalOpportunities})
+          </button>
+          <span className="text-xs text-zinc-500">
+            {allHotOpportunities.length} HOT fırsat aktif
+          </span>
+        </div>
+      )}
+
+      {/* ========== HOT FIRSATLAR BANNER ========== */}
+      {allHotOpportunities.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <Flame className="w-4 h-4 text-orange-500" />
+            <span className="text-sm font-bold text-orange-400">SICAK FIRSATLAR</span>
+            <span className="text-xs text-zinc-500">— Hemen değerlendir!</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {allHotOpportunities.slice(0, 6).map(({ match, opportunity }, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  setExpandedMatch(match.fixture.fixture.id);
+                  setTab(match.fixture.fixture.id, "analysis");
+                }}
+                className="bg-gradient-to-r from-orange-500/10 via-red-500/5 to-transparent border border-orange-500/20 rounded-xl p-3 text-left hover:border-orange-500/40 transition-all group"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 animate-pulse">🔥</span>
+                  <span className="text-[10px] font-bold text-amber-400">{opportunity.market}</span>
+                  <span className="text-[10px] text-zinc-500 ml-auto">%{opportunity.confidence}</span>
+                </div>
+                <p className="text-xs font-medium text-white truncate">
+                  {match.fixture.teams.home.name} - {match.fixture.teams.away.name}
+                  <span className="text-zinc-500 ml-1">({match.fixture.fixture.status.elapsed}&apos;)</span>
+                </p>
+                <p className="text-[10px] text-zinc-400 truncate mt-0.5">{opportunity.message}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ========== MAIN TABLE ========== */}
       {loading && matches.length === 0 ? (
         <div className="flex items-center justify-center py-20">
           <RefreshCw className="w-6 h-6 animate-spin text-zinc-500" />
         </div>
-      ) : matches.length > 0 ? (
-        <div className="space-y-6">
+      ) : sortedMatches.length > 0 ? (
+        <div className="space-y-3">
           {Array.from(leagueGroups.entries()).map(([league, leagueMatches]) => (
-            <div key={league} className="space-y-2">
+            <div key={league} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
               {/* League Header */}
-              <div className="flex items-center gap-2 px-1">
-                {leagueMatches[0].fixture.league.flag && (
-                  <Image
-                    src={leagueMatches[0].fixture.league.flag}
-                    alt=""
-                    width={16}
-                    height={12}
-                    className="rounded-sm"
-                  />
-                )}
-                <span className="text-xs font-medium text-zinc-400">{league}</span>
+              <div className="flex items-center justify-between bg-zinc-800/60 px-4 py-2">
+                <div className="flex items-center gap-2">
+                  {leagueMatches[0].fixture.league.flag && (
+                    <Image src={leagueMatches[0].fixture.league.flag} alt="" width={16} height={12} className="rounded-sm" />
+                  )}
+                  <span className="text-xs font-semibold text-zinc-300">{league}</span>
+                </div>
+                <span className="text-[10px] text-zinc-500">İY</span>
               </div>
 
-              {/* Matches */}
+              {/* Table Header */}
+              <div className="hidden sm:grid sm:grid-cols-[60px_1fr_60px_1fr_50px_minmax(200px,1fr)_120px] items-center px-4 py-1.5 text-[10px] text-zinc-600 font-medium border-b border-zinc-800/50 bg-zinc-800/20 gap-x-2">
+                <span>Saat</span>
+                <span>Ev Sahibi</span>
+                <span className="text-center">Skor</span>
+                <span>Deplasman</span>
+                <span className="text-center">İY</span>
+                <span>Tahmin / Fırsat</span>
+                <span className="text-center">Durum</span>
+              </div>
+
+              {/* Match Rows */}
               {leagueMatches.map((match) => {
                 const fid = match.fixture.fixture.id;
                 const isExpanded = expandedMatch === fid;
@@ -196,87 +354,190 @@ export default function LivePage() {
                 const statusShort = match.fixture.fixture.status.short;
                 const homeGoals = match.fixture.goals.home ?? 0;
                 const awayGoals = match.fixture.goals.away ?? 0;
+                const htHome = match.fixture.score.halftime.home;
+                const htAway = match.fixture.score.halftime.away;
+                const analysis = match.analysis;
+                const hasHotOpp = analysis?.opportunities?.some(o => o.level === "HOT");
+                const hasWarmOpp = analysis?.opportunities?.some(o => o.level === "WARM");
+                const bestPick = match.prediction?.picks?.[0];
+                const bestOpp = analysis?.opportunities?.[0];
+                const temp = analysis?.matchTemperature || 0;
 
                 return (
-                  <div
-                    key={fid}
-                    className={cn(
-                      "bg-zinc-900 border rounded-xl overflow-hidden transition-all",
-                      isExpanded ? "border-zinc-600" : "border-zinc-800 hover:border-zinc-700"
-                    )}
-                  >
-                    {/* Match Row */}
-                    <button onClick={() => toggleExpand(fid)} className="w-full p-4 flex items-center gap-4 text-left">
-                      {/* Live Badge */}
-                      <div className="flex flex-col items-center min-w-[48px]">
-                        <div className="flex items-center gap-1">
-                          <span className="relative flex h-1.5 w-1.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
+                  <div key={fid} className={cn(
+                    "border-b border-zinc-800/40 last:border-b-0 transition-colors",
+                    hasHotOpp ? "bg-orange-500/[0.03]" : hasWarmOpp ? "bg-amber-500/[0.02]" : "hover:bg-zinc-800/30"
+                  )}>
+                    {/* ---- Main Row ---- */}
+                    <button
+                      onClick={() => toggleExpand(fid)}
+                      className="w-full sm:grid sm:grid-cols-[60px_1fr_60px_1fr_50px_minmax(200px,1fr)_120px] flex flex-wrap items-center px-4 py-2.5 text-left gap-x-2 gap-y-1"
+                    >
+                      {/* Time / Minute */}
+                      <div className="flex items-center gap-1.5 min-w-[60px]">
+                        {statusShort === "HT" ? (
+                          <span className="text-[11px] font-bold text-amber-400">DV</span>
+                        ) : statusShort === "FT" || statusShort === "AET" || statusShort === "PEN" ? (
+                          <span className="text-[11px] font-bold text-zinc-500">MS</span>
+                        ) : elapsed ? (
+                          <div className="flex items-center gap-1">
+                            <span className="relative flex h-1.5 w-1.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
+                            </span>
+                            <span className="text-[11px] font-bold text-red-400">{elapsed}&apos;</span>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-zinc-500">
+                            {new Date(match.fixture.fixture.date).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
                           </span>
-                          <span className="text-[10px] font-bold text-red-400">
-                            {statusShort === "HT" ? "DV" : `${elapsed}'`}
-                          </span>
-                        </div>
+                        )}
+                        {/* Mini temp icon */}
+                        {temp >= 60 && <span className="text-[9px]">{temp >= 70 ? "🔥" : "⚡"}</span>}
                       </div>
 
-                      {/* Teams + Score */}
-                      <div className="flex-1 flex items-center justify-between">
-                        <div className="flex-1 space-y-1">
-                          <div className="flex items-center gap-2">
-                            {match.fixture.teams.home.logo && (
-                              <Image src={match.fixture.teams.home.logo} alt="" width={20} height={20} className="w-5 h-5 object-contain" />
-                            )}
-                            <span className={cn("text-sm font-medium", homeGoals > awayGoals ? "text-white" : "text-zinc-400")}>
-                              {match.fixture.teams.home.name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {match.fixture.teams.away.logo && (
-                              <Image src={match.fixture.teams.away.logo} alt="" width={20} height={20} className="w-5 h-5 object-contain" />
-                            )}
-                            <span className={cn("text-sm font-medium", awayGoals > homeGoals ? "text-white" : "text-zinc-400")}>
-                              {match.fixture.teams.away.name}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Score */}
-                        <div className="flex flex-col items-center mx-4">
-                          <span className={cn("text-xl font-bold", homeGoals > awayGoals ? "text-white" : "text-zinc-400")}>{homeGoals}</span>
-                          <span className={cn("text-xl font-bold", awayGoals > homeGoals ? "text-white" : "text-zinc-400")}>{awayGoals}</span>
-                        </div>
+                      {/* Home Team */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        {match.fixture.teams.home.logo && (
+                          <Image src={match.fixture.teams.home.logo} alt="" width={18} height={18} className="w-[18px] h-[18px] object-contain shrink-0" />
+                        )}
+                        <span className={cn("text-[13px] truncate", homeGoals > awayGoals ? "text-white font-semibold" : "text-zinc-300")}>
+                          {match.fixture.teams.home.name}
+                        </span>
+                        {analysis?.nextGoalTeam === "home" && <Crosshair className="w-3 h-3 text-green-400 shrink-0 animate-pulse" />}
                       </div>
 
-                      {/* Prediction Badge */}
-                      {match.prediction?.picks?.[0] && (
-                        <div className="flex flex-col items-end gap-1 min-w-[80px]">
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 font-medium">
-                            {match.prediction.picks[0].type}
-                          </span>
-                          <span className="text-[10px] text-zinc-500">
-                            %{match.prediction.picks[0].confidence} · {match.prediction.picks[0].odds.toFixed(2)}
-                          </span>
-                        </div>
-                      )}
+                      {/* Score */}
+                      <div className="flex items-center justify-center gap-1 min-w-[60px]">
+                        {elapsed || statusShort === "HT" || statusShort === "FT" ? (
+                          <>
+                            <span className={cn("text-base font-black tabular-nums", homeGoals > awayGoals ? "text-white" : "text-zinc-400")}>
+                              {homeGoals}
+                            </span>
+                            <span className="text-zinc-600 text-xs">-</span>
+                            <span className={cn("text-base font-black tabular-nums", awayGoals > homeGoals ? "text-white" : "text-zinc-400")}>
+                              {awayGoals}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-xs text-zinc-600">v</span>
+                        )}
+                      </div>
 
-                      {isExpanded ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                      {/* Away Team */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        {match.fixture.teams.away.logo && (
+                          <Image src={match.fixture.teams.away.logo} alt="" width={18} height={18} className="w-[18px] h-[18px] object-contain shrink-0" />
+                        )}
+                        <span className={cn("text-[13px] truncate", awayGoals > homeGoals ? "text-white font-semibold" : "text-zinc-300")}>
+                          {match.fixture.teams.away.name}
+                        </span>
+                        {analysis?.nextGoalTeam === "away" && <Crosshair className="w-3 h-3 text-green-400 shrink-0 animate-pulse" />}
+                      </div>
+
+                      {/* HT Score */}
+                      <div className="text-center min-w-[50px]">
+                        {htHome != null && htAway != null ? (
+                          <span className="text-[11px] text-zinc-500 tabular-nums">{htHome}-{htAway}</span>
+                        ) : (
+                          <span className="text-[11px] text-zinc-700">-</span>
+                        )}
+                      </div>
+
+                      {/* Prediction / Opportunity Column */}
+                      <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+                        {bestOpp ? (
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className={cn(
+                              "text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0",
+                              bestOpp.level === "HOT" ? "bg-orange-500/20 text-orange-400" : "bg-amber-500/15 text-amber-400"
+                            )}>
+                              {bestOpp.level === "HOT" ? "🔥" : "⚡"} {bestOpp.market}
+                            </span>
+                            <span className="text-[10px] text-zinc-400 truncate">{bestOpp.message}</span>
+                          </div>
+                        ) : bestPick ? (
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-400 shrink-0">
+                              {bestPick.type}
+                            </span>
+                            <span className="text-[10px] text-zinc-500 shrink-0">
+                              %{bestPick.confidence}
+                            </span>
+                            <span className="text-[10px] text-yellow-500/80 shrink-0">
+                              {bestPick.odds.toFixed(2)}
+                            </span>
+                            {bestPick.isValueBet && (
+                              <span className="text-[8px] px-1 py-0.5 rounded bg-green-500/15 text-green-400 shrink-0">VAL</span>
+                            )}
+                            <span className="text-[10px] text-zinc-600 truncate">{bestPick.reasoning}</span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-zinc-600">—</span>
+                        )}
+                      </div>
+
+                      {/* Status / Indicators */}
+                      <div className="flex items-center justify-end gap-1.5 min-w-[120px]">
+                        {/* Pick live status */}
+                        {bestPick && elapsed && (() => {
+                          const { icon, color } = getPickLiveStatus(bestPick.type, homeGoals, awayGoals, elapsed);
+                          return <span className={cn("text-[11px] font-medium", color)}>{icon}</span>;
+                        })()}
+                        {/* Goal probability */}
+                        {analysis && analysis.danger.goalProbability >= 40 && (
+                          <span className={cn(
+                            "text-[9px] font-bold px-1.5 py-0.5 rounded-full",
+                            analysis.danger.goalProbability >= 70 ? "bg-red-500/15 text-red-400" :
+                            analysis.danger.goalProbability >= 50 ? "bg-orange-500/10 text-orange-400" :
+                            "bg-zinc-800 text-zinc-500"
+                          )}>
+                            ⚽{analysis.danger.goalProbability}%
+                          </span>
+                        )}
+                        {/* Momentum mini bar */}
+                        {analysis && (
+                          <div className="flex h-1.5 w-12 rounded-full overflow-hidden bg-zinc-700">
+                            <div className="bg-blue-500" style={{ width: `${analysis.momentum.homeScore}%` }} />
+                            <div className="bg-red-500" style={{ width: `${analysis.momentum.awayScore}%` }} />
+                          </div>
+                        )}
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-zinc-500 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />}
+                      </div>
                     </button>
 
-                    {/* Insights Preview */}
-                    {match.liveInsights.length > 0 && !isExpanded && (
-                      <div className="px-4 pb-3 flex flex-wrap gap-1.5">
-                        {match.liveInsights.slice(0, 3).map((insight, i) => (
-                          <span key={i} className="text-[10px] bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded-full">
-                            {insight}
+                    {/* ---- Extra picks row (compact, below main) ---- */}
+                    {match.prediction && match.prediction.picks.length > 1 && !isExpanded && (
+                      <div className="px-4 pb-2 flex flex-wrap gap-1.5 sm:pl-[64px]">
+                        {match.prediction.picks.slice(1, 5).map((pick, i) => {
+                          const { icon, color } = getPickLiveStatus(pick.type, homeGoals, awayGoals, elapsed || 0);
+                          return (
+                            <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-zinc-800/60 text-zinc-400 px-2 py-0.5 rounded">
+                              <span className="font-medium text-zinc-300">{pick.type}</span>
+                              <span className="text-zinc-600">%{pick.confidence}</span>
+                              <span className="text-yellow-500/60">{pick.odds.toFixed(2)}</span>
+                              <span className={cn("text-[9px]", color)}>{icon}</span>
+                            </span>
+                          );
+                        })}
+                        {/* Opportunity badges */}
+                        {analysis?.opportunities?.slice(0, 2).map((opp, i) => (
+                          <span key={`opp-${i}`} className={cn(
+                            "text-[10px] px-2 py-0.5 rounded font-medium",
+                            opp.level === "HOT" ? "bg-orange-500/10 text-orange-400" : "bg-amber-500/10 text-amber-400"
+                          )}>
+                            {opp.level === "HOT" ? "🔥" : "⚡"} {opp.market}
                           </span>
                         ))}
                       </div>
                     )}
 
-                    {/* Expanded Detail */}
+                    {/* ---- Expanded Detail ---- */}
                     {isExpanded && (
                       <div className="border-t border-zinc-800">
+                        {/* Live Analysis Panel */}
+                        {analysis && <LiveAnalysisPanel analysis={analysis} match={match} />}
+
                         {/* Insights */}
                         {match.liveInsights.length > 0 && (
                           <div className="px-4 py-3 bg-zinc-800/30 flex flex-wrap gap-1.5">
@@ -298,6 +559,7 @@ export default function LivePage() {
                         {/* Tabs */}
                         <div className="flex border-b border-zinc-800">
                           {[
+                            { key: "analysis", icon: Flame, label: "Analiz" },
                             { key: "stats", icon: BarChart3, label: "İstatistik" },
                             { key: "events", icon: Activity, label: "Olaylar" },
                             { key: "lineups", icon: Users, label: "Kadro" },
@@ -305,10 +567,7 @@ export default function LivePage() {
                           ].map(({ key, icon: Icon, label }) => (
                             <button
                               key={key}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setTab(fid, key);
-                              }}
+                              onClick={(e) => { e.stopPropagation(); setTab(fid, key); }}
                               className={cn(
                                 "flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors",
                                 getTab(fid) === key ? "text-white border-b-2 border-indigo-500" : "text-zinc-500 hover:text-zinc-300"
@@ -322,6 +581,7 @@ export default function LivePage() {
 
                         {/* Tab Content */}
                         <div className="p-4">
+                          {getTab(fid) === "analysis" && <OpportunitiesPanel analysis={analysis} match={match} />}
                           {getTab(fid) === "stats" && <StatsPanel stats={match.statistics} match={match.fixture} />}
                           {getTab(fid) === "events" && <EventsPanel events={match.events} />}
                           {getTab(fid) === "lineups" && <LineupsPanel lineups={match.lineups} />}
@@ -338,10 +598,280 @@ export default function LivePage() {
       ) : (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-16 text-center">
           <Radio className="mx-auto h-12 w-12 text-zinc-600 mb-4" />
-          <h3 className="font-semibold text-lg text-white mb-2">Canlı Maç Yok</h3>
-          <p className="text-sm text-zinc-400">Şu anda oynanan maç bulunmuyor.</p>
+          <h3 className="font-semibold text-lg text-white mb-2">
+            {showOnlyOpportunities ? "Aktif Fırsat Yok" : "Canlı Maç Yok"}
+          </h3>
+          <p className="text-sm text-zinc-400">
+            {showOnlyOpportunities
+              ? "Şu anda tespit edilen fırsat bulunmuyor. Filtreyi kaldırıp tüm maçlara bakabilirsin."
+              : "Şu anda oynanan maç bulunmuyor."}
+          </p>
+          {showOnlyOpportunities && (
+            <button
+              onClick={() => setShowOnlyOpportunities(false)}
+              className="mt-4 px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm hover:bg-zinc-700 transition-colors"
+            >
+              Tüm Maçları Göster
+            </button>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================
+// Live Analysis Panel (Compact header in expanded view)
+// ============================================
+
+function LiveAnalysisPanel({ analysis, match }: { analysis: LiveMatchAnalysis | null; match: EnrichedLiveMatch }) {
+  if (!analysis) return null;
+
+  const { momentum, danger, matchTemperature, nextGoalTeam, scorePressure } = analysis;
+  const homeName = match.fixture.teams.home.name;
+  const awayName = match.fixture.teams.away.name;
+
+  const nextGoalLabel =
+    nextGoalTeam === "home" ? homeName :
+    nextGoalTeam === "away" ? awayName :
+    nextGoalTeam === "either" ? "Her iki takım" : "Düşük ihtimal";
+
+  return (
+    <div className="bg-gradient-to-b from-zinc-800/60 to-transparent px-4 py-4 space-y-4">
+      {/* Top row: Momentum + Temperature + Danger */}
+      <div className="grid grid-cols-3 gap-3">
+        {/* Momentum */}
+        <div className="space-y-2">
+          <p className="text-[10px] text-zinc-500 font-medium flex items-center gap-1">
+            <TrendingUp className="w-3 h-3" /> Momentum
+          </p>
+          <div className="flex items-center gap-2 text-xs">
+            <span className={cn("font-bold", momentum.homeScore > momentum.awayScore ? "text-blue-400" : "text-zinc-500")}>
+              {momentum.homeScore.toFixed(0)}
+            </span>
+            <div className="flex-1 flex h-2 rounded-full overflow-hidden bg-zinc-700">
+              <div className="bg-blue-500 transition-all duration-700 rounded-l-full" style={{ width: `${momentum.homeScore}%` }} />
+              <div className="bg-red-500 transition-all duration-700 rounded-r-full" style={{ width: `${momentum.awayScore}%` }} />
+            </div>
+            <span className={cn("font-bold", momentum.awayScore > momentum.homeScore ? "text-red-400" : "text-zinc-500")}>
+              {momentum.awayScore.toFixed(0)}
+            </span>
+          </div>
+          <p className="text-[10px] text-zinc-400">{momentum.description}</p>
+        </div>
+
+        {/* Match Heat */}
+        <div className="flex flex-col items-center gap-1">
+          <p className="text-[10px] text-zinc-500 font-medium flex items-center gap-1">
+            <Flame className="w-3 h-3" /> Maç Sıcaklığı
+          </p>
+          <div className={cn(
+            "text-2xl font-black",
+            matchTemperature >= 70 ? "text-red-400" :
+            matchTemperature >= 45 ? "text-amber-400" :
+            matchTemperature >= 25 ? "text-yellow-400" : "text-zinc-500"
+          )}>
+            {matchTemperature}°
+          </div>
+          <p className="text-[10px] text-zinc-500">
+            {matchTemperature >= 70 ? "Çılgın maç!" :
+             matchTemperature >= 45 ? "Hareketli" :
+             matchTemperature >= 25 ? "Normal" : "Sakin"}
+          </p>
+        </div>
+
+        {/* Danger */}
+        <div className="space-y-2">
+          <p className="text-[10px] text-zinc-500 font-medium flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3" /> Gol Tehlikesi
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-2 bg-zinc-700 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-700",
+                  danger.goalProbability >= 70 ? "bg-red-500" :
+                  danger.goalProbability >= 50 ? "bg-orange-500" :
+                  danger.goalProbability >= 30 ? "bg-yellow-500" : "bg-green-500"
+                )}
+                style={{ width: `${danger.goalProbability}%` }}
+              />
+            </div>
+            <span className={cn(
+              "text-sm font-bold",
+              danger.goalProbability >= 70 ? "text-red-400" :
+              danger.goalProbability >= 50 ? "text-orange-400" : "text-zinc-400"
+            )}>
+              %{danger.goalProbability}
+            </span>
+          </div>
+          <p className="text-[10px] text-zinc-400">{danger.description}</p>
+        </div>
+      </div>
+
+      {/* Bottom row: Next goal + Score pressure */}
+      <div className="flex items-center justify-between bg-zinc-800/50 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Crosshair className="w-3.5 h-3.5 text-green-400" />
+          <span className="text-[10px] text-zinc-500">Sıradaki gol:</span>
+          <span className={cn(
+            "text-xs font-bold",
+            nextGoalTeam === "unlikely" ? "text-zinc-500" : "text-green-400"
+          )}>
+            {nextGoalLabel}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Timer className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-[10px] text-zinc-500">Baskı:</span>
+          <div className="flex gap-0.5">
+            {Array.from({ length: 5 }, (_, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "w-2 h-2 rounded-full",
+                  i < Math.ceil(scorePressure / 20)
+                    ? scorePressure >= 80 ? "bg-red-500" : scorePressure >= 50 ? "bg-amber-500" : "bg-green-500"
+                    : "bg-zinc-700"
+                )}
+              />
+            ))}
+          </div>
+          <span className="text-[10px] text-zinc-400">{scorePressure}/100</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// Opportunities Panel (Full tab view)
+// ============================================
+
+function OpportunitiesPanel({ analysis, match }: { analysis: LiveMatchAnalysis | null; match: EnrichedLiveMatch }) {
+  if (!analysis || analysis.opportunities.length === 0) {
+    return (
+      <div className="text-center py-8 text-zinc-500 text-sm">
+        <Eye className="w-8 h-8 mx-auto mb-2 text-zinc-600" />
+        <p>Bu maçta şu an belirgin fırsat tespit edilmedi</p>
+        <p className="text-[10px] text-zinc-600 mt-1">Maç ilerledikçe fırsatlar ortaya çıkabilir</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-amber-400" />
+          <span className="text-sm font-bold text-white">
+            {analysis.opportunities.length} Fırsat Tespit Edildi
+          </span>
+        </div>
+        <div className="flex gap-2">
+          {analysis.opportunities.filter(o => o.level === "HOT").length > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 font-bold">
+              {analysis.opportunities.filter(o => o.level === "HOT").length} HOT
+            </span>
+          )}
+          {analysis.opportunities.filter(o => o.level === "WARM").length > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+              {analysis.opportunities.filter(o => o.level === "WARM").length} WARM
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Opportunity Cards */}
+      <div className="space-y-3">
+        {analysis.opportunities.map((opp, i) => (
+          <div
+            key={i}
+            className={cn(
+              "rounded-xl border p-4 space-y-3",
+              opp.level === "HOT"
+                ? "bg-gradient-to-r from-orange-500/10 via-red-500/5 to-transparent border-orange-500/20"
+                : opp.level === "WARM"
+                ? "bg-gradient-to-r from-amber-500/5 to-transparent border-amber-500/15"
+                : "bg-zinc-800/30 border-zinc-700/50"
+            )}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  "text-[10px] font-bold px-2 py-0.5 rounded-full",
+                  opp.level === "HOT" ? "bg-orange-500/20 text-orange-400" :
+                  opp.level === "WARM" ? "bg-amber-500/20 text-amber-400" :
+                  "bg-zinc-700 text-zinc-400"
+                )}>
+                  {opp.level === "HOT" ? "🔥 HOT" : opp.level === "WARM" ? "⚡ WARM" : "ℹ️ INFO"}
+                </span>
+                <span className={cn(
+                  "text-sm font-bold px-3 py-1 rounded-lg",
+                  opp.level === "HOT" ? "bg-orange-500/15 text-orange-300" : "bg-zinc-700/50 text-zinc-200"
+                )}>
+                  {opp.market}
+                </span>
+              </div>
+              <div className="flex flex-col items-end gap-0.5">
+                <span className={cn(
+                  "text-sm font-black",
+                  opp.confidence >= 70 ? "text-green-400" :
+                  opp.confidence >= 50 ? "text-amber-400" : "text-zinc-400"
+                )}>
+                  %{opp.confidence}
+                </span>
+                <span className="text-[10px] text-zinc-500">{opp.timeWindow}</span>
+              </div>
+            </div>
+
+            {/* Message */}
+            <p className="text-sm text-white font-medium">{opp.message}</p>
+
+            {/* Reasoning */}
+            <p className="text-xs text-zinc-400 leading-relaxed">{opp.reasoning}</p>
+
+            {/* Confidence bar */}
+            <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  opp.confidence >= 70 ? "bg-green-500" :
+                  opp.confidence >= 50 ? "bg-amber-500" : "bg-zinc-500"
+                )}
+                style={{ width: `${opp.confidence}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Attack comparison */}
+      <div className="bg-zinc-800/30 rounded-lg p-3 space-y-2">
+        <p className="text-[10px] text-zinc-500 font-medium">Atak Güçleri Karşılaştırma</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-400">{match.fixture.teams.home.name}</span>
+              <span className="text-xs font-bold text-blue-400">{analysis.danger.homeAttack.toFixed(0)}</span>
+            </div>
+            <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full" style={{ width: `${analysis.danger.homeAttack}%` }} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-400">{match.fixture.teams.away.name}</span>
+              <span className="text-xs font-bold text-red-400">{analysis.danger.awayAttack.toFixed(0)}</span>
+            </div>
+            <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+              <div className="h-full bg-red-500 rounded-full" style={{ width: `${analysis.danger.awayAttack}%` }} />
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

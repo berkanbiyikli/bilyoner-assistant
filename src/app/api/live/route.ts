@@ -125,77 +125,89 @@ export async function GET(request: NextRequest) {
       predMap.set(p.fixture_id, group);
     }
 
-    // Canlı maçları zenginleştir (paralel — en fazla 10 maç)
-    const matchesToEnrich = matches.slice(0, 10);
-    const enrichedMatches: EnrichedLiveMatch[] = await Promise.all(
-      matchesToEnrich.map(async (match) => {
-        const fid = match.fixture.id;
+    // Maçları öncelik sırasına göre sırala (enrichment için)
+    const prioritizedMatches = [...matches].sort((a, b) => {
+      // 1. DB'de tahmini olanlar önce
+      const aPred = predMap.has(a.fixture.id) ? 1 : 0;
+      const bPred = predMap.has(b.fixture.id) ? 1 : 0;
+      if (aPred !== bPred) return bPred - aPred;
 
-        // İstatistik + events paralel çek
-        const [stats, events, lineups] = await Promise.all([
-          getFixtureStatistics(fid).catch(() => null),
-          getFixtureEvents(fid).catch(() => null),
-          getLineups(fid).catch(() => null),
-        ]);
+      // 2. Gollü maçlar önce (daha heyecanlı)
+      const aGoals = (a.goals.home ?? 0) + (a.goals.away ?? 0);
+      const bGoals = (b.goals.home ?? 0) + (b.goals.away ?? 0);
+      if (aGoals !== bGoals) return bGoals - aGoals;
 
-        // Tahminleri bul
-        const preds = predMap.get(fid);
-        const prediction = preds
-          ? {
-              picks: preds.map((p) => ({
-                type: p.pick,
-                confidence: p.confidence,
-                odds: p.odds,
-                reasoning: p.analysis_summary || "",
-                expectedValue: p.expected_value,
-                isValueBet: p.is_value_bet,
-              })),
-              analysisSummary: preds[0]?.analysis_summary || "",
-            }
-          : null;
+      // 3. İleri dakikadakiler önce (daha fazla data)
+      const aElapsed = a.fixture.status.elapsed ?? 0;
+      const bElapsed = b.fixture.status.elapsed ?? 0;
+      return bElapsed - aElapsed;
+    });
 
-        // Canlı içgörüler oluştur
-        const insights = generateLiveInsights(match, stats, events, prediction);
-        const analysis = generateLiveAnalysis(match, stats, events, prediction);
+    // İlk N maça detaylı istatistik çek (API limitleri için batch)
+    const ENRICH_LIMIT = 50;
+    const matchesToEnrich = new Set(prioritizedMatches.slice(0, ENRICH_LIMIT).map(m => m.fixture.id));
 
-        return {
-          fixture: match,
-          statistics: stats,
-          events: events ? events.sort((a, b) => b.time.elapsed - a.time.elapsed) : null,
-          lineups,
-          prediction,
-          liveInsights: insights,
-          analysis,
-        };
-      })
-    );
+    // Tüm maçları paralel olarak zenginleştir
+    const BATCH_SIZE = 15;
+    const allEnriched: EnrichedLiveMatch[] = [];
 
-    // Kalan maçlar (zenginleştirilmemiş)
-    const remainingMatches = matches.slice(10).map((match) => ({
-      fixture: match,
-      statistics: null,
-      events: null,
-      lineups: null,
-      prediction: predMap.has(match.fixture.id)
-        ? {
-            picks: (predMap.get(match.fixture.id) || []).map((p) => ({
-              type: p.pick,
-              confidence: p.confidence,
-              odds: p.odds,
-              reasoning: p.analysis_summary || "",
-              expectedValue: p.expected_value,
-              isValueBet: p.is_value_bet,
-            })),
-            analysisSummary: predMap.get(match.fixture.id)?.[0]?.analysis_summary || "",
+    for (let i = 0; i < matches.length; i += BATCH_SIZE) {
+      const batch = matches.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (match) => {
+          const fid = match.fixture.id;
+          const shouldEnrich = matchesToEnrich.has(fid);
+
+          // Detaylı istatistik sadece öncelikli maçlara
+          let stats: FixtureStatisticsResponse[] | null = null;
+          let events: FixtureEvent[] | null = null;
+          let lineups: LineupResponse[] | null = null;
+
+          if (shouldEnrich) {
+            [stats, events, lineups] = await Promise.all([
+              getFixtureStatistics(fid).catch(() => null),
+              getFixtureEvents(fid).catch(() => null),
+              getLineups(fid).catch(() => null),
+            ]);
           }
-        : null,
-      liveInsights: [],
-      analysis: null,
-    }));
+
+          // Tahminleri bul
+          const preds = predMap.get(fid);
+          const prediction = preds
+            ? {
+                picks: preds.map((p) => ({
+                  type: p.pick,
+                  confidence: p.confidence,
+                  odds: p.odds,
+                  reasoning: p.analysis_summary || "",
+                  expectedValue: p.expected_value,
+                  isValueBet: p.is_value_bet,
+                })),
+                analysisSummary: preds[0]?.analysis_summary || "",
+              }
+            : null;
+
+          // HER MAÇ İÇİN analiz üret (stats yoksa skor bazlı çalışır)
+          const insights = generateLiveInsights(match, stats, events, prediction);
+          const analysis = generateLiveAnalysis(match, stats, events, prediction);
+
+          return {
+            fixture: match,
+            statistics: stats,
+            events: events ? events.sort((a, b) => b.time.elapsed - a.time.elapsed) : null,
+            lineups,
+            prediction,
+            liveInsights: insights,
+            analysis,
+          };
+        })
+      );
+      allEnriched.push(...batchResults);
+    }
 
     return NextResponse.json({
       count: matches.length,
-      enriched: [...enrichedMatches, ...remainingMatches],
+      enriched: allEnriched,
       statLabels: STAT_LABELS,
     });
   } catch (error) {
@@ -620,6 +632,156 @@ function detectOpportunities(
 ): LiveOpportunity[] {
   const opps: LiveOpportunity[] = [];
 
+  // ============ SKOR + ZAMAN BAZLI FIRSATLAR (stats gerekmez) ============
+
+  // Gol festivali — Over 3.5 / 4.5
+  if (totalGoals >= 3 && elapsed <= 65) {
+    opps.push({
+      level: "HOT",
+      market: totalGoals >= 4 ? "Over 4.5" : "Over 3.5",
+      message: `${elapsed}' itibariyle ${totalGoals} gol — maç açık!`,
+      reasoning: `Erken gol bolluğu savunma düzenini bozdu. Aksiyon devam edecek.`,
+      confidence: Math.min(85, 55 + totalGoals * 6),
+      timeWindow: "Devam eden",
+    });
+  }
+
+  // Son dakikalar + düşük gol = Under güçleniyor
+  if (elapsed >= 78 && totalGoals <= 1) {
+    opps.push({
+      level: "WARM",
+      market: "Under 2.5",
+      message: `${elapsed}' ve sadece ${totalGoals} gol — Under güvende`,
+      reasoning: `Kalan süre çok az. Maç temposu düşük, Under 2.5 çok büyük ihtimalle tutar.`,
+      confidence: Math.min(90, 70 + (elapsed - 78) * 2),
+      timeWindow: `Son ${90 - elapsed}dk`,
+    });
+  }
+
+  // Ev sahibi çok farklı önde — Ev kazanır
+  if (homeGoals >= awayGoals + 2 && elapsed >= 30) {
+    opps.push({
+      level: elapsed >= 60 ? "HOT" : "WARM",
+      market: "MS 1",
+      message: `${homeName} ${homeGoals}-${awayGoals} önde — ${elapsed}' itibariyle rahat`,
+      reasoning: `2+ fark avantajı, ${elapsed >= 60 ? "son yarım saatte farkı korumak kolay" : "maç erken koptu"}.`,
+      confidence: Math.min(90, 60 + (homeGoals - awayGoals) * 8 + (elapsed > 60 ? 10 : 0)),
+      timeWindow: "Maç sonu",
+    });
+  }
+
+  // Deplasman çok farklı önde
+  if (awayGoals >= homeGoals + 2 && elapsed >= 30) {
+    opps.push({
+      level: elapsed >= 60 ? "HOT" : "WARM",
+      market: "MS 2",
+      message: `${awayName} ${awayGoals}-${homeGoals} önde — deplasmanında rahat`,
+      reasoning: `Deplasman takımı 2+ farkla önde. ${elapsed >= 60 ? "Maçı kolay kapanıyor" : "Erken kopma var"}.`,
+      confidence: Math.min(90, 60 + (awayGoals - homeGoals) * 8 + (elapsed > 60 ? 10 : 0)),
+      timeWindow: "Maç sonu",
+    });
+  }
+
+  // 2. yarıda gol olmuş ve fark kapanıyorsa — heyecanlı maç
+  if (elapsed >= 50 && totalGoals >= 2 && Math.abs(homeGoals - awayGoals) <= 1) {
+    opps.push({
+      level: totalGoals >= 3 ? "HOT" : "WARM",
+      market: `Over ${totalGoals >= 3 ? "3.5" : "2.5"}`,
+      message: `Çekişmeli maç! ${homeGoals}-${awayGoals} — her an gol olabilir`,
+      reasoning: `Yakın skorlu maçlarda iki takım da atmaya devam eder. Momentum yüksek.`,
+      confidence: Math.min(75, 45 + totalGoals * 8),
+      timeWindow: `Son ${90 - elapsed}dk`,
+    });
+  }
+
+  // Her iki takım da atmışsa ve maç devam ediyorsa — BTTS + Over
+  if (homeGoals > 0 && awayGoals > 0 && elapsed <= 75) {
+    // BTTS zaten gerçekleşti — Over fırsatına bak
+    if (totalGoals >= 2 && elapsed <= 65) {
+      opps.push({
+        level: totalGoals >= 3 ? "HOT" : "WARM",
+        market: totalGoals < 3 ? "Over 2.5" : "Over 3.5",
+        message: `BTTS gerçekleşti (${homeGoals}-${awayGoals}) — maç açıldı`,
+        reasoning: `İki takım da gol attığında savunmalar gevşer, daha fazla gol beklenir.`,
+        confidence: Math.min(75, 45 + totalGoals * 7),
+        timeWindow: "Devam eden",
+      });
+    }
+  }
+
+  // Bir takım attı diğeri 0 — BTTS potansiyeli (genel, stats olmadan)
+  if ((homeGoals > 0 && awayGoals === 0 || awayGoals > 0 && homeGoals === 0) && elapsed >= 20 && elapsed <= 70) {
+    const scoreless = homeGoals === 0 ? homeName : awayName;
+    opps.push({
+      level: "INFO",
+      market: "BTTS Var",
+      message: `${scoreless} henüz atamadı — baskı artıyor`,
+      reasoning: `Geri kalan takım gol aramaya devam edecek. Maçın gidişatına göre BTTS potansiyeli var.`,
+      confidence: 40,
+      timeWindow: elapsed < 45 ? "2. Yarı" : `Son ${90 - elapsed}dk`,
+    });
+  }
+
+  // 0-0 ve 60+ dakika — goldü maç
+  if (totalGoals === 0 && elapsed >= 60 && elapsed <= 80) {
+    opps.push({
+      level: "WARM",
+      market: "Under 2.5",
+      message: `${elapsed}' ve hâlâ golsüz — Under güçleniyor`,
+      reasoning: `Uzun süre golsüz geçen maçlarda Under oranı güçlenir. Takımlar risk almayabilir.`,
+      confidence: Math.min(75, 50 + (elapsed - 60) * 2),
+      timeWindow: `Son ${90 - elapsed}dk`,
+    });
+  }
+
+  // Erken gol (ilk 15 dk) — Over/BTTS fırsatı
+  if (totalGoals >= 1 && elapsed <= 20) {
+    opps.push({
+      level: "WARM",
+      market: "Over 2.5",
+      message: `Erken gol! ${elapsed}'de ${totalGoals} gol — maç açıldı`,
+      reasoning: `Erken gol oyun planlarını değiştirir. Geri kalan takım açılmak zorunda kalır.`,
+      confidence: Math.min(65, 40 + totalGoals * 12),
+      timeWindow: "Maç geneli",
+    });
+  }
+
+  // Devre arası — 2. yarı gol beklentisi (stats olmadan da çalışır)
+  if (isHT) {
+    if (htHome + htAway === 0) {
+      opps.push({
+        level: "WARM",
+        market: "2. Yarı Gol Var",
+        message: `İlk yarı 0-0 — 2. yarıda taktik değişiklikler gelir`,
+        reasoning: `Hocalar 0-0'da ofansif hamle yapar. İstatistiksel olarak 0-0 IY maçların %70+\'ında 2. yarı gol olur.`,
+        confidence: 60,
+        timeWindow: "2. Yarı",
+      });
+    }
+    if (htHome + htAway >= 3) {
+      opps.push({
+        level: "HOT",
+        market: "Over 3.5",
+        message: `İlk yarıda ${htHome + htAway} gol — maç çılgın!`,
+        reasoning: `Savunmalar çökmüş durumda. Bu tempoda 2. yarıda da gol beklenir.`,
+        confidence: 75,
+        timeWindow: "2. Yarı",
+      });
+    }
+    if (htHome + htAway >= 1 && htHome + htAway <= 2) {
+      opps.push({
+        level: "INFO",
+        market: "Over 2.5",
+        message: `İY ${htHome}-${htAway} — 2. yarı gol ihtimali yüksek`,
+        reasoning: `Gol olan maçlarda 2. yarıda da gol gelme olasılığı artar.`,
+        confidence: 50,
+        timeWindow: "2. Yarı",
+      });
+    }
+  }
+
+  // ============ İSTATİSTİK BAZLI FIRSATLAR (stats varsa) ============
+
   if (!stats || stats.length < 2) return opps;
 
   const homeShots = getStat(stats, 0, "Total Shots");
@@ -643,7 +805,7 @@ function detectOpportunities(
   const redCards = events?.filter(e => e.type === "Card" && e.detail === "Red Card") || [];
   const hasRedCard = redCards.length > 0;
 
-  // ============ OVER/UNDER FIRSATLARI ============
+  // ============ OVER/UNDER (stats bazlı) ============
 
   // Yüksek xG ama düşük gol — Over fırsatı (regresyon beklentisi)
   if (totalXg > 2.0 && totalGoals < 2 && elapsed >= 30 && elapsed <= 70) {
@@ -681,31 +843,7 @@ function detectOpportunities(
     });
   }
 
-  // Gol festivali — Over 3.5 / 4.5
-  if (totalGoals >= 3 && elapsed <= 65) {
-    opps.push({
-      level: "HOT",
-      market: totalGoals >= 4 ? "Over 4.5" : "Over 3.5",
-      message: `${elapsed}' itibariyle ${totalGoals} gol — maç açık!`,
-      reasoning: `Erken gol bolluğu savunma düzenini bozdu. Aksiyon devam edecek.`,
-      confidence: Math.min(85, 55 + totalGoals * 6),
-      timeWindow: "Devam eden",
-    });
-  }
-
-  // Son dakikalar + düşük gol = Under güçleniyor
-  if (elapsed >= 78 && totalGoals <= 1) {
-    opps.push({
-      level: "WARM",
-      market: "Under 2.5",
-      message: `${elapsed}' ve sadece ${totalGoals} gol — Under güvende`,
-      reasoning: `Kalan süre çok az. Maç temposu düşük, Under 2.5 çok büyük ihtimalle tutar.`,
-      confidence: Math.min(90, 70 + (elapsed - 78) * 2),
-      timeWindow: `Son ${90 - elapsed}dk`,
-    });
-  }
-
-  // ============ BTTS FIRSATLARI ============
+  // ============ BTTS FIRSATLARI (stats bazlı) ============
 
   // Bir takım attı, diğeri çok baskı yapıyor
   if ((homeGoals > 0 && awayGoals === 0 && awayAttackStrong()) || 
@@ -823,28 +961,16 @@ function detectOpportunities(
     }
   }
 
-  // Devre arası — 2. yarı gol beklentisi
-  if (isHT) {
-    if (htHome + htAway === 0 && totalXg > 1.0) {
-      opps.push({
-        level: "WARM",
-        market: "2. Yarı Gol Var",
-        message: `İlk yarı 0-0 ama xG ${totalXg.toFixed(1)} — 2. yarı patlar`,
-        reasoning: `Pozisyon üretimi var ama bitiricilikte sıkıntı yaşandı. 2. yarıda taktik değişikliklerle goller gelecek.`,
-        confidence: 65,
-        timeWindow: "2. Yarı",
-      });
-    }
-    if (htHome + htAway >= 3) {
-      opps.push({
-        level: "HOT",
-        market: "Over 3.5",
-        message: `İlk yarıda ${htHome + htAway} gol — maç çılgın!`,
-        reasoning: `Savunmalar çökmüş durumda. Bu tempoda 2. yarıda da gol beklenir.`,
-        confidence: 75,
-        timeWindow: "2. Yarı",
-      });
-    }
+  // Devre arası + xG bazlı (stats gerektirir)
+  if (isHT && htHome + htAway === 0 && totalXg > 1.0) {
+    opps.push({
+      level: "WARM",
+      market: "2. Yarı Gol Var",
+      message: `İlk yarı 0-0 ama xG ${totalXg.toFixed(1)} — 2. yarı patlar`,
+      reasoning: `Pozisyon üretimi var ama bitiricilikte sıkıntı yaşandı. xG: ${totalXg.toFixed(1)}`,
+      confidence: 65,
+      timeWindow: "2. Yarı",
+    });
   }
 
   return opps;

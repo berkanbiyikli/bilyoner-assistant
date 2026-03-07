@@ -23,6 +23,7 @@ const MARKET_OPTIONS: { key: MarketFilter; icon: string }[] = [
   { key: "1x2", icon: "🏆" },
   { key: "over_under", icon: "📊" },
   { key: "btts", icon: "🥅" },
+  { key: "ht_btts", icon: "🥇" },
   { key: "htft", icon: "⏱️" },
   { key: "combo", icon: "🔗" },
   { key: "score", icon: "🎯" },

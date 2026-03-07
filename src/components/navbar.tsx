@@ -15,6 +15,7 @@ import {
   Sparkles,
   Dices,
   Target,
+  ClipboardList,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ import { useAppStore } from "@/lib/store";
 
 const NAV_ITEMS = [
   { href: "/", label: "Tahminler", icon: Trophy },
+  { href: "/spor-toto", label: "Spor Toto", icon: ClipboardList },
   { href: "/?tab=crazy", label: "Sürpriz", icon: Dices },
   { href: "/live", label: "Canlı", icon: Radio },
   { href: "/coupons", label: "Kuponlar", icon: Ticket },

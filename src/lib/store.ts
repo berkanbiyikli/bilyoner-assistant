@@ -13,6 +13,7 @@ export type MarketFilter =
   | "1x2"
   | "over_under"
   | "btts"
+  | "ht_btts"
   | "htft"
   | "combo"
   | "score";
@@ -66,6 +67,7 @@ export const MARKET_PICK_MAP: Record<MarketFilter, string[]> = {
   "1x2": ["1", "X", "2", "1X", "X2", "12"],
   over_under: ["Over 1.5", "Under 1.5", "Over 2.5", "Under 2.5", "Over 3.5", "Under 3.5", "HT Over 0.5", "HT Under 0.5"],
   btts: ["BTTS Yes", "BTTS No"],
+  ht_btts: ["HT BTTS Yes", "HT BTTS No"],
   htft: ["1/1", "1/X", "1/2", "X/1", "X/X", "X/2", "2/1", "2/X", "2/2"],
   combo: ["1 & Over 1.5", "2 & Over 1.5"],
   score: [], // CS ile başlayanlar
@@ -76,6 +78,7 @@ export const MARKET_LABELS: Record<MarketFilter, string> = {
   "1x2": "Maç Sonucu",
   over_under: "Üst/Alt",
   btts: "KG Var/Yok",
+  ht_btts: "İY KG Var",
   htft: "İY/MS",
   combo: "Kombine",
   score: "Skor",

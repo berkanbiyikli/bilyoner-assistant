@@ -632,98 +632,67 @@ function detectOpportunities(
 ): LiveOpportunity[] {
   const opps: LiveOpportunity[] = [];
 
+  // ============ YARDIMCI: Henüz tutulmamış Over/Under eşikleri ============
+  // Sadece HENÜZ gerçekleşmemiş bahisleri öner!
+  const nextOverLine = totalGoals < 2 ? 1.5 : totalGoals < 3 ? 2.5 : totalGoals < 4 ? 3.5 : totalGoals < 5 ? 4.5 : totalGoals < 6 ? 5.5 : 6.5;
+  const goalDiff = Math.abs(homeGoals - awayGoals);
+  const leadingTeam = homeGoals > awayGoals ? "home" : awayGoals > homeGoals ? "away" : "draw";
+  const leadingName = leadingTeam === "home" ? homeName : leadingTeam === "away" ? awayName : "";
+  const trailingName = leadingTeam === "home" ? awayName : leadingTeam === "away" ? homeName : "";
+
   // ============ SKOR + ZAMAN BAZLI FIRSATLAR (stats gerekmez) ============
 
-  // Gol festivali — Over 3.5 / 4.5
-  if (totalGoals >= 3 && elapsed <= 65) {
+  // Gol festivali — bir SONRAKİ over hattını öner
+  if (totalGoals >= 3 && elapsed <= 70) {
     opps.push({
       level: "HOT",
-      market: totalGoals >= 4 ? "Over 4.5" : "Over 3.5",
-      message: `${elapsed}' itibariyle ${totalGoals} gol — maç açık!`,
-      reasoning: `Erken gol bolluğu savunma düzenini bozdu. Aksiyon devam edecek.`,
-      confidence: Math.min(85, 55 + totalGoals * 6),
-      timeWindow: "Devam eden",
+      market: `Over ${nextOverLine}`,
+      message: `${elapsed}'de ${totalGoals} gol — sıradaki gol de gelir!`,
+      reasoning: `Maç açılmış, savunmalar çökmüş. ${totalGoals} gol tempoda devam ederse Over ${nextOverLine} tutacak.`,
+      confidence: Math.min(80, 45 + totalGoals * 5 + (elapsed < 60 ? 10 : 0)),
+      timeWindow: `Son ${90 - elapsed}dk`,
+    });
+  }
+
+  // Erken gol temposu — Over 2.5'a yönel (henüz 2.5 tutulmamışsa)
+  if (totalGoals >= 1 && totalGoals < 3 && elapsed <= 35) {
+    opps.push({
+      level: totalGoals >= 2 ? "HOT" : "WARM",
+      market: "Over 2.5",
+      message: `Erken tempo! ${elapsed}'de ${totalGoals} gol — devamı gelir`,
+      reasoning: `Erken gol(ler) oyun planlarını değiştirdi. Geri kalan takım açılmak zorunda.`,
+      confidence: Math.min(70, 40 + totalGoals * 15),
+      timeWindow: "Maç geneli",
+    });
+  }
+
+  // 2+ gol var, yakın skor, henüz over tutulmamış — sıradaki hat
+  if (elapsed >= 50 && totalGoals >= 2 && goalDiff <= 1 && elapsed <= 80) {
+    opps.push({
+      level: totalGoals >= 3 ? "HOT" : "WARM",
+      market: `Over ${nextOverLine}`,
+      message: `Çekişmeli maç! ${homeGoals}-${awayGoals} — iki takım da atmaya devam eder`,
+      reasoning: `Yakın skorlu maçlarda tempo düşmez. Sıradaki gol hattı: Over ${nextOverLine}.`,
+      confidence: Math.min(72, 40 + totalGoals * 6),
+      timeWindow: `Son ${90 - elapsed}dk`,
     });
   }
 
   // Son dakikalar + düşük gol = Under güçleniyor
-  if (elapsed >= 78 && totalGoals <= 1) {
+  if (elapsed >= 75 && totalGoals <= 1) {
+    const underLine = totalGoals === 0 ? 0.5 : 1.5;
     opps.push({
-      level: "WARM",
-      market: "Under 2.5",
+      level: elapsed >= 82 ? "HOT" : "WARM",
+      market: `Under ${underLine === 0.5 ? "1.5" : "2.5"}`,
       message: `${elapsed}' ve sadece ${totalGoals} gol — Under güvende`,
-      reasoning: `Kalan süre çok az. Maç temposu düşük, Under 2.5 çok büyük ihtimalle tutar.`,
-      confidence: Math.min(90, 70 + (elapsed - 78) * 2),
+      reasoning: `Kalan süre çok az, tempo düşük. Under ${underLine === 0.5 ? "1.5" : "2.5"} büyük ihtimalle tutar.`,
+      confidence: Math.min(90, 65 + (elapsed - 75) * 2),
       timeWindow: `Son ${90 - elapsed}dk`,
     });
   }
 
-  // Ev sahibi çok farklı önde — Ev kazanır
-  if (homeGoals >= awayGoals + 2 && elapsed >= 30) {
-    opps.push({
-      level: elapsed >= 60 ? "HOT" : "WARM",
-      market: "MS 1",
-      message: `${homeName} ${homeGoals}-${awayGoals} önde — ${elapsed}' itibariyle rahat`,
-      reasoning: `2+ fark avantajı, ${elapsed >= 60 ? "son yarım saatte farkı korumak kolay" : "maç erken koptu"}.`,
-      confidence: Math.min(90, 60 + (homeGoals - awayGoals) * 8 + (elapsed > 60 ? 10 : 0)),
-      timeWindow: "Maç sonu",
-    });
-  }
-
-  // Deplasman çok farklı önde
-  if (awayGoals >= homeGoals + 2 && elapsed >= 30) {
-    opps.push({
-      level: elapsed >= 60 ? "HOT" : "WARM",
-      market: "MS 2",
-      message: `${awayName} ${awayGoals}-${homeGoals} önde — deplasmanında rahat`,
-      reasoning: `Deplasman takımı 2+ farkla önde. ${elapsed >= 60 ? "Maçı kolay kapanıyor" : "Erken kopma var"}.`,
-      confidence: Math.min(90, 60 + (awayGoals - homeGoals) * 8 + (elapsed > 60 ? 10 : 0)),
-      timeWindow: "Maç sonu",
-    });
-  }
-
-  // 2. yarıda gol olmuş ve fark kapanıyorsa — heyecanlı maç
-  if (elapsed >= 50 && totalGoals >= 2 && Math.abs(homeGoals - awayGoals) <= 1) {
-    opps.push({
-      level: totalGoals >= 3 ? "HOT" : "WARM",
-      market: `Over ${totalGoals >= 3 ? "3.5" : "2.5"}`,
-      message: `Çekişmeli maç! ${homeGoals}-${awayGoals} — her an gol olabilir`,
-      reasoning: `Yakın skorlu maçlarda iki takım da atmaya devam eder. Momentum yüksek.`,
-      confidence: Math.min(75, 45 + totalGoals * 8),
-      timeWindow: `Son ${90 - elapsed}dk`,
-    });
-  }
-
-  // Her iki takım da atmışsa ve maç devam ediyorsa — BTTS + Over
-  if (homeGoals > 0 && awayGoals > 0 && elapsed <= 75) {
-    // BTTS zaten gerçekleşti — Over fırsatına bak
-    if (totalGoals >= 2 && elapsed <= 65) {
-      opps.push({
-        level: totalGoals >= 3 ? "HOT" : "WARM",
-        market: totalGoals < 3 ? "Over 2.5" : "Over 3.5",
-        message: `BTTS gerçekleşti (${homeGoals}-${awayGoals}) — maç açıldı`,
-        reasoning: `İki takım da gol attığında savunmalar gevşer, daha fazla gol beklenir.`,
-        confidence: Math.min(75, 45 + totalGoals * 7),
-        timeWindow: "Devam eden",
-      });
-    }
-  }
-
-  // Bir takım attı diğeri 0 — BTTS potansiyeli (genel, stats olmadan)
-  if ((homeGoals > 0 && awayGoals === 0 || awayGoals > 0 && homeGoals === 0) && elapsed >= 20 && elapsed <= 70) {
-    const scoreless = homeGoals === 0 ? homeName : awayName;
-    opps.push({
-      level: "INFO",
-      market: "BTTS Var",
-      message: `${scoreless} henüz atamadı — baskı artıyor`,
-      reasoning: `Geri kalan takım gol aramaya devam edecek. Maçın gidişatına göre BTTS potansiyeli var.`,
-      confidence: 40,
-      timeWindow: elapsed < 45 ? "2. Yarı" : `Son ${90 - elapsed}dk`,
-    });
-  }
-
-  // 0-0 ve 60+ dakika — goldü maç
-  if (totalGoals === 0 && elapsed >= 60 && elapsed <= 80) {
+  // 0-0 ve 60+ dakika — under güçleniyor
+  if (totalGoals === 0 && elapsed >= 60 && elapsed <= 82) {
     opps.push({
       level: "WARM",
       market: "Under 2.5",
@@ -734,47 +703,117 @@ function detectOpportunities(
     });
   }
 
-  // Erken gol (ilk 15 dk) — Over/BTTS fırsatı
-  if (totalGoals >= 1 && elapsed <= 20) {
+  // Bir takım skor farkı açmışsa — sıradaki FAZ ne?
+  if (goalDiff >= 2 && elapsed >= 30 && elapsed <= 80) {
+    // 2+ farkla önde olan takıma MS yok (o bariz), bunun yerine:
+    // 1) Toplam gol fırsatı (maç açıldıysa)
+    if (totalGoals >= 3 && elapsed <= 70) {
+      opps.push({
+        level: "WARM",
+        market: `Over ${nextOverLine}`,
+        message: `${homeGoals}-${awayGoals} — fark var ama maç bitmedi, gol devam eder`,
+        reasoning: `Geriden gelen takım açılmak zorunda, aradaki takım rahat atak yapar. Over ${nextOverLine} gelebilir.`,
+        confidence: Math.min(70, 40 + totalGoals * 5),
+        timeWindow: `Son ${90 - elapsed}dk`,
+      });
+    }
+    // 2) Geri kalan takım gol atar mı? (BTTS henüz olmamışsa)
+    if ((homeGoals === 0 || awayGoals === 0) && elapsed <= 75) {
+      const scorelessTeam = homeGoals === 0 ? homeName : awayName;
+      opps.push({
+        level: elapsed >= 60 ? "WARM" : "INFO",
+        market: "BTTS Var",
+        message: `${scorelessTeam} geri düşmüş ama teselli golü gelebilir`,
+        reasoning: `${goalDiff}+ farkla geriden gelen takımlar genelde en az 1 gol atar. BTTS fırsatı.`,
+        confidence: Math.min(60, 35 + (elapsed >= 60 ? 10 : 0)),
+        timeWindow: `Son ${90 - elapsed}dk`,
+      });
+    }
+  }
+
+  // Her iki takım da attıysa (BTTS zaten oldu) — sıradaki over hat öner
+  if (homeGoals > 0 && awayGoals > 0 && elapsed <= 75) {
+    if (totalGoals >= 2) {
+      opps.push({
+        level: totalGoals >= 4 ? "HOT" : "WARM",
+        market: `Over ${nextOverLine}`,
+        message: `BTTS oldu (${homeGoals}-${awayGoals}) — savunmalar gevşedi, sıradaki: Over ${nextOverLine}`,
+        reasoning: `İki takım da gol attığında savunmalar gevşer, daha fazla gol beklenir.`,
+        confidence: Math.min(70, 35 + totalGoals * 7),
+        timeWindow: `Son ${90 - elapsed}dk`,
+      });
+    }
+  }
+
+  // Bir takım attı diğeri 0 — BTTS potansiyeli
+  if ((homeGoals > 0 && awayGoals === 0 || awayGoals > 0 && homeGoals === 0) && elapsed >= 20 && elapsed <= 75) {
+    const scoreless = homeGoals === 0 ? homeName : awayName;
     opps.push({
-      level: "WARM",
-      market: "Over 2.5",
-      message: `Erken gol! ${elapsed}'de ${totalGoals} gol — maç açıldı`,
-      reasoning: `Erken gol oyun planlarını değiştirir. Geri kalan takım açılmak zorunda kalır.`,
-      confidence: Math.min(65, 40 + totalGoals * 12),
-      timeWindow: "Maç geneli",
+      level: elapsed >= 55 ? "WARM" : "INFO",
+      market: "BTTS Var",
+      message: `${scoreless} henüz atamadı — baskı artıyor`,
+      reasoning: `Geriden gelen ${scoreless} gol aramaya devam edecek. BTTS potansiyeli canlı.`,
+      confidence: Math.min(55, 30 + (elapsed >= 55 ? 10 : 0) + (goalDiff <= 1 ? 10 : 0)),
+      timeWindow: elapsed < 45 ? "2. Yarı" : `Son ${90 - elapsed}dk`,
     });
   }
 
-  // Devre arası — 2. yarı gol beklentisi (stats olmadan da çalışır)
+  // Berabere ve geç dakika — beraberlik tutacak mı?
+  if (homeGoals === awayGoals && elapsed >= 70 && elapsed <= 88) {
+    if (totalGoals === 0) {
+      opps.push({
+        level: elapsed >= 80 ? "HOT" : "WARM",
+        market: "MS X",
+        message: `${elapsed}' ve 0-0 — beraberlik güçleniyor`,
+        reasoning: `Golsüz geçen maçın son bölümü — iki takım da risk almıyor. MS X olasılığı yüksek.`,
+        confidence: Math.min(80, 55 + (elapsed - 70) * 2),
+        timeWindow: `Son ${90 - elapsed}dk`,
+      });
+    } else {
+      opps.push({
+        level: "WARM",
+        market: elapsed >= 80 ? "MS X" : `Over ${nextOverLine}`,
+        message: elapsed >= 80 
+          ? `${homeGoals}-${awayGoals} berabere ve ${elapsed}' — her iki sonuç olası`
+          : `${homeGoals}-${awayGoals} berabere — kazanan gol gelir mi?`,
+        reasoning: elapsed >= 80
+          ? `Son dakikalarda berabere giden maç genelde berabere biter.`
+          : `Berabere durum iki takımı da ataklığa iter.`,
+        confidence: Math.min(65, 45 + (elapsed >= 80 ? 12 : 0)),
+        timeWindow: `Son ${90 - elapsed}dk`,
+      });
+    }
+  }
+
+  // Devre arası fırsatları
   if (isHT) {
     if (htHome + htAway === 0) {
       opps.push({
         level: "WARM",
         market: "2. Yarı Gol Var",
         message: `İlk yarı 0-0 — 2. yarıda taktik değişiklikler gelir`,
-        reasoning: `Hocalar 0-0'da ofansif hamle yapar. İstatistiksel olarak 0-0 IY maçların %70+\'ında 2. yarı gol olur.`,
-        confidence: 60,
+        reasoning: `Hocalar 0-0'da ofansif hamle yapar. 0-0 IY maçların %70+'ında 2. yarı gol olur.`,
+        confidence: 62,
         timeWindow: "2. Yarı",
       });
     }
     if (htHome + htAway >= 3) {
       opps.push({
         level: "HOT",
-        market: "Over 3.5",
-        message: `İlk yarıda ${htHome + htAway} gol — maç çılgın!`,
-        reasoning: `Savunmalar çökmüş durumda. Bu tempoda 2. yarıda da gol beklenir.`,
-        confidence: 75,
+        market: `Over ${nextOverLine}`,
+        message: `İlk yarıda ${htHome + htAway} gol! 2. yarıda da devam eder`,
+        reasoning: `Savunmalar çökmüş durumda. Bu tempoda sıradaki hat: Over ${nextOverLine}.`,
+        confidence: 72,
         timeWindow: "2. Yarı",
       });
     }
     if (htHome + htAway >= 1 && htHome + htAway <= 2) {
       opps.push({
         level: "INFO",
-        market: "Over 2.5",
-        message: `İY ${htHome}-${htAway} — 2. yarı gol ihtimali yüksek`,
+        market: `Over ${nextOverLine}`,
+        message: `İY ${htHome}-${htAway} — 2. yarıda gol devam edebilir`,
         reasoning: `Gol olan maçlarda 2. yarıda da gol gelme olasılığı artar.`,
-        confidence: 50,
+        confidence: 48,
         timeWindow: "2. Yarı",
       });
     }
@@ -808,13 +847,13 @@ function detectOpportunities(
   // ============ OVER/UNDER (stats bazlı) ============
 
   // Yüksek xG ama düşük gol — Over fırsatı (regresyon beklentisi)
-  if (totalXg > 2.0 && totalGoals < 2 && elapsed >= 30 && elapsed <= 70) {
+  if (totalXg > totalGoals + 0.8 && elapsed >= 30 && elapsed <= 75) {
     opps.push({
-      level: totalXg > 3.0 ? "HOT" : "WARM",
-      market: "Over 2.5",
+      level: totalXg > totalGoals + 1.5 ? "HOT" : "WARM",
+      market: `Over ${nextOverLine}`,
       message: `xG ${totalXg.toFixed(1)} ama sadece ${totalGoals} gol — goller yakında!`,
-      reasoning: `Beklenen gol (xG) ${totalXg.toFixed(1)} iken sadece ${totalGoals} gol atılmış. İstatistiksel olarak goller gecikmeli gelecek.`,
-      confidence: Math.min(85, Math.round(totalXg * 25)),
+      reasoning: `Beklenen gol (xG) ${totalXg.toFixed(1)} iken sadece ${totalGoals} gol atılmış. Over ${nextOverLine} potansiyeli var.`,
+      confidence: Math.min(80, Math.round((totalXg - totalGoals) * 30 + 30)),
       timeWindow: elapsed < 45 ? "2. Yarı" : "Son 30dk",
     });
   }
@@ -835,9 +874,9 @@ function detectOpportunities(
   if (htHome + htAway === 0 && elapsed >= 50 && elapsed <= 75 && totalXg > 1.5) {
     opps.push({
       level: "WARM",
-      market: "Over 1.5",
-      message: "İlk yarı 0-0 ama 2. yarıda tempo yükseldi",
-      reasoning: `İlk yarı karşılıklı temkinliydi ama 2. yarıda pozisyonlar artıyor. xG: ${totalXg.toFixed(1)}`,
+      market: `Over ${nextOverLine}`,
+      message: `İlk yarı 0-0 ama 2. yarıda tempo yükseldi (xG: ${totalXg.toFixed(1)})`,
+      reasoning: `İlk yarı karşılıklı temkinliydi ama 2. yarıda pozisyonlar artıyor. Gol beklentisi yüksek.`,
       confidence: 60,
       timeWindow: "Son 30dk",
     });
@@ -874,20 +913,20 @@ function detectOpportunities(
 
   // ============ MAÇ SONUCU FIRSATLARI ============
 
-  // Tek taraflı baskı — favori kazanır
-  if (momentum.dominantTeam !== "balanced" && Math.abs(momentum.homeScore - momentum.awayScore) > 25) {
+  // Tek taraflı baskı — sadece skor YAKINSA öner (bariz fark varsa zaten belli)
+  if (momentum.dominantTeam !== "balanced" && Math.abs(momentum.homeScore - momentum.awayScore) > 25 && goalDiff <= 1) {
     const dominant = momentum.dominantTeam === "home" ? homeName : awayName;
     const dominantGoals = momentum.dominantTeam === "home" ? homeGoals : awayGoals;
     const otherGoals = momentum.dominantTeam === "home" ? awayGoals : homeGoals;
     const market = momentum.dominantTeam === "home" ? "MS 1" : "MS 2";
 
-    if (dominantGoals >= otherGoals) {
+    if (dominantGoals >= otherGoals && elapsed <= 80) {
       opps.push({
         level: Math.abs(momentum.homeScore - momentum.awayScore) > 40 ? "HOT" : "WARM",
         market,
-        message: `${dominant} maça hakim — ${dominantGoals > otherGoals ? "önde" : "beraberde"} ve baskılı`,
-        reasoning: `Momentum: ${momentum.homeScore.toFixed(0)}-${momentum.awayScore.toFixed(0)}. ${dominant} istatistiklerde çok üstün.`,
-        confidence: Math.min(80, 50 + Math.abs(momentum.homeScore - momentum.awayScore) * 0.5),
+        message: `${dominant} istatistiklerde çok üstün — ${dominantGoals > otherGoals ? "skor da önde" : "berabere ama baskılı"}`,
+        reasoning: `Momentum: ${momentum.homeScore.toFixed(0)}-${momentum.awayScore.toFixed(0)}. ${dominant} şut/xG/top hakimiyetinde çok baskın.`,
+        confidence: Math.min(75, 45 + Math.abs(momentum.homeScore - momentum.awayScore) * 0.4),
         timeWindow: elapsed < 60 ? "Maç sonu" : `Son ${90 - elapsed}dk`,
       });
     }
@@ -914,8 +953,8 @@ function detectOpportunities(
         // 10 kişi= over fırsatı da
         opps.push({
           level: "WARM",
-          market: "Over 2.5",
-          message: `Kırmızı kart maçı açtı — gol gelir`,
+          market: `Over ${nextOverLine}`,
+          message: `Kırmızı kart maçı açtı — sıradaki gol gelir`,
           reasoning: `10 kişi kalan takım savunmada boşluk bırakır, karşı takım daha çok pozisyon bulur.`,
           confidence: 60,
           timeWindow: `Son ${90 - elapsed}dk`,

@@ -28,6 +28,7 @@ import type {
 } from "@/types/api-football";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { LEAGUES } from "@/lib/api-football/leagues";
 
 // ---- Types ----
 
@@ -268,13 +269,25 @@ export default function LivePage() {
     });
   }, [matches, showOnlyOpportunities]);
 
-  // Liga bazlı grupla
-  const leagueGroups = new Map<string, EnrichedLiveMatch[]>();
-  for (const m of sortedMatches) {
-    const key = `${m.fixture.league.country} - ${m.fixture.league.name}`;
-    if (!leagueGroups.has(key)) leagueGroups.set(key, []);
-    leagueGroups.get(key)!.push(m);
-  }
+  // Liga bazlı grupla + lig büyüklüğüne göre sırala
+  const leagueGroups = useMemo(() => {
+    const groups = new Map<string, EnrichedLiveMatch[]>();
+    for (const m of sortedMatches) {
+      const key = `${m.fixture.league.country} - ${m.fixture.league.name}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(m);
+    }
+    // LEAGUES priority'sine göre sırala (düşük priority = büyük lig = önce)
+    const leaguePriority = new Map<number, number>();
+    for (const l of LEAGUES) leaguePriority.set(l.id, l.priority);
+
+    const sorted = [...groups.entries()].sort(([, matchesA], [, matchesB]) => {
+      const prioA = Math.min(...matchesA.map(m => leaguePriority.get(m.fixture.league.id) ?? 99));
+      const prioB = Math.min(...matchesB.map(m => leaguePriority.get(m.fixture.league.id) ?? 99));
+      return prioA - prioB;
+    });
+    return sorted;
+  }, [sortedMatches]);
 
   const totalOpportunities = matches.reduce((sum, m) => sum + (m.analysis?.opportunities?.length || 0), 0);
 
@@ -560,7 +573,7 @@ export default function LivePage() {
         </div>
       ) : sortedMatches.length > 0 ? (
         <div className="space-y-3">
-          {Array.from(leagueGroups.entries()).map(([league, leagueMatches]) => (
+          {leagueGroups.map(([league, leagueMatches]) => (
             <div key={league} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
               {/* League Header */}
               <div className="flex items-center justify-between bg-zinc-800/60 px-4 py-2">

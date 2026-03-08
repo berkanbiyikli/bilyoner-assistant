@@ -7,6 +7,43 @@ import type { ValidationStats, ValidationRecord, CalibrationData } from "@/types
 import { createAdminSupabase, fetchAllRows } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
 
+interface ValidationRecordRow {
+  id: string;
+  fixture_id: number;
+  home_team: string;
+  away_team: string;
+  league: string;
+  kickoff: string;
+  pick: string;
+  confidence: number;
+  odds: number;
+  expected_value: number;
+  is_value_bet: boolean;
+  sim_probability: number | null;
+  sim_top_scoreline: string | null;
+  actual_score: string | null;
+  result: "won" | "lost" | "void" | "pending";
+  edge_at_open: number | null;
+  created_at: string;
+}
+
+interface PredictionRecord {
+  id: string;
+  fixture_id: number;
+  home_team: string;
+  away_team: string;
+  league: string;
+  kickoff: string;
+  pick: string;
+  odds: number;
+  confidence: number;
+  expected_value: number;
+  is_value_bet: boolean;
+  result: "won" | "lost" | "void" | "pending";
+  analysis_summary: string;
+  created_at: string;
+}
+
 /**
  * Settle edilen bir maçın validasyon kaydını oluştur
  * settle-bets cron'u tarafından çağrılır
@@ -84,14 +121,14 @@ export async function calculateValidationStats(): Promise<ValidationStats> {
   const supabase = createAdminSupabase();
 
   // Önce validation_records tablosundan dene (tüm kayıtlar)
-  let all = await fetchAllRows(supabase, "validation_records", {
+  let all = await fetchAllRows<ValidationRecordRow>(supabase, "validation_records", {
     order: { column: "kickoff", ascending: false },
     filters: [{ method: "in", args: ["result", ["won", "lost"]] }],
   });
 
   // Fallback: validation_records boşsa predictions tablosundan oku
   if (all.length === 0) {
-    const predictions = await fetchAllRows(supabase, "predictions", {
+    const predictions = await fetchAllRows<PredictionRecord>(supabase, "predictions", {
       order: { column: "kickoff", ascending: false },
       filters: [{ method: "in", args: ["result", ["won", "lost"]] }],
     });
@@ -331,7 +368,7 @@ export async function calculateCalibration(): Promise<CalibrationData> {
   if (cached) return cached;
 
   const supabase = createAdminSupabase();
-  const all = await fetchAllRows(supabase, "validation_records", {
+  const all = await fetchAllRows<ValidationRecordRow>(supabase, "validation_records", {
     order: { column: "kickoff", ascending: false },
     filters: [{ method: "in", args: ["result", ["won", "lost"]] }],
   });

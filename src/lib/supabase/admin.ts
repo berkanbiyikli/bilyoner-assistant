@@ -18,13 +18,15 @@ export function createAdminSupabase() {
   });
 }
 
+type TableName = keyof Database["public"]["Tables"];
+
 /**
  * Supabase'in varsayılan 1000 satır limitini aşmak için
  * tüm kayıtları sayfalayarak çeker.
  */
 export async function fetchAllRows<T = Record<string, unknown>>(
   supabase: SupabaseClient<Database>,
-  table: string,
+  table: TableName,
   options?: {
     select?: string;
     order?: { column: string; ascending?: boolean };

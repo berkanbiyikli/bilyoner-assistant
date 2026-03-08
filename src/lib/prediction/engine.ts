@@ -841,8 +841,10 @@ function generatePicks(
       awayDefense: analysis.awayDefense,
       homeXg: analysis.homeXg,
       awayXg: analysis.awayXg,
-      refereeProfile: analysis.refereeProfile,
-      matchImportance: analysis.matchImportance,
+      refereeProfile: analysis.refereeProfile
+        ? { cardsPerMatch: analysis.refereeProfile.avgCardsPerMatch, foulsPerMatch: 25 }
+        : null,
+      matchImportance: null,
       eloRatings: { home: homeEloApprox, away: awayEloApprox },
     });
   }

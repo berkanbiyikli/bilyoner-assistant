@@ -7,6 +7,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabase, fetchAllRows } from "@/lib/supabase/admin";
 
+interface PredictionRecord {
+  id: string;
+  fixture_id: number;
+  home_team: string;
+  away_team: string;
+  league: string;
+  kickoff: string;
+  pick: string;
+  odds: number;
+  confidence: number;
+  expected_value: number;
+  is_value_bet: boolean;
+  result: "won" | "lost" | "void" | "pending";
+  analysis_summary: string;
+  created_at: string;
+}
+
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
@@ -25,7 +42,7 @@ export async function GET(req: NextRequest) {
     const league = searchParams.get("league") || "";
 
     // Toplam istatistikler (filtresiz, tüm kayıtlar)
-    const all = await fetchAllRows(supabase, "predictions", {
+    const all = await fetchAllRows<PredictionRecord>(supabase, "predictions", {
       order: { column: "kickoff", ascending: false },
     });
     const settled = all.filter((p) => p.result !== "pending");

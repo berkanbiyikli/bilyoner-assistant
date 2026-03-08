@@ -255,11 +255,34 @@ export async function GET(req: NextRequest) {
 
           // Validasyon kaydı oluştur ve kaydet
           try {
+            // analysis_summary'den simülasyon verisini parse et
+            const summary = pred.analysis_summary || "";
+            let simTopScoreline: string | undefined;
+            let simProbability: number | undefined;
+
+            // "🎯 Olası skorlar: 2-1 (%14.3), 1-1 (%12.1), 1-0 (%11.8)" formatı
+            const scorelineMatch = summary.match(/Olası skorlar:\s*(.+)/);
+            if (scorelineMatch) {
+              simTopScoreline = scorelineMatch[1]
+                .split(",")
+                .map((s: string) => s.trim().replace(/\s*\(%[\d.]+\)/, ""))
+                .join(", ");
+            }
+            // Fallback: "En olası skor 2-1 (%14.3)" formatı
+            if (!simTopScoreline) {
+              const singleMatch = summary.match(/En olası skor (\d+-\d+)\s*\(%[\d.]+\)/);
+              if (singleMatch) simTopScoreline = singleMatch[1];
+            }
+
+            // Sim olasılığını parse et: "(%14.3)" → 14.3
+            const probMatch = summary.match(/En olası skor \d+-\d+\s*\(%([\d.]+)\)/);
+            if (probMatch) simProbability = parseFloat(probMatch[1]);
+
             const vRecord = createValidationRecord(
               { ...pred, result },
               actualScore,
-              undefined, // simTopScoreline — analysis_summary'den parse edilebilir
-              undefined, // simProbability
+              simTopScoreline,
+              simProbability,
               pred.expected_value > 0 ? pred.expected_value * 100 : undefined // edge %
             );
             await saveValidationRecord(vRecord);

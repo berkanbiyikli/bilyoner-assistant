@@ -119,9 +119,52 @@ export async function GET(request: Request) {
           .order("kickoff", { ascending: false })
           .limit(100);
 
-        const records = validationRecords || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let records: any[] = validationRecords || [];
 
-        // Skor dağılımı analizi
+        // Fallback: validation_records'ta sim verisi yoksa, settled predictions'tan parse et
+        if (records.length === 0) {
+          const { data: settledPreds } = await supabase
+            .from("predictions")
+            .select("*")
+            .in("result", ["won", "lost"])
+            .order("kickoff", { ascending: false })
+            .limit(100);
+
+          if (settledPreds && settledPreds.length > 0) {
+            records = settledPreds
+              .map((p) => {
+                const summary = p.analysis_summary || "";
+                // Parse sim scoreline from analysis_summary
+                let simScoreline: string | null = null;
+                let simProb: number | null = null;
+
+                const scorelineMatch = summary.match(/Olası skorlar:\s*(.+)/);
+                if (scorelineMatch) {
+                  simScoreline = scorelineMatch[1]
+                    .split(",")
+                    .map((s: string) => s.trim().replace(/\s*\(%[\d.]+\)/, ""))
+                    .join(", ");
+                }
+                if (!simScoreline) {
+                  const singleMatch = summary.match(/En olası skor (\d+-\d+)/);
+                  if (singleMatch) simScoreline = singleMatch[1];
+                }
+                const probMatch = summary.match(/En olası skor \d+-\d+\s*\(%([\d.]+)\)/);
+                if (probMatch) simProb = parseFloat(probMatch[1]);
+
+                return {
+                  ...p,
+                  sim_top_scoreline: simScoreline,
+                  sim_probability: simProb,
+                  actual_score: null as string | null,
+                };
+              })
+              .filter((r) => r.sim_top_scoreline);
+          }
+        }
+
+        // Skor dağılımı analizi (settled validation records + fallback)
         const scoreDistribution = new Map<string, { predicted: number; actual: number }>();
         for (const r of records) {
           if (r.sim_top_scoreline) {
@@ -141,8 +184,41 @@ export async function GET(request: Request) {
           }
         }
 
-        // Confidence vs Actual scatter data
-        const scatterData = records.map((r) => ({
+        // Ek: Tüm tahminlerin (pending dahil) analysis_summary'sinden skor dağılımı
+        if (scoreDistribution.size === 0) {
+          const allPreds = recentPredictions || [];
+          for (const p of allPreds) {
+            const summary = p.analysis_summary || "";
+            // "Olası skorlar: 2-1 (%14.3), 1-1 (%12.1), 1-0 (%11.8)" parse
+            const scorelineMatch = summary.match(/Olası skorlar:\s*(.+)/);
+            if (scorelineMatch) {
+              const parts = scorelineMatch[1].split(",");
+              for (const part of parts) {
+                const sm = part.trim().match(/^(\d+-\d+)/);
+                if (sm) {
+                  const score = sm[1];
+                  if (!scoreDistribution.has(score)) {
+                    scoreDistribution.set(score, { predicted: 0, actual: 0 });
+                  }
+                  scoreDistribution.get(score)!.predicted++;
+                }
+              }
+            } else {
+              // Fallback: "En olası skor 2-1 (%14.3)"
+              const singleMatch = summary.match(/En olası skor (\d+-\d+)/);
+              if (singleMatch) {
+                const score = singleMatch[1];
+                if (!scoreDistribution.has(score)) {
+                  scoreDistribution.set(score, { predicted: 0, actual: 0 });
+                }
+                scoreDistribution.get(score)!.predicted++;
+              }
+            }
+          }
+        }
+
+        // Confidence vs Sim scatter data (settled + fallback from predictions)
+        let scatterData = records.map((r) => ({
           confidence: r.confidence,
           simProb: r.sim_probability || 0,
           result: r.result,
@@ -152,6 +228,28 @@ export async function GET(request: Request) {
           simTopScore: r.sim_top_scoreline,
           match: `${r.home_team} vs ${r.away_team}`,
         }));
+
+        // Scatter fallback: settled predictions'dan sim probability parse et
+        if (scatterData.length === 0) {
+          const allPreds = recentPredictions || [];
+          scatterData = allPreds
+            .filter((p) => p.result === "won" || p.result === "lost")
+            .map((p) => {
+              const summary = p.analysis_summary || "";
+              const probMatch = summary.match(/En olası skor \d+-\d+\s*\(%([\d.]+)\)/);
+              return {
+                confidence: p.confidence,
+                simProb: probMatch ? parseFloat(probMatch[1]) : 0,
+                result: p.result,
+                pick: p.pick,
+                odds: p.odds,
+                actualScore: null as string | null,
+                simTopScore: null as string | null,
+                match: `${p.home_team} vs ${p.away_team}`,
+              };
+            })
+            .filter((d) => d.simProb > 0);
+        }
 
         // Poisson lambda dağılım tahmini (son 50 maç)
         const predictions = recentPredictions || [];

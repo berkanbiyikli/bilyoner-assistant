@@ -188,8 +188,9 @@ export function PredictionsPage() {
     ? predictions.filter((p) => selectedLeagues.includes(p.league.id))
     : predictions;
 
-  // Finished match detection
+  // Match status detection
   const FINISHED_STATUSES = ["FT", "AET", "PEN", "AWD", "WO", "CANC", "ABD"];
+  const LIVE_STATUSES = ["1H", "2H", "HT", "ET", "P", "BT", "LIVE"];
   const isMatchFinished = (p: MatchPrediction) => {
     const fixtureStatus = p.fixture?.fixture?.status?.short;
     if (fixtureStatus && FINISHED_STATUSES.includes(fixtureStatus)) return true;
@@ -199,6 +200,18 @@ export function PredictionsPage() {
     }
     return false;
   };
+  const isMatchLive = (p: MatchPrediction) => {
+    const fixtureStatus = p.fixture?.fixture?.status?.short;
+    if (fixtureStatus && LIVE_STATUSES.includes(fixtureStatus)) return true;
+    // Fixture status yoksa ama maç başlamış olabilir (başlangıçtan 0-2 saat arası)
+    if (!fixtureStatus && p.kickoff) {
+      const kickoffTime = new Date(p.kickoff).getTime();
+      const elapsed = Date.now() - kickoffTime;
+      if (elapsed > 0 && elapsed < 3 * 60 * 60 * 1000) return true;
+    }
+    return false;
+  };
+  const isMatchUpcoming = (p: MatchPrediction) => !isMatchFinished(p) && !isMatchLive(p);
 
   const filteredPredictions = leagueFiltered
     .map((p) => {
@@ -216,11 +229,14 @@ export function PredictionsPage() {
     })
     .filter(Boolean) as typeof predictions;
 
-  // Sort
-  const sortedPredictions = useMemo(() => [...filteredPredictions].sort((a, b) => {
-    const aF = isMatchFinished(a) ? 1 : 0;
-    const bF = isMatchFinished(b) ? 1 : 0;
-    if (aF !== bF) return aF - bF;
+  // Filter: sadece başlamamış maçları göster
+  const upcomingPredictions = useMemo(
+    () => filteredPredictions.filter(isMatchUpcoming),
+    [filteredPredictions]
+  );
+
+  // Sort: önce saate göre, sonra secondary sort
+  const sortedPredictions = useMemo(() => [...upcomingPredictions].sort((a, b) => {
     const ka = a.kickoff ? new Date(a.kickoff).getTime() : 0;
     const kb = b.kickoff ? new Date(b.kickoff).getTime() : 0;
     if (ka !== kb) return ka - kb;
@@ -232,13 +248,17 @@ export function PredictionsPage() {
       case "ev": return (pB.expectedValue || 0) - (pA.expectedValue || 0);
       default: return 0;
     }
-  }), [filteredPredictions, filters.sortBy]);
+  }), [upcomingPredictions, filters.sortBy]);
 
-  // Group by league
+  // Group by time slot + league (aynı saatteki aynı lig maçları bir arada)
   const leagueGroups = useMemo(() => {
     const groups = new Map<string, MatchPrediction[]>();
     for (const p of sortedPredictions) {
-      const key = `${p.league.country} - ${p.league.name}`;
+      const timeSlot = p.kickoff
+        ? new Date(p.kickoff).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
+        : "--:--";
+      const leagueName = `${p.league.country} - ${p.league.name}`;
+      const key = `${timeSlot}|||${leagueName}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(p);
     }
@@ -415,22 +435,20 @@ export function PredictionsPage() {
               </div>
             ) : sortedPredictions.length > 0 ? (
               <div className="space-y-3">
-                {Array.from(leagueGroups.entries()).map(([league, matches]) => {
+                {Array.from(leagueGroups.entries()).map(([groupKey, matches]) => {
+                  const [timeSlot, leagueName] = groupKey.split("|||");
                   const leagueFlag = matches[0]?.league?.flag;
-                  const hasFinished = matches.some(isMatchFinished);
-                  const hasActive = matches.some(p => !isMatchFinished(p));
-                  const activeMatches = matches.filter(p => !isMatchFinished(p));
-                  const finishedMatches = matches.filter(isMatchFinished);
 
                   return (
-                    <div key={league} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                      {/* League Header */}
+                    <div key={groupKey} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                      {/* Time + League Header */}
                       <div className="flex items-center justify-between bg-zinc-800/60 px-4 py-2">
                         <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">{timeSlot}</span>
                           {leagueFlag && (
                             <Image src={leagueFlag} alt="" width={16} height={12} className="rounded-sm" />
                           )}
-                          <span className="text-xs font-semibold text-zinc-300">{league}</span>
+                          <span className="text-xs font-semibold text-zinc-300">{leagueName}</span>
                           <span className="text-[10px] text-zinc-600">({matches.length})</span>
                         </div>
                       </div>
@@ -445,36 +463,12 @@ export function PredictionsPage() {
                         <span className="text-center">Güven</span>
                       </div>
 
-                      {/* Active Matches */}
-                      {activeMatches.map((p) => (
+                      {/* Matches */}
+                      {matches.map((p) => (
                         <PredictionRow
                           key={p.fixtureId}
                           prediction={p}
                           isFinished={false}
-                          isExpanded={expandedMatch === p.fixtureId}
-                          onToggle={() => setExpandedMatch(expandedMatch === p.fixtureId ? null : p.fixtureId)}
-                          isInCoupon={isInCoupon}
-                          onAddToCoupon={(pick) => handleAddToCoupon(p, pick)}
-                          activeDetailTab={getDetailTab(p.fixtureId)}
-                          onSetDetailTab={(tab) => setDTab(p.fixtureId, tab)}
-                        />
-                      ))}
-
-                      {/* Finished divider */}
-                      {hasActive && hasFinished && (
-                        <div className="flex items-center gap-3 px-4 py-1.5 bg-zinc-800/20">
-                          <div className="h-px flex-1 bg-zinc-800" />
-                          <span className="text-[10px] text-zinc-600 font-medium">Bitti</span>
-                          <div className="h-px flex-1 bg-zinc-800" />
-                        </div>
-                      )}
-
-                      {/* Finished Matches */}
-                      {finishedMatches.map((p) => (
-                        <PredictionRow
-                          key={p.fixtureId}
-                          prediction={p}
-                          isFinished={true}
                           isExpanded={expandedMatch === p.fixtureId}
                           onToggle={() => setExpandedMatch(expandedMatch === p.fixtureId ? null : p.fixtureId)}
                           isInCoupon={isInCoupon}

@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 type AlertLevel = "HOT" | "WARM" | "INFO";
 
 type ScenarioType = "BASKI_VAR" | "MAC_UYUDU" | "GOL_FESTIVALI" | "SAVUNMA_SAVASI" | "COMEBACK_KOKUSU" | "ERKEN_FIRTINA" | "SON_DAKIKA_HEYECANI" | "NORMAL";
+type OpportunityCategory = "UYUYAN_DEV" | "ERKEN_PATLAMA" | "SON_DAKIKA_VURGUN" | "STANDART";
 
 interface LiveOpportunity {
   level: AlertLevel;
@@ -43,6 +44,8 @@ interface LiveOpportunity {
   confidence: number;
   timeWindow: string;
   scenario?: ScenarioType;
+  valueScore: number;
+  category: OpportunityCategory;
 }
 
 interface MomentumData {
@@ -164,6 +167,7 @@ export default function LivePage() {
   const [activeTab, setActiveTab] = useState<Record<number, string>>({});
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [showOnlyOpportunities, setShowOnlyOpportunities] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<string>("all");
 
   const fetchLive = useCallback(async () => {
     try {
@@ -206,6 +210,46 @@ export default function LivePage() {
       }
     }
     return hot.sort((a, b) => b.opportunity.confidence - a.opportunity.confidence);
+  }, [matches]);
+
+  // Altın Vuruş: En yüksek valueScore'a sahip HOT fırsat
+  const goldenStrike = useMemo(() => {
+    let best: { match: EnrichedLiveMatch; opportunity: LiveOpportunity } | null = null;
+    for (const m of matches) {
+      if (m.analysis?.opportunities) {
+        for (const opp of m.analysis.opportunities) {
+          if (opp.level === "HOT" && (opp.valueScore ?? 0) > (best?.opportunity.valueScore ?? 0)) {
+            best = { match: m, opportunity: opp };
+          }
+        }
+      }
+    }
+    return best;
+  }, [matches]);
+
+  // Kategorize edilmiş fırsatlar
+  const categorizedOpportunities = useMemo(() => {
+    const cats: Record<string, Array<{ match: EnrichedLiveMatch; opportunity: LiveOpportunity }>> = {
+      UYUYAN_DEV: [],
+      ERKEN_PATLAMA: [],
+      SON_DAKIKA_VURGUN: [],
+      all: [],
+    };
+    for (const m of matches) {
+      if (m.analysis?.opportunities) {
+        for (const opp of m.analysis.opportunities) {
+          if (opp.level === "HOT" || opp.level === "WARM") {
+            const cat = opp.category || "STANDART";
+            if (cats[cat]) cats[cat].push({ match: m, opportunity: opp });
+            cats.all.push({ match: m, opportunity: opp });
+          }
+        }
+      }
+    }
+    for (const key of Object.keys(cats)) {
+      cats[key].sort((a, b) => (b.opportunity.valueScore ?? 0) - (a.opportunity.valueScore ?? 0));
+    }
+    return cats;
   }, [matches]);
 
   // Maçları sırala
@@ -311,35 +355,198 @@ export default function LivePage() {
         </div>
       )}
 
-      {/* ========== HOT FIRSATLAR BANNER ========== */}
-      {allHotOpportunities.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 px-1">
-            <Flame className="w-4 h-4 text-orange-500" />
-            <span className="text-sm font-bold text-orange-400">SICAK FIRSATLAR</span>
-            <span className="text-xs text-zinc-500">— Hemen değerlendir!</span>
+      {/* ========== ALTIN VURUŞ (Hero) ========== */}
+      {goldenStrike && (
+        <button
+          onClick={() => {
+            setExpandedMatch(goldenStrike.match.fixture.fixture.id);
+            setTab(goldenStrike.match.fixture.fixture.id, "analysis");
+          }}
+          className="w-full relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-transparent p-5 text-left hover:border-amber-500/50 transition-all"
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">🏆</span>
+            <h2 className="text-sm font-black text-amber-400 tracking-wide">ALTIN VURUŞ</h2>
+            <span className="text-[10px] text-zinc-500">— En yüksek değerli fırsat</span>
           </div>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 animate-pulse">
+                  🔥 {goldenStrike.opportunity.market}
+                </span>
+                {(() => { const badge = getScenarioBadge(goldenStrike.opportunity.scenario); return badge ? <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full", badge.color)}>{badge.icon} {badge.label}</span> : null; })()}
+                <span className="text-[10px] text-zinc-500">
+                  Değer: {goldenStrike.opportunity.valueScore ?? 0}/100
+                </span>
+              </div>
+              <p className="text-base font-bold text-white">
+                {goldenStrike.match.fixture.teams.home.name} vs {goldenStrike.match.fixture.teams.away.name}
+                <span className="text-zinc-500 text-sm ml-2">
+                  {goldenStrike.match.fixture.goals.home}-{goldenStrike.match.fixture.goals.away}
+                  ({goldenStrike.match.fixture.fixture.status.elapsed}&apos;)
+                </span>
+              </p>
+              <p className="text-sm text-zinc-300">{goldenStrike.opportunity.message}</p>
+              <p className="text-xs text-zinc-500">{goldenStrike.opportunity.reasoning}</p>
+            </div>
+            <div className="text-right shrink-0">
+              <div className={cn(
+                "text-3xl font-black",
+                goldenStrike.opportunity.confidence >= 70 ? "text-green-400" : "text-amber-400"
+              )}>
+                %{goldenStrike.opportunity.confidence}
+              </div>
+              <p className="text-[10px] text-zinc-500 mt-1">{goldenStrike.opportunity.timeWindow}</p>
+            </div>
+          </div>
+          {/* Mini stats row */}
+          {goldenStrike.match.analysis?.enrichedMomentum && (
+            <div className="flex items-center gap-4 mt-3 pt-3 border-t border-zinc-700/50 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-zinc-500">xG:</span>
+                <span className="text-xs font-bold text-blue-400">
+                  {goldenStrike.match.analysis.enrichedMomentum.liveXg.home.toFixed(1)}
+                </span>
+                <span className="text-[10px] text-zinc-600">v</span>
+                <span className="text-xs font-bold text-red-400">
+                  {goldenStrike.match.analysis.enrichedMomentum.liveXg.away.toFixed(1)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-zinc-500">Baskı:</span>
+                <span className="text-xs font-bold text-blue-400">
+                  {goldenStrike.match.analysis.enrichedMomentum.pressureIndex.home}
+                </span>
+                <span className="text-[10px] text-zinc-600">v</span>
+                <span className="text-xs font-bold text-red-400">
+                  {goldenStrike.match.analysis.enrichedMomentum.pressureIndex.away}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-zinc-500">Sıcaklık:</span>
+                <span className={cn("text-xs font-bold",
+                  (goldenStrike.match.analysis?.matchTemperature ?? 0) >= 70 ? "text-red-400" :
+                  (goldenStrike.match.analysis?.matchTemperature ?? 0) >= 45 ? "text-amber-400" : "text-zinc-400"
+                )}>
+                  {goldenStrike.match.analysis?.matchTemperature ?? 0}°
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-zinc-500">Momentum:</span>
+                <div className="flex h-1.5 w-16 rounded-full overflow-hidden bg-zinc-700">
+                  <div className="bg-blue-500" style={{ width: `${goldenStrike.match.analysis?.momentum?.homeScore ?? 50}%` }} />
+                  <div className="bg-red-500" style={{ width: `${goldenStrike.match.analysis?.momentum?.awayScore ?? 50}%` }} />
+                </div>
+              </div>
+            </div>
+          )}
+        </button>
+      )}
+
+      {/* ========== KATEGORİ SEKMELERİ + FIRSATLAR ========== */}
+      {allHotOpportunities.length > 0 && (
+        <div className="space-y-3">
+          {/* Category Tabs */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {[
+              { key: "all", label: "Tüm Fırsatlar", icon: "🔥", count: categorizedOpportunities.all?.length || 0 },
+              { key: "UYUYAN_DEV", label: "Uyuyan Devler", icon: "😴", count: categorizedOpportunities.UYUYAN_DEV?.length || 0 },
+              { key: "ERKEN_PATLAMA", label: "Erken Patlayanlar", icon: "⚡", count: categorizedOpportunities.ERKEN_PATLAMA?.length || 0 },
+              { key: "SON_DAKIKA_VURGUN", label: "Son Dakika", icon: "⏰", count: categorizedOpportunities.SON_DAKIKA_VURGUN?.length || 0 },
+            ].filter(t => t.count > 0).map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveCategory(tab.key)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap",
+                  activeCategory === tab.key
+                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                    : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:border-zinc-600"
+                )}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+                <span className="text-[10px] bg-zinc-700/50 px-1.5 py-0.5 rounded-full">{tab.count}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Category description */}
+          <p className="text-[10px] text-zinc-500 px-1">
+            {activeCategory === "UYUYAN_DEV" && "😴 Golsüz giden ama baskı/xG çok yüksek maçlar — oranlar hâlâ yüksek, asıl değer burada!"}
+            {activeCategory === "ERKEN_PATLAMA" && "⚡ Erken gol patlaması yaşayan maçlar — barem yüksekten verildi, düşük barem önerilmez."}
+            {activeCategory === "SON_DAKIKA_VURGUN" && "⏰ 75+ dakika, son bölümde fırsatlar — tek gole odaklı, skoru koru."}
+            {activeCategory === "all" && "🔥 Tüm aktif fırsatlar — değer puanına göre sıralanır."}
+          </p>
+
+          {/* Category Cards */}
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {allHotOpportunities.slice(0, 6).map(({ match, opportunity }, i) => (
+            {(categorizedOpportunities[activeCategory] || []).slice(0, 9).map(({ match, opportunity }, i) => (
               <button
                 key={i}
                 onClick={() => {
                   setExpandedMatch(match.fixture.fixture.id);
                   setTab(match.fixture.fixture.id, "analysis");
                 }}
-                className="bg-gradient-to-r from-orange-500/10 via-red-500/5 to-transparent border border-orange-500/20 rounded-xl p-3 text-left hover:border-orange-500/40 transition-all group"
+                className={cn(
+                  "border rounded-xl p-3 text-left transition-all group",
+                  opportunity.category === "UYUYAN_DEV"
+                    ? "bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-transparent border-blue-500/20 hover:border-blue-500/40"
+                    : opportunity.category === "ERKEN_PATLAMA"
+                    ? "bg-gradient-to-r from-cyan-500/10 via-teal-500/5 to-transparent border-cyan-500/20 hover:border-cyan-500/40"
+                    : opportunity.category === "SON_DAKIKA_VURGUN"
+                    ? "bg-gradient-to-r from-orange-500/10 via-red-500/5 to-transparent border-orange-500/20 hover:border-orange-500/40"
+                    : "bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent border-amber-500/20 hover:border-amber-500/40"
+                )}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 animate-pulse">🔥</span>
-                  <span className="text-[10px] font-bold text-amber-400">{opportunity.market}</span>
+                  <span className={cn(
+                    "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                    opportunity.level === "HOT" ? "bg-orange-500/20 text-orange-400" : "bg-amber-500/15 text-amber-400"
+                  )}>
+                    {opportunity.level === "HOT" ? "🔥" : "⚡"} {opportunity.market}
+                  </span>
                   {(() => { const badge = getScenarioBadge(opportunity.scenario); return badge ? <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full", badge.color)}>{badge.icon} {badge.label}</span> : null; })()}
-                  <span className="text-[10px] text-zinc-500 ml-auto">%{opportunity.confidence}</span>
+                  <span className="text-[10px] text-zinc-500 ml-auto">
+                    %{opportunity.confidence}
+                    <span className="text-zinc-600 ml-1">D:{opportunity.valueScore ?? 0}</span>
+                  </span>
                 </div>
                 <p className="text-xs font-medium text-white truncate">
                   {match.fixture.teams.home.name} - {match.fixture.teams.away.name}
-                  <span className="text-zinc-500 ml-1">({match.fixture.fixture.status.elapsed}&apos;)</span>
+                  <span className="text-zinc-500 ml-1">
+                    {match.fixture.goals.home}-{match.fixture.goals.away} ({match.fixture.fixture.status.elapsed}&apos;)
+                  </span>
                 </p>
                 <p className="text-[10px] text-zinc-400 truncate mt-0.5">{opportunity.message}</p>
+                {/* Mini aksiyon sinyali */}
+                {match.analysis?.enrichedMomentum && (
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <span className="text-[9px] text-zinc-600">Aksiyon:</span>
+                    <div className="flex gap-0.5">
+                      {Array.from({ length: 5 }, (_, idx) => {
+                        const rate = Math.max(
+                          match.analysis!.enrichedMomentum!.recentDangerousRate.home,
+                          match.analysis!.enrichedMomentum!.recentDangerousRate.away
+                        );
+                        const filled = idx < Math.ceil(rate * 2.5);
+                        return (
+                          <div
+                            key={idx}
+                            className={cn(
+                              "w-3 h-1 rounded-full",
+                              filled
+                                ? rate > 1.5 ? "bg-red-500" : rate > 0.8 ? "bg-amber-500" : "bg-green-500"
+                                : "bg-zinc-700"
+                            )}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -525,6 +732,29 @@ export default function LivePage() {
                           )}>
                             ⚽{analysis.danger.goalProbability}%
                           </span>
+                        )}
+                        {/* Aksiyon Sinyali: son dakika tehlikeli atak yoğunluğu */}
+                        {analysis?.enrichedMomentum && (
+                          <div className="flex gap-0.5" title="Aksiyon yoğunluğu">
+                            {Array.from({ length: 5 }, (_, idx) => {
+                              const rate = Math.max(
+                                analysis.enrichedMomentum!.recentDangerousRate.home,
+                                analysis.enrichedMomentum!.recentDangerousRate.away
+                              );
+                              const filled = idx < Math.ceil(rate * 2.5);
+                              return (
+                                <div
+                                  key={idx}
+                                  className={cn(
+                                    "w-1.5 h-3 rounded-sm",
+                                    filled
+                                      ? rate > 1.5 ? "bg-red-500" : rate > 0.8 ? "bg-amber-500" : "bg-green-500"
+                                      : "bg-zinc-700"
+                                  )}
+                                />
+                              );
+                            })}
+                          </div>
                         )}
                         {/* Momentum mini bar */}
                         {analysis && (

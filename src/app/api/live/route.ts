@@ -50,15 +50,18 @@ const previousStatsCache = new Map<number, { timestamp: number; stats: Record<st
 // ---- Opportunity & Momentum Types ----
 
 type AlertLevel = "HOT" | "WARM" | "INFO";
+type OpportunityCategory = "UYUYAN_DEV" | "ERKEN_PATLAMA" | "SON_DAKIKA_VURGUN" | "STANDART";
 
 interface LiveOpportunity {
   level: AlertLevel;
-  market: string;        // "Over 2.5", "BTTS", "Ev Sahibi Gol", etc.
+  market: string;
   message: string;
   reasoning: string;
-  confidence: number;    // 0-100
-  timeWindow: string;    // "Son 15dk", "2. Yarı", etc.
+  confidence: number;
+  timeWindow: string;
   scenario?: ScenarioType;
+  valueScore: number;             // 0-100: Bahis değeri (düşük oran = düşük değer)
+  category: OpportunityCategory;  // Fırsat kategorisi
 }
 
 interface MomentumData {
@@ -677,7 +680,7 @@ function generateLiveAnalysis(
     danger,
     opportunities: opportunities.sort((a, b) => {
       const levelOrder = { HOT: 0, WARM: 1, INFO: 2 };
-      return (levelOrder[a.level] - levelOrder[b.level]) || (b.confidence - a.confidence);
+      return (levelOrder[a.level] - levelOrder[b.level]) || (b.valueScore - a.valueScore) || (b.confidence - a.confidence);
     }),
     insights: [],
     matchTemperature,
@@ -888,10 +891,19 @@ function detectOpportunities(
   htAway: number,
   enriched: LiveMomentumEnrichedData
 ): LiveOpportunity[] {
-  const rawOpps: LiveOpportunity[] = [];
+  type RawOpportunity = Omit<LiveOpportunity, "valueScore" | "category">;
+  const rawOpps: RawOpportunity[] = [];
 
   // ============ YARDIMCI ============
-  const nextOverLine = totalGoals < 2 ? 1.5 : totalGoals < 3 ? 2.5 : totalGoals < 4 ? 3.5 : totalGoals < 5 ? 4.5 : totalGoals < 6 ? 5.5 : 6.5;
+  // DİNAMİK BAREM: Gol temposuna göre akıllı Over hedef çizgisi
+  const staticOverLine = totalGoals < 2 ? 1.5 : totalGoals < 3 ? 2.5 : totalGoals < 4 ? 3.5 : totalGoals < 5 ? 4.5 : totalGoals < 6 ? 5.5 : 6.5;
+  const goalsPerMinute = totalGoals / Math.max(elapsed, 1);
+  const projectedTotal = goalsPerMinute * 90;
+  // Tempo yüksekse (projeksiyon baremi +2 aşıyor), bir üst baremi hedefle
+  // Örn: 25'de 3 gol → projeksiyon 10.8 → Over 3.5 yerine Over 4.5 öner
+  const nextOverLine = (elapsed <= 60 && totalGoals >= 2 && projectedTotal > staticOverLine + 2)
+    ? totalGoals + 1.5
+    : staticOverLine;
   const goalDiff = Math.abs(homeGoals - awayGoals);
   const leadingTeam = homeGoals > awayGoals ? "home" : awayGoals > homeGoals ? "away" : "draw";
   const leadingName = leadingTeam === "home" ? homeName : leadingTeam === "away" ? awayName : "";
@@ -1434,43 +1446,107 @@ function detectOpportunities(
   }
 
   // ============================================
-  // FAZ 1: FİLTRE KATMANI (Son Adım)
+  // FAZ 4: DEĞER PUANI + KATEGORİ + FİLTRE
   // ============================================
 
-  // FAZ 2.3: Tehlikeli atak/dk yüksek ve geridenCI takım baskılı ise Under market'leri blokla
   const maxDangerousRate = Math.max(enriched.recentDangerousRate.home, enriched.recentDangerousRate.away);
+  const maxPressure = Math.max(enriched.pressureIndex.home, enriched.pressureIndex.away);
 
-  return rawOpps.filter(opp => {
-    // FAZ 1.2: 80+ dakikada Under market'leri tamamen engelle
-    if (elapsed >= LATE_GAME_UNDER_BLACKLIST_MINUTE && isUnderMarket(opp.market)) {
-      return false;
-    }
+  // --- Değer Puanı (Value Score): Düşük oranlı "banko"ları cezalandırır ---
+  function calcValueScore(opp: RawOpportunity): number {
+    let value = opp.confidence;
 
-    // FAZ 1.2: 70-80 arası Under market'leri sıkı filtre
-    if (elapsed >= LATE_GAME_UNDER_SOFT_MINUTE && elapsed < LATE_GAME_UNDER_BLACKLIST_MINUTE && isUnderMarket(opp.market)) {
-      if (opp.confidence > LATE_GAME_UNDER_MAX_CONFIDENCE) {
-        opp.confidence = LATE_GAME_UNDER_MAX_CONFIDENCE;
+    // Over marketleri: halihazırda tutmuş veya 1 gol kala kolay hedefse → değer düşük
+    if (opp.market.startsWith("Over") || opp.market.includes("Üst")) {
+      const lineParts = opp.market.match(/(\d+\.\d+)/);
+      const line = lineParts ? parseFloat(lineParts[1]) : 0;
+      const goalsNeeded = Math.max(0, Math.ceil(line) - totalGoals);
+      const minutesLeft = Math.max(1, 90 - elapsed);
+      if (goalsNeeded === 0) return 0;               // Zaten tutmuş → bahis kapanmış
+      if (goalsNeeded === 1 && minutesLeft > 30) {
+        value *= 0.35;                                // Kolay hedef → oran 1.05-1.15, değersiz
+      }
+      if (goalsNeeded === 1 && minutesLeft <= 15) {
+        value *= 1.1;                                 // Son dk + 1 gol = makul oran olabilir
+      }
+      if (goalsNeeded >= 2) {
+        value *= 1.3;                                 // Zor hedef = yüksek oran potansiyeli
       }
     }
 
-    // FAZ 2.3: xG Delta yüksek ise Under blokla ("Gol Geliyor" sinyali)
-    if (enriched.xgDelta > XG_GOAL_COMING_THRESHOLD && isUnderMarket(opp.market)) {
-      return false;
+    // Under: geç dakika + düşük gol = herkes görür
+    if (isUnderMarket(opp.market) && elapsed >= 75 && totalGoals <= 1) {
+      value *= 0.35;
     }
 
-    // FAZ 2.3: Tehlikeli atak/dk yüksek + geriden gelen takım baskılı ise Under blokla
-    if (maxDangerousRate > PRESSURE_UNDER_BLOCK_RATE && isUnderMarket(opp.market) && leadingTeam !== "draw") {
-      return false;
+    // BTTS zaten olduysa bahis kapanmış
+    if (opp.market === "BTTS Var" && homeGoals > 0 && awayGoals > 0) return 0;
+
+    // MS X beraberelikte 85+: herkes görüyor
+    if (opp.market === "MS X" && homeGoals === awayGoals && elapsed >= 85) {
+      value *= 0.3;
     }
 
-    // FAZ 1.1: Minimum güven filtresi (minimum oran eşiği dolaylı olarak uygulanır)
-    // confidence çok düşük olan INFO önerileri hariç, düşük confidence'ları kaldır
-    if (opp.level !== "INFO" && opp.confidence < 35) {
-      return false;
-    }
+    // MS 1/2 ile 2+ fark + 80+: bahis kapanmış
+    if ((opp.market === "MS 1" || opp.market === "MS 2") && goalDiff >= 2 && elapsed >= 80) return 0;
 
-    return true;
-  });
+    // Sıradaki Gol marketi erken dakikada değerli
+    if (opp.market === "Sıradaki Gol" && elapsed < 70) value *= 1.2;
+
+    // ÇS (Çifte Şans): geri kalan takım baskılıysa gerçek değer
+    if (opp.market.includes("ÇS") && trailingPressure > 50) value *= 1.3;
+
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
+
+  // --- Kategori Atayıcı: Maç durumuna göre fırsat sınıflandırması ---
+  function assignCategory(): OpportunityCategory {
+    if (totalGoals === 0 && elapsed >= 30 && (enriched.xgDelta > 0.5 || maxPressure > 45)) {
+      return "UYUYAN_DEV";       // 😴 Golsüz ama baskılı — oranlar hâlâ yüksek
+    }
+    if (elapsed <= 45 && totalGoals >= 2) {
+      return "ERKEN_PATLAMA";     // ⚡ Erken gol patlaması — barem yüksekten verilmeli
+    }
+    if (elapsed >= 75) {
+      return "SON_DAKIKA_VURGUN"; // ⏰ Son bölüm fırsatları
+    }
+    return "STANDART";
+  }
+
+  const matchCategory = assignCategory();
+
+  // Zenginleştir + Filtrele
+  return rawOpps
+    .map(opp => ({
+      ...opp,
+      valueScore: calcValueScore(opp),
+      category: matchCategory,
+    }))
+    .filter(opp => {
+      // Değer sıfırsa tamamen kaldır (bahis kapanmış veya değersiz)
+      if (opp.valueScore === 0) return false;
+
+      // FAZ 1.2: 80+ dakikada Under tamamen engelle
+      if (elapsed >= LATE_GAME_UNDER_BLACKLIST_MINUTE && isUnderMarket(opp.market)) return false;
+
+      // FAZ 1.2: 70-80 arası Under sıkı filtre
+      if (elapsed >= LATE_GAME_UNDER_SOFT_MINUTE && elapsed < LATE_GAME_UNDER_BLACKLIST_MINUTE && isUnderMarket(opp.market)) {
+        if (opp.confidence > LATE_GAME_UNDER_MAX_CONFIDENCE) {
+          opp.confidence = LATE_GAME_UNDER_MAX_CONFIDENCE;
+        }
+      }
+
+      // FAZ 2.3: xG Delta yüksek ise Under blokla
+      if (enriched.xgDelta > XG_GOAL_COMING_THRESHOLD && isUnderMarket(opp.market)) return false;
+
+      // FAZ 2.3: Tehlikeli atak/dk yüksek + under blokla
+      if (maxDangerousRate > PRESSURE_UNDER_BLOCK_RATE && isUnderMarket(opp.market) && leadingTeam !== "draw") return false;
+
+      // Minimum güven filtresi
+      if (opp.level !== "INFO" && opp.confidence < 35) return false;
+
+      return true;
+    });
 }
 
 // ------ MAÇ SICAKLIĞI ------

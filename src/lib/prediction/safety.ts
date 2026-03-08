@@ -13,10 +13,11 @@ export interface SafetyResult {
 }
 
 /**
- * 3 aşamalı doğrulama:
+ * 4 aşamalı doğrulama:
  * 1. Veri Tamlık Kontrolü
  * 2. Odd Drift Guard
  * 3. Conflict Resolver (engine vs simulator)
+ * 4. Minimum Oran Eşiği (FAZ 1.1)
  */
 export function runSafetyChecks(prediction: MatchPrediction): SafetyResult {
   const warnings: string[] = [];
@@ -64,6 +65,13 @@ export function runSafetyChecks(prediction: MatchPrediction): SafetyResult {
   if (conflict.caution) {
     riskLevel = "caution";
     warnings.push(conflict.caution);
+  }
+
+  // ===== Aşama 4: Minimum Oran Eşiği (FAZ 1.1) =====
+  const minOdds = checkMinOdds(prediction);
+  if (minOdds.caution) {
+    riskLevel = "caution";
+    warnings.push(minOdds.caution);
   }
 
   return { pass: true, riskLevel, warnings };
@@ -213,6 +221,31 @@ function checkConflicts(prediction: MatchPrediction): {
     return {
       pass: true,
       caution: `Motor (%${engineConf}) ve Sim (%${simProb.toFixed(0)}) arasında ${difference.toFixed(0)} puan fark var`,
+    };
+  }
+
+  return { pass: true };
+}
+
+// ---- Aşama 4: Minimum Oran Eşiği (FAZ 1.1) ----
+const MIN_PICK_ODDS = 1.40;
+
+function checkMinOdds(prediction: MatchPrediction): {
+  pass: boolean;
+  caution?: string;
+} {
+  if (!prediction.odds) return { pass: true };
+  
+  const bestPick = prediction.picks[0];
+  if (!bestPick) return { pass: true };
+
+  const currentOdds = getPickOdds(bestPick, prediction.odds);
+  if (!currentOdds) return { pass: true };
+
+  if (currentOdds < MIN_PICK_ODDS) {
+    return {
+      pass: true,
+      caution: `Ana pick oranı ${currentOdds.toFixed(2)} — minimum eşik ${MIN_PICK_ODDS} altında, düşük değer`,
     };
   }
 

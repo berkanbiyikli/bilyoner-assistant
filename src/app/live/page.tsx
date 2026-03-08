@@ -33,6 +33,8 @@ import { cn } from "@/lib/utils";
 
 type AlertLevel = "HOT" | "WARM" | "INFO";
 
+type ScenarioType = "BASKI_VAR" | "MAC_UYUDU" | "GOL_FESTIVALI" | "SAVUNMA_SAVASI" | "COMEBACK_KOKUSU" | "ERKEN_FIRTINA" | "SON_DAKIKA_HEYECANI" | "NORMAL";
+
 interface LiveOpportunity {
   level: AlertLevel;
   market: string;
@@ -40,6 +42,7 @@ interface LiveOpportunity {
   reasoning: string;
   confidence: number;
   timeWindow: string;
+  scenario?: ScenarioType;
 }
 
 interface MomentumData {
@@ -57,6 +60,15 @@ interface DangerLevel {
   description: string;
 }
 
+interface EnrichedMomentumData {
+  liveXg: { home: number; away: number };
+  xgDelta: number;
+  pressureIndex: { home: number; away: number };
+  recentDangerousRate: { home: number; away: number };
+  scenarioType: ScenarioType;
+  scenarioMessage: string;
+}
+
 interface LiveMatchAnalysis {
   momentum: MomentumData;
   danger: DangerLevel;
@@ -65,6 +77,7 @@ interface LiveMatchAnalysis {
   matchTemperature: number;
   nextGoalTeam: "home" | "away" | "either" | "unlikely";
   scorePressure: number;
+  enrichedMomentum?: EnrichedMomentumData;
 }
 
 interface PredictionPick {
@@ -111,6 +124,20 @@ const STAT_LABELS: Record<string, string> = {
   "Passes %": "Pas İsabeti %",
   expected_goals: "xG",
 };
+
+// Senaryo badge helper (module-level)
+function getScenarioBadge(scenario?: ScenarioType): { icon: string; label: string; color: string } | null {
+  switch (scenario) {
+    case "BASKI_VAR": return { icon: "🔥", label: "Baskı", color: "bg-red-500/20 text-red-400" };
+    case "MAC_UYUDU": return { icon: "😴", label: "Uyudu", color: "bg-blue-500/20 text-blue-400" };
+    case "GOL_FESTIVALI": return { icon: "⚽", label: "Festival", color: "bg-green-500/20 text-green-400" };
+    case "SAVUNMA_SAVASI": return { icon: "🛡️", label: "Defans", color: "bg-slate-500/20 text-slate-400" };
+    case "COMEBACK_KOKUSU": return { icon: "⚡", label: "Comeback", color: "bg-purple-500/20 text-purple-400" };
+    case "ERKEN_FIRTINA": return { icon: "🌪️", label: "Fırtına", color: "bg-cyan-500/20 text-cyan-400" };
+    case "SON_DAKIKA_HEYECANI": return { icon: "⏰", label: "Son Dk", color: "bg-orange-500/20 text-orange-400" };
+    default: return null;
+  }
+}
 
 const KEY_STATS = [
   "Ball Possession",
@@ -227,6 +254,9 @@ export default function LivePage() {
     }
   };
 
+  // Senaryo badge helper (delegates to module-level)
+  const scenarioBadge = getScenarioBadge;
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -302,6 +332,7 @@ export default function LivePage() {
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 animate-pulse">🔥</span>
                   <span className="text-[10px] font-bold text-amber-400">{opportunity.market}</span>
+                  {(() => { const badge = getScenarioBadge(opportunity.scenario); return badge ? <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full", badge.color)}>{badge.icon} {badge.label}</span> : null; })()}
                   <span className="text-[10px] text-zinc-500 ml-auto">%{opportunity.confidence}</span>
                 </div>
                 <p className="text-xs font-medium text-white truncate">
@@ -761,6 +792,25 @@ function OpportunitiesPanel({ analysis, match }: { analysis: LiveMatchAnalysis |
 
   return (
     <div className="space-y-4">
+      {/* Scenario Banner */}
+      {analysis.enrichedMomentum && analysis.enrichedMomentum.scenarioType !== "NORMAL" && (() => {
+        const badge = getScenarioBadge(analysis.enrichedMomentum!.scenarioType);
+        if (!badge) return null;
+        return (
+          <div className={cn("rounded-xl border p-3 flex items-center gap-3", badge.color.replace("text-", "border-").replace("/20", "/30"))}>
+            <span className="text-2xl">{badge.icon}</span>
+            <div>
+              <span className={cn("text-xs font-bold", badge.color.split(" ")[1])}>{badge.label} Senaryosu</span>
+              <p className="text-xs text-zinc-300 mt-0.5">{analysis.enrichedMomentum!.scenarioMessage}</p>
+              <div className="flex gap-3 mt-1">
+                <span className="text-[10px] text-zinc-500">xG Farkı: {analysis.enrichedMomentum!.xgDelta.toFixed(1)}</span>
+                <span className="text-[10px] text-zinc-500">Baskı: {analysis.enrichedMomentum!.pressureIndex.home.toFixed(0)} - {analysis.enrichedMomentum!.pressureIndex.away.toFixed(0)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Summary */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -799,7 +849,7 @@ function OpportunitiesPanel({ analysis, match }: { analysis: LiveMatchAnalysis |
           >
             {/* Header */}
             <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className={cn(
                   "text-[10px] font-bold px-2 py-0.5 rounded-full",
                   opp.level === "HOT" ? "bg-orange-500/20 text-orange-400" :
@@ -814,6 +864,7 @@ function OpportunitiesPanel({ analysis, match }: { analysis: LiveMatchAnalysis |
                 )}>
                   {opp.market}
                 </span>
+                {(() => { const badge = getScenarioBadge(opp.scenario); return badge ? <span className={cn("text-[9px] font-bold px-2 py-0.5 rounded-full", badge.color)}>{badge.icon} {badge.label}</span> : null; })()}
               </div>
               <div className="flex flex-col items-end gap-0.5">
                 <span className={cn(

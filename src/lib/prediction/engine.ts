@@ -33,6 +33,7 @@ import { calculateMatchImportance, type MatchImportance } from "@/lib/prediction
 import { getOptimalWeights } from "@/lib/prediction/validator";
 import { analyzeForm, type FormAnalysis } from "@/lib/prediction/form-analyzer";
 import { calculateEloFromMatches, eloToWinProbabilities, calculateH2HElo } from "@/lib/prediction/elo";
+import { isMLModelAvailable, getMLProbability, buildFeatureVector, type MLFeatureVector } from "@/lib/prediction/ml-model";
 
 const CACHE_TTL = 30 * 60; // 30 dakika
 
@@ -827,14 +828,45 @@ function generatePicks(
   const awayProbability = blendProb(simAwayProb, apiAwayProb, impliedAway, eloAway);
   const drawProbability = blendProb(simDrawProb, apiDrawProb, impliedDraw, eloDraw);
 
-  // Hibrit confidence hesaplama: self-calibrating ağırlıklar
+  // === FAZ 4: ML Model Feature Vector ===
+  const mlAvailable = isMLModelAvailable();
+  let mlFeatures: MLFeatureVector | null = null;
+  if (mlAvailable) {
+    mlFeatures = buildFeatureVector({
+      homeForm: analysis.homeForm,
+      awayForm: analysis.awayForm,
+      homeAttack: analysis.homeAttack,
+      awayAttack: analysis.awayAttack,
+      homeDefense: analysis.homeDefense,
+      awayDefense: analysis.awayDefense,
+      homeXg: analysis.homeXg,
+      awayXg: analysis.awayXg,
+      refereeProfile: analysis.refereeProfile,
+      matchImportance: analysis.matchImportance,
+      eloRatings: { home: homeEloApprox, away: awayEloApprox },
+    });
+  }
+
+  // Hibrit confidence hesaplama: self-calibrating ağırlıklar + ML blend
   const hybridConfidence = (heuristicConf: number, pickType: string): number => {
     if (!sim) return heuristicConf;
     const simProb = getSimProbability(sim, pickType);
     if (simProb === undefined) return heuristicConf;
     const simConf = Math.min(92, simProb); // simProb zaten % cinsinden
-    // Ağırlıklı harmanlama + over-confidence freni
-    const blended = heuristicConf * weights.heuristic + simConf * weights.sim;
+
+    // FAZ 4: ML modelden tahmin al
+    const mlProb = mlFeatures ? getMLProbability(mlFeatures, pickType) : undefined;
+
+    let blended: number;
+    if (mlProb !== undefined) {
+      // ML mevcut: heuristic %30 + sim %45 + ML %25
+      const mlConf = Math.min(92, mlProb);
+      blended = heuristicConf * (weights.heuristic * 0.75) + simConf * weights.sim + mlConf * (weights.heuristic * 0.25 + 0.1);
+    } else {
+      // ML yok: eski formül
+      blended = heuristicConf * weights.heuristic + simConf * weights.sim;
+    }
+
     // Sim ve heuristic çok farklıysa → güveni düşür (belirsizlik)
     const divergence = Math.abs(heuristicConf - simConf);
     const penalty = divergence > 20 ? Math.min(8, (divergence - 20) * 0.3) : 0;

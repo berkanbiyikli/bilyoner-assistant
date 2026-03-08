@@ -132,7 +132,11 @@ export function findValueBets(predictions: MatchPrediction[]): ValueBet[] {
 
     // Korner & Kart pazarları devre dışı — sentetik veri güvenilir değil
 
+    // FAZ 1.1: Minimum oran eşiği — düşük oranlı bahisler value bet olarak önerilmez
+    const MIN_VALUE_BET_ODDS = 1.40;
+
     for (const m of markets) {
+      if (m.bookmakerOdds < MIN_VALUE_BET_ODDS) continue; // Düşük oranlı market'leri atla
       if (m.probability <= 0.05 || m.probability >= 0.95) continue; // Saçma olasılıkları atla
 
       const fairOdds = 1 / m.probability;

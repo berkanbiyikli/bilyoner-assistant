@@ -21,8 +21,11 @@ export const LEAGUES: LeagueConfig[] = [
   // Top 5 Avrupa Ligi
   { id: 39, name: "Premier League", country: "England", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", priority: 1, volatility: "low" },
   { id: 140, name: "La Liga", country: "Spain", flag: "🇪🇸", priority: 1, volatility: "low" },
+  { id: 141, name: "La Liga 2", country: "Spain", flag: "🇪🇸", priority: 3, volatility: "high" },
   { id: 135, name: "Serie A", country: "Italy", flag: "🇮🇹", priority: 1, volatility: "low" },
   { id: 78, name: "Bundesliga", country: "Germany", flag: "🇩🇪", priority: 1, volatility: "medium" },
+  { id: 79, name: "2. Bundesliga", country: "Germany", flag: "🇩🇪", priority: 3, volatility: "high" },
+  { id: 80, name: "3. Liga", country: "Germany", flag: "🇩🇪", priority: 4, volatility: "high" },
   { id: 61, name: "Ligue 1", country: "France", flag: "🇫🇷", priority: 2, volatility: "low" },
 
   // Diğer Popüler Ligler
@@ -30,6 +33,10 @@ export const LEAGUES: LeagueConfig[] = [
   { id: 88, name: "Eredivisie", country: "Netherlands", flag: "🇳🇱", priority: 2, volatility: "medium" },
   { id: 144, name: "Jupiler Pro League", country: "Belgium", flag: "🇧🇪", priority: 3, volatility: "medium" },
   { id: 235, name: "Premier Liga", country: "Russia", flag: "🇷🇺", priority: 3, volatility: "medium" },
+  { id: 236, name: "FNL", country: "Russia", flag: "🇷🇺", priority: 4, volatility: "high" },
+  { id: 207, name: "Super League", country: "Switzerland", flag: "🇨🇭", priority: 3, volatility: "medium" },
+  { id: 208, name: "Challenge League", country: "Switzerland", flag: "🇨🇭", priority: 4, volatility: "high" },
+  { id: 286, name: "Super Liga", country: "Serbia", flag: "🇷🇸", priority: 3, volatility: "high" },
 
   // Güney Amerika (Yüksek Volatilite)
   { id: 71, name: "Brasileirão Serie A", country: "Brazil", flag: "🇧🇷", priority: 2, volatility: "high" },

@@ -5,7 +5,7 @@
 // ============================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminSupabase } from "@/lib/supabase/admin";
+import { createAdminSupabase, fetchAllRows } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -24,15 +24,10 @@ export async function GET(req: NextRequest) {
     const pickType = searchParams.get("pick") || ""; // 1, X, 2, Over 2.5, etc.
     const league = searchParams.get("league") || "";
 
-    // Toplam istatistikler (filtresiz)
-    const { data: allPredictions, error: allError } = await supabase
-      .from("predictions")
-      .select("*")
-      .order("kickoff", { ascending: false });
-
-    if (allError) throw allError;
-
-    const all = allPredictions || [];
+    // Toplam istatistikler (filtresiz, tüm kayıtlar)
+    const all = await fetchAllRows(supabase, "predictions", {
+      order: { column: "kickoff", ascending: false },
+    });
     const settled = all.filter((p) => p.result !== "pending");
     const won = settled.filter((p) => p.result === "won");
     const lost = settled.filter((p) => p.result === "lost");

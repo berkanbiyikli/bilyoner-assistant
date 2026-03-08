@@ -443,6 +443,57 @@ export interface HtBttsFactor {
   weight: number;             // 0-1 (bu faktörün toplam etkisi)
 }
 
+// ---- Live Momentum v2 (Canlı Analiz) ----
+export type ScenarioType =
+  | "BASKI_VAR"
+  | "MAC_UYUDU"
+  | "GOL_FESTIVALI"
+  | "SAVUNMA_SAVASI"
+  | "COMEBACK_KOKUSU"
+  | "ERKEN_FIRTINA"
+  | "SON_DAKIKA_HEYECANI"
+  | "NORMAL";
+
+export interface PressureIndex {
+  home: number;   // 0-100
+  away: number;   // 0-100
+}
+
+export interface LiveMomentumEnriched {
+  liveXg: { home: number; away: number };
+  xgDelta: number;                    // liveXg toplam - actualGoals (pozitif = gol eksik)
+  pressureIndex: PressureIndex;
+  recentDangerousRate: { home: number; away: number }; // son 10dk tahmini oran
+  scenarioType: ScenarioType;
+  scenarioMessage: string;            // Türkçe hikaye
+}
+
+// ---- ML Feature Vector ----
+export interface MLFeatureVector {
+  elapsed_minute: number;
+  home_goals: number;
+  away_goals: number;
+  goal_diff: number;
+  home_form: number;
+  away_form: number;
+  home_attack: number;
+  away_attack: number;
+  home_defense: number;
+  away_defense: number;
+  home_xg: number;
+  away_xg: number;
+  xg_delta: number;
+  h2h_goal_avg: number;
+  sim_probability: number;
+  bookmaker_odds: number;
+  edge_at_open: number;
+  confidence: number;
+  kelly_fraction: number;
+  is_live: number;            // 0 or 1
+  pick_type_encoded: number;  // Numeric encoding
+  league_encoded: number;     // Numeric encoding
+}
+
 // ---- Calibration (Self-Learning) ----
 export interface CalibrationData {
   heuristicWeight: number;      // 0.0 – 1.0 (default 0.4)

@@ -1,19 +1,14 @@
 import { NextResponse } from "next/server";
-import { createAdminSupabase } from "@/lib/supabase/admin";
+import { createAdminSupabase, fetchAllRows } from "@/lib/supabase/admin";
 
 export async function GET() {
   try {
     const supabase = createAdminSupabase();
 
-    // Tüm tahminleri çek
-    const { data: predictions, error: predError } = await supabase
-      .from("predictions")
-      .select("*")
-      .order("kickoff", { ascending: false });
-
-    if (predError) throw predError;
-
-    const all = predictions || [];
+    // Tüm tahminleri çek (1000 satır limitini aşmak için sayfalı)
+    const all = await fetchAllRows(supabase, "predictions", {
+      order: { column: "kickoff", ascending: false },
+    });
     const settled = all.filter((p) => p.result !== "pending");
     const won = settled.filter((p) => p.result === "won");
     const lost = settled.filter((p) => p.result === "lost");

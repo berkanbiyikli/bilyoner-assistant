@@ -4,7 +4,7 @@
 // ============================================
 
 import type { ValidationStats, ValidationRecord, CalibrationData } from "@/types";
-import { createAdminSupabase } from "@/lib/supabase/admin";
+import { createAdminSupabase, fetchAllRows } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
 
 /**
@@ -83,22 +83,18 @@ export async function saveValidationRecord(record: ValidationRecord): Promise<vo
 export async function calculateValidationStats(): Promise<ValidationStats> {
   const supabase = createAdminSupabase();
 
-  // Önce validation_records tablosundan dene
-  const { data: records } = await supabase
-    .from("validation_records")
-    .select("*")
-    .in("result", ["won", "lost"])
-    .order("kickoff", { ascending: false });
-
-  let all = records || [];
+  // Önce validation_records tablosundan dene (tüm kayıtlar)
+  let all = await fetchAllRows(supabase, "validation_records", {
+    order: { column: "kickoff", ascending: false },
+    filters: [{ method: "in", args: ["result", ["won", "lost"]] }],
+  });
 
   // Fallback: validation_records boşsa predictions tablosundan oku
   if (all.length === 0) {
-    const { data: predictions } = await supabase
-      .from("predictions")
-      .select("*")
-      .in("result", ["won", "lost"])
-      .order("kickoff", { ascending: false });
+    const predictions = await fetchAllRows(supabase, "predictions", {
+      order: { column: "kickoff", ascending: false },
+      filters: [{ method: "in", args: ["result", ["won", "lost"]] }],
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     all = (predictions || []).map((p: any) => ({
@@ -335,13 +331,10 @@ export async function calculateCalibration(): Promise<CalibrationData> {
   if (cached) return cached;
 
   const supabase = createAdminSupabase();
-  const { data: records } = await supabase
-    .from("validation_records")
-    .select("*")
-    .in("result", ["won", "lost"])
-    .order("kickoff", { ascending: false });
-
-  const all = records || [];
+  const all = await fetchAllRows(supabase, "validation_records", {
+    order: { column: "kickoff", ascending: false },
+    filters: [{ method: "in", args: ["result", ["won", "lost"]] }],
+  });
   if (all.length < 30) {
     // Yeterli veri yok, default weights
     return {

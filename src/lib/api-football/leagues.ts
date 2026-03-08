@@ -26,6 +26,11 @@ export const LEAGUES: LeagueConfig[] = [
   { id: 78, name: "Bundesliga", country: "Germany", flag: "🇩🇪", priority: 1, volatility: "medium" },
   { id: 79, name: "2. Bundesliga", country: "Germany", flag: "🇩🇪", priority: 3, volatility: "high" },
   { id: 80, name: "3. Liga", country: "Germany", flag: "🇩🇪", priority: 4, volatility: "high" },
+  { id: 81, name: "Regionalliga West", country: "Germany", flag: "🇩🇪", priority: 5, volatility: "high" },
+  { id: 82, name: "Regionalliga Nordost", country: "Germany", flag: "🇩🇪", priority: 5, volatility: "high" },
+  { id: 83, name: "Regionalliga Nord", country: "Germany", flag: "🇩🇪", priority: 5, volatility: "high" },
+  { id: 84, name: "Regionalliga Südwest", country: "Germany", flag: "🇩🇪", priority: 5, volatility: "high" },
+  { id: 85, name: "Regionalliga Bayern", country: "Germany", flag: "🇩🇪", priority: 5, volatility: "high" },
   { id: 61, name: "Ligue 1", country: "France", flag: "🇫🇷", priority: 2, volatility: "low" },
 
   // Diğer Popüler Ligler

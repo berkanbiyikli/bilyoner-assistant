@@ -63,6 +63,12 @@ export function PredictionsPage() {
   const selectedLeagues = useAppStore((s) => s.selectedLeagues);
   const [expandedMatch, setExpandedMatch] = useState<number | null>(null);
   const [detailTab, setDetailTab] = useState<Record<number, string>>({});
+  const [quickFilters, setQuickFilters] = useState<Set<string>>(new Set());
+  const toggleQuickFilter = (f: string) => setQuickFilters(prev => {
+    const next = new Set(prev);
+    if (next.has(f)) next.delete(f); else next.add(f);
+    return next;
+  });
 
   // Crazy Picks state
   const [crazyPicks, setCrazyPicks] = useState<CrazyPickResult[]>([]);
@@ -229,10 +235,22 @@ export function PredictionsPage() {
     })
     .filter(Boolean) as typeof predictions;
 
+  // Quick filter: KG Var, Ü2.5, İY KG Var
+  const quickFiltered = useMemo(() => {
+    if (quickFilters.size === 0) return filteredPredictions;
+    return filteredPredictions.filter(p => {
+      const pickTypes = p.picks.map(pk => pk.type);
+      if (quickFilters.has("btts") && !pickTypes.includes("BTTS Yes")) return false;
+      if (quickFilters.has("over25") && !pickTypes.includes("Over 2.5")) return false;
+      if (quickFilters.has("ht_btts") && !pickTypes.includes("HT BTTS Yes")) return false;
+      return true;
+    });
+  }, [filteredPredictions, quickFilters]);
+
   // Filter: sadece başlamamış maçları göster
   const upcomingPredictions = useMemo(
-    () => filteredPredictions.filter(isMatchUpcoming),
-    [filteredPredictions]
+    () => quickFiltered.filter(isMatchUpcoming),
+    [quickFiltered]
   );
 
   // Sort: önce saate göre, sonra secondary sort
@@ -398,6 +416,52 @@ export function PredictionsPage() {
             )}
             <LeagueFilter predictions={predictions} />
             <PreferenceFilter />
+
+            {/* Hızlı Market Filtreleri */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Hızlı Filtre:</span>
+              {[
+                { key: "btts", label: "KG Var", icon: "🥅" },
+                { key: "over25", label: "2.5 Üst", icon: "📊" },
+                { key: "ht_btts", label: "İY KG Var", icon: "🥇" },
+              ].map(f => {
+                const active = quickFilters.has(f.key);
+                const count = filteredPredictions.filter(p => {
+                  const types = p.picks.map(pk => pk.type);
+                  if (f.key === "btts") return types.includes("BTTS Yes");
+                  if (f.key === "over25") return types.includes("Over 2.5");
+                  if (f.key === "ht_btts") return types.includes("HT BTTS Yes");
+                  return false;
+                }).length;
+                return (
+                  <button
+                    key={f.key}
+                    onClick={() => toggleQuickFilter(f.key)}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all border",
+                      active
+                        ? "border-indigo-500 bg-indigo-500/10 text-indigo-400"
+                        : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600"
+                    )}
+                  >
+                    <span>{f.icon}</span>
+                    <span>{f.label}</span>
+                    <span className={cn(
+                      "text-[10px] px-1.5 py-0.5 rounded-full",
+                      active ? "bg-indigo-500/20 text-indigo-400" : "bg-zinc-700 text-zinc-500"
+                    )}>{count}</span>
+                  </button>
+                );
+              })}
+              {quickFilters.size > 0 && (
+                <button
+                  onClick={() => setQuickFilters(new Set())}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  Temizle ×
+                </button>
+              )}
+            </div>
 
             {/* Quick Stats Banner */}
             {sortedPredictions.length > 0 && (

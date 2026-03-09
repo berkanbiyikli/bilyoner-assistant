@@ -16,6 +16,7 @@ import {
   Dices,
   Target,
   ClipboardList,
+  Bot,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { href: "/ht-btts", label: "IY KG", icon: Target },
   { href: "/bankroll", label: "Bankroll", icon: Wallet },
   { href: "/stats", label: "İstatistik", icon: TrendingUp },
+  { href: "/ai-chat", label: "AI Chat", icon: Bot },
   { href: "/dashboard", label: "Dashboard", icon: Sparkles },
   { href: "/admin", label: "Admin", icon: Brain },
 ];

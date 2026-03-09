@@ -1,84 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOddsMovements, getFixtureOddsHistory } from "@/lib/odds";
-import { analyzeOddsMovements, analyzeMatchWithAI, analyzeCouponWithAI } from "@/lib/ai/gemini";
+import { chatWithAI, ChatMessage } from "@/lib/ai/gemini";
 
 /**
- * /api/ai/analyze?type=odds           → Günün oran hareketlerini analiz et
- * /api/ai/analyze?type=match&id=123   → Tek maç AI analizi
- * /api/ai/analyze?type=coupon         → Kupon AI analizi (POST body)
+ * POST /api/ai/analyze — AI Chat endpoint
+ * Body: { messages: ChatMessage[] }
  */
-export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const type = searchParams.get("type") || "odds";
-
-    if (type === "odds") {
-      const date = searchParams.get("date") || undefined;
-      const movements = await getOddsMovements(date);
-
-      if (movements.length === 0) {
-        return NextResponse.json({
-          success: true,
-          movements: [],
-          analysis: null,
-          message: "Henüz oran hareketi yok. İlk snapshot'tan sonra karşılaştırma yapılacak.",
-        });
-      }
-
-      const analysis = await analyzeOddsMovements(movements);
-
-      return NextResponse.json({
-        success: true,
-        movements: movements.slice(0, 50), // İlk 50 hareket
-        analysis,
-        stats: {
-          total: movements.length,
-          steams: movements.filter(m => m.change < -8).length,
-          significant: movements.filter(m => Math.abs(m.change) > 5).length,
-        },
-      });
-    }
-
-    if (type === "history") {
-      const fixtureId = Number(searchParams.get("id"));
-      if (!fixtureId) {
-        return NextResponse.json({ error: "fixture id gerekli" }, { status: 400 });
-      }
-
-      const history = await getFixtureOddsHistory(fixtureId);
-      return NextResponse.json({ success: true, fixtureId, history });
-    }
-
-    return NextResponse.json({ error: "Geçersiz type" }, { status: 400 });
-  } catch (error) {
-    console.error("[AI API] Error:", error);
-    return NextResponse.json(
-      { error: "AI analizi sırasında hata oluştu" },
-      { status: 500 }
-    );
-  }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { type } = body;
+    const { messages } = body as { messages: ChatMessage[] };
 
-    if (type === "match") {
-      const analysis = await analyzeMatchWithAI(body.matchData);
-      return NextResponse.json({ success: true, analysis });
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return NextResponse.json({ error: "messages array gerekli" }, { status: 400 });
     }
 
-    if (type === "coupon") {
-      const analysis = await analyzeCouponWithAI(body.couponData);
-      return NextResponse.json({ success: true, analysis });
+    // Son mesaj user'dan olmalı
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.role !== "user") {
+      return NextResponse.json({ error: "Son mesaj user'dan olmalı" }, { status: 400 });
     }
 
-    return NextResponse.json({ error: "Geçersiz type" }, { status: 400 });
+    const reply = await chatWithAI(messages);
+
+    return NextResponse.json({
+      success: true,
+      reply,
+    });
   } catch (error) {
-    console.error("[AI API] POST Error:", error);
+    console.error("[AI CHAT] Error:", error);
     return NextResponse.json(
-      { error: "AI analizi sırasında hata oluştu" },
+      { error: "AI yanıt veremedi, lütfen tekrar deneyin." },
       { status: 500 }
     );
   }

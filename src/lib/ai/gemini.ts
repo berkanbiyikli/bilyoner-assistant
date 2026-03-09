@@ -18,39 +18,52 @@ export interface ChatMessage {
  * DB'den güncel verileri çek ve system prompt oluştur
  */
 async function buildSystemContext(): Promise<string> {
-  const supabase = createAdminSupabase();
   const today = new Date().toISOString().split("T")[0];
 
-  // Paralel DB sorguları
-  const [predictionsRes, validationRes, oddsRes, couponsRes] = await Promise.all([
-    supabase
-      .from("predictions")
-      .select("*")
-      .gte("kickoff", `${today}T00:00:00`)
-      .order("kickoff", { ascending: true })
-      .limit(50),
-    supabase
-      .from("validation_records")
-      .select("*")
-      .order("kickoff", { ascending: false })
-      .limit(100),
-    supabase
-      .from("odds_snapshots")
-      .select("*")
-      .gte("kickoff", `${today}T00:00:00`)
-      .order("captured_at", { ascending: false })
-      .limit(100),
-    supabase
-      .from("coupons")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(20),
-  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let predictions: any[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let validations: any[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let oddsSnapshots: any[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let coupons: any[] = [];
 
-  const predictions = predictionsRes.data || [];
-  const validations = validationRes.data || [];
-  const oddsSnapshots = oddsRes.data || [];
-  const coupons = couponsRes.data || [];
+  try {
+    const supabase = createAdminSupabase();
+
+    const [predictionsRes, validationRes, oddsRes, couponsRes] = await Promise.all([
+      supabase
+        .from("predictions")
+        .select("*")
+        .gte("kickoff", `${today}T00:00:00`)
+        .order("kickoff", { ascending: true })
+        .limit(50),
+      supabase
+        .from("validation_records")
+        .select("*")
+        .order("kickoff", { ascending: false })
+        .limit(100),
+      supabase
+        .from("odds_snapshots")
+        .select("*")
+        .gte("kickoff", `${today}T00:00:00`)
+        .order("captured_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("coupons")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
+
+    predictions = predictionsRes.data || [];
+    validations = validationRes.data || [];
+    oddsSnapshots = oddsRes.data || [];
+    coupons = couponsRes.data || [];
+  } catch (dbError) {
+    console.error("[GEMINI] DB erişim hatası:", dbError);
+  }
 
   // İstatistikler
   const totalValidated = validations.length;
@@ -161,8 +174,9 @@ export async function chatWithAI(
     const lastMessage = messages[messages.length - 1];
     const result = await chat.sendMessage(lastMessage.content);
     return result.response.text();
-  } catch (error) {
-    console.error("[GEMINI] Chat hatası:", error);
-    return "❌ AI şu an yanıt veremiyor. Lütfen biraz sonra tekrar deneyin.";
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error("[GEMINI] Chat hatası:", errMsg);
+    return `❌ AI Hatası: ${errMsg}`;
   }
 }

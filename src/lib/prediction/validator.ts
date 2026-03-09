@@ -490,3 +490,61 @@ export async function getOptimalWeights(): Promise<{ heuristic: number; sim: num
     };
   }
 }
+
+// ============================================
+// Confidence Calibration Feedback Loop
+// Geçmiş performansa göre güven bandı düzeltmeleri
+// Over-confident ise düşür, under-confident ise artır
+// ============================================
+
+const CALIB_ADJ_CACHE_KEY = "calibration-adjustments";
+const CALIB_ADJ_CACHE_TTL = 6 * 3600; // 6 saat
+
+/**
+ * Her güven bandı için düzeltme değeri hesapla.
+ * Pozitif = güveni artır, negatif = güveni düşür.
+ * Engine bu değerleri pick üretirken uygular.
+ */
+export async function getCalibrationAdjustments(): Promise<Record<string, number>> {
+  const cached = getCached<Record<string, number>>(CALIB_ADJ_CACHE_KEY);
+  if (cached) return cached;
+
+  try {
+    const calibration = await calculateCalibration();
+    const adjustments: Record<string, number> = {};
+
+    for (const bandError of calibration.bandErrors) {
+      // predicted > actual → over-confident → düşür (negatif adjustment)
+      // predicted < actual → under-confident → artır (pozitif adjustment)
+      const diff = bandError.actualWinRate - bandError.predictedWinRate;
+
+      // Sadece anlamlı sapmalar: |diff| > 3 ise ayarlama yap
+      if (Math.abs(diff) > 3) {
+        // Max ±8 puan düzeltme — ani değişimleri önle
+        adjustments[bandError.band] = Math.max(-8, Math.min(8, Math.round(diff * 0.5)));
+      } else {
+        adjustments[bandError.band] = 0;
+      }
+    }
+
+    // Band isimlerini engine'in kullandığı formata çevir (55-65 → 50-60 ve 60-70 arasında paylaştır)
+    const engineAdj: Record<string, number> = {};
+    for (const [band, adj] of Object.entries(adjustments)) {
+      // Kalibrasyon 10'luk aralık kullanıyor, engine de benzer aralıklar kullanacak
+      engineAdj[band] = adj;
+      // Engine'in daha kolay erişebilmesi için yuvarlak bandları da ekle
+      const [minStr] = band.split("-");
+      const min = parseInt(minStr);
+      if (min >= 45 && min < 55) engineAdj["50-60"] = adj;
+      else if (min >= 55 && min < 65) engineAdj["60-70"] = adj;
+      else if (min >= 65 && min < 75) engineAdj["70-80"] = adj;
+      else if (min >= 75 && min < 85) engineAdj["80+"] = adj;
+      else if (min >= 85) engineAdj["80+"] = (engineAdj["80+"] ?? 0 + adj) / 2;
+    }
+
+    setCache(CALIB_ADJ_CACHE_KEY, engineAdj, CALIB_ADJ_CACHE_TTL);
+    return engineAdj;
+  } catch {
+    return {};
+  }
+}

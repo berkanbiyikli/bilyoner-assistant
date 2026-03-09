@@ -34,10 +34,39 @@ interface MatchInput {
 }
 
 const BASE_RATING = 1500;
-const K_FACTOR = 32;          // Standart güncelleme hızı
+const BASE_K_FACTOR = 32;     // Temel güncelleme hızı
 const GOAL_DIFF_POWER = 0.7;  // Gol farkı ağırlığı (< 1.0 = diminishing returns)
 const MAX_GOAL_BONUS = 1.5;   // Gol farkından gelen max çarpan
 const RECENCY_DECAY = 0.15;   // Eski maçların ağırlık azalma hızı
+
+/**
+ * Adaptif K-Factor hesaplama
+ * Sezon başında daha yüksek (hızlı öğrenme), sonunda daha düşük (stabil)
+ * Sürpriz sonuçlarda K artırılır (sistemi hızlı adapte etmek için)
+ */
+function getAdaptiveKFactor(expectedScore: number, actualScore: number): number {
+  let k = BASE_K_FACTOR;
+
+  // 1) Sezon evresi düzeltmesi
+  const month = new Date().getMonth(); // 0-indexed
+  if (month >= 7 && month <= 9) {
+    // Ağu-Eki (sezon başı): Takımlar değişiyor, daha hızlı öğrenme gerekli
+    k *= 1.25;
+  } else if (month >= 2 && month <= 4) {
+    // Mar-May (sezon sonu): Rating'ler stabilize, daha yavaş güncelle
+    k *= 0.85;
+  }
+
+  // 2) Sürpriz sonuç düzeltmesi
+  const surprise = Math.abs(actualScore - expectedScore);
+  if (surprise > 0.6) {
+    k *= 1.35; // Büyük sürpriz (favori yenildi)
+  } else if (surprise > 0.35) {
+    k *= 1.12; // Orta sürpriz
+  }
+
+  return k;
+}
 
 /**
  * Son maçlardan Elo rating hesapla
@@ -83,17 +112,17 @@ export function calculateEloFromMatches(
       : 1.0;
 
     // Rating güncelle
-    const k = K_FACTOR * matchWeight * goalBonus;
+    const k = getAdaptiveKFactor(expectedScore, actualScore) * matchWeight * goalBonus;
     rating += k * (actualScore - expectedScore);
 
     // Hücum Elo: Atılan gol sayısına göre
     const expectedGoals = 1.3; // Ortalama gol beklentisi
     const goalEfficiency = goalsFor / Math.max(0.5, expectedGoals);
-    attackRating += (K_FACTOR * 0.5 * matchWeight) * (Math.min(2, goalEfficiency) - 1);
+    attackRating += (BASE_K_FACTOR * 0.5 * matchWeight) * (Math.min(2, goalEfficiency) - 1);
 
     // Savunma Elo: Yenilen gol sayısına göre (düşük = iyi)
     const concededEfficiency = goalsAgainst / Math.max(0.5, expectedGoals);
-    defenseRating -= (K_FACTOR * 0.5 * matchWeight) * (Math.min(2, concededEfficiency) - 1);
+    defenseRating -= (BASE_K_FACTOR * 0.5 * matchWeight) * (Math.min(2, concededEfficiency) - 1);
   }
 
   // Confidence: Maç sayısına bağlı (5 maç = 0.6, 10 maç = 0.85, 15+ = 0.95)

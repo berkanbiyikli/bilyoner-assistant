@@ -24,13 +24,14 @@ import type {
   CornerCardData,
   MatchSimilarity,
   KeyMissingPlayer,
+  DataQualityScore,
 } from "@/types";
 import { getPrediction, getH2H, getOdds, getInjuries } from "@/lib/api-football";
 import { getCached, setCache } from "@/lib/cache";
 import { simulateMatch, getSimProbability } from "@/lib/prediction/simulator";
 import { getRefereeProfile } from "@/lib/prediction/referees";
 import { calculateMatchImportance, type MatchImportance } from "@/lib/prediction/importance";
-import { getOptimalWeights } from "@/lib/prediction/validator";
+import { getOptimalWeights, getCalibrationAdjustments } from "@/lib/prediction/validator";
 import { analyzeForm, type FormAnalysis } from "@/lib/prediction/form-analyzer";
 import { calculateEloFromMatches, eloToWinProbabilities, calculateH2HElo } from "@/lib/prediction/elo";
 import { isMLModelAvailable, getMLProbability, buildFeatureVector, type MLFeatureVector } from "@/lib/prediction/ml-model";
@@ -49,10 +50,10 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
 
   // Paralel veri çekimi (tüm kaynaklardan)
   const [prediction, h2h, odds, injuries, importance] = await Promise.all([
-    getPrediction(fixtureId).catch(() => null),
-    getH2H(homeId, awayId, 10).catch(() => []),
-    getOdds(fixtureId).catch(() => null),
-    getInjuries(fixtureId).catch(() => []),
+    getPrediction(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Prediction API hatası — null`); return null; }),
+    getH2H(homeId, awayId, 10).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: H2H API hatası — boş dizi`); return []; }),
+    getOdds(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Odds API hatası — null`); return null; }),
+    getInjuries(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Injuries API hatası — boş dizi`); return []; }),
     calculateMatchImportance(fixture.league.id, homeId, awayId).catch(() => ({
       homeImportance: 1.0,
       awayImportance: 1.0,
@@ -66,10 +67,14 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   const keyMissingPlayers = analyzeInjuries(injuries, homeId, awayId);
   const injuryImpact = calculateInjuryImpact(keyMissingPlayers);
   const goalTiming = extractGoalTiming(prediction);
-  const cornerData = extractCornerData(prediction);
-  const cardData = extractCardData(prediction);
   const xgData = extractXgData(prediction);
   const similarity = findSimilarMatch(prediction, h2h);
+
+  // Hakem profili (korner/kart analizinde de kullanılıyor, bu yüzden önce)
+  const refereeProfile = getRefereeProfile(fixture.fixture.referee);
+
+  const cornerData = extractCornerData(prediction, h2h);
+  const cardData = extractCardData(prediction, h2h, refereeProfile);
 
   // === YENİ: Form Decay Analizi ===
   const homeFormString = prediction?.teams?.home?.last_5?.form || prediction?.teams?.home?.league?.form?.slice(-5) || "";
@@ -86,9 +91,6 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
     }))
   ) : undefined;
 
-  // Hakem profili
-  const refereeProfile = getRefereeProfile(fixture.fixture.referee);
-
   const analysis = buildAnalysis(fixture, prediction, h2h, injuryImpact, {
     goalTiming,
     cornerData,
@@ -103,6 +105,13 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
 
   const matchOdds = extractOdds(odds);
 
+  // === Veri Kalitesi Hesaplama ===
+  const dataQuality = calculateDataQuality(
+    prediction, h2h, odds, injuries, refereeProfile, matchOdds,
+    homeFormString, awayFormString, fixtureId
+  );
+  analysis.dataQuality = dataQuality;
+
   // Monte Carlo simülasyon (analiz + odds hazır olduktan sonra)
   // Liga bazlı ev sahibi avantajı + motivasyon çarpanı + form decay → dinamik lambda
   const simulation = simulateMatch(analysis, matchOdds, fixture.league.id, importance, homeFormAnalysis, awayFormAnalysis);
@@ -111,7 +120,10 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   // Self-calibrating ağırlıklar al (cache'li)
   const weights = await getOptimalWeights().catch(() => ({ heuristic: 0.4, sim: 0.6 }));
 
-  const picks = generatePicks(analysis, matchOdds, prediction, fixture, weights);
+  // Kalibrasyon bazlı güven düzeltmeleri al
+  const calibrationAdjustments = await getCalibrationAdjustments().catch(() => ({}));
+
+  const picks = generatePicks(analysis, matchOdds, prediction, fixture, weights, dataQuality, calibrationAdjustments);
 
   // Derinlemesine bilgiler (insights)
   const insights = buildInsights(analysis, xgData, goalTiming, keyMissingPlayers, matchOdds, importance, homeFormAnalysis, awayFormAnalysis);
@@ -128,6 +140,7 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
     odds: matchOdds,
     isLive: false,
     insights,
+    dataQuality,
   };
 
   setCache(cacheKey, result, CACHE_TTL);
@@ -153,7 +166,10 @@ function extractXgData(prediction: PredictionResponse | null): XgData {
     homeActualGoals: 1.2, awayActualGoals: 1.0,
     homeXgDelta: 0, awayXgDelta: 0,
   };
-  if (!prediction?.teams) return defaults;
+  if (!prediction?.teams) {
+    console.warn("[FALLBACK] extractXgData: prediction.teams yok — varsayılan xG kullanılıyor (H: 1.2, A: 1.0)");
+    return defaults;
+  }
 
   const homeTeam = prediction.teams.home;
   const awayTeam = prediction.teams.away;
@@ -212,7 +228,10 @@ function extractGoalTiming(prediction: PredictionResponse | null): GoalTimingDat
     lateGoalProb: 40,
     firstHalfGoalProb: 50,
   };
-  if (!prediction?.teams) return defaultTiming;
+  if (!prediction?.teams) {
+    console.warn("[FALLBACK] extractGoalTiming: prediction.teams yok — varsayılan zamanlama kullanılıyor");
+    return defaultTiming;
+  }
 
   const parseMinuteData = (team: PredictionTeam) => {
     const minutes = team?.league?.goals?.for?.minute;
@@ -249,8 +268,12 @@ function extractGoalTiming(prediction: PredictionResponse | null): GoalTimingDat
 // Korner ve Kart Analizi
 // ============================================
 
-function extractCornerData(prediction: PredictionResponse | null): CornerCardData {
+function extractCornerData(
+  prediction: PredictionResponse | null,
+  h2hMatches?: H2HResponse[]
+): CornerCardData {
   if (!prediction?.teams) {
+    console.warn("[FALLBACK] extractCornerData: prediction.teams yok — varsayılan korner kullanılıyor");
     return { homeAvg: 4.5, awayAvg: 4.0, totalAvg: 8.5, overProb: 50 };
   }
 
@@ -259,9 +282,36 @@ function extractCornerData(prediction: PredictionResponse | null): CornerCardDat
   const homeDef = parseStrength(prediction.teams.home?.last_5?.def);
   const awayDef = parseStrength(prediction.teams.away?.last_5?.def);
 
-  const homeCornerAvg = 3.0 + (homeAtt / 100) * 4 + (awayDef / 100) * 1.5;
-  const awayCornerAvg = 2.5 + (awayAtt / 100) * 4 + (homeDef / 100) * 1.5;
-  const totalAvg = homeCornerAvg + awayCornerAvg;
+  // H2H gol ortalamasından korner tahmini (gol ↔ korner korelasyonu ~0.6)
+  let h2hCornerEstimate = 0;
+  if (h2hMatches && h2hMatches.length >= 2) {
+    const totalGoals = h2hMatches.reduce((sum, m) => sum + (m.goals?.home ?? 0) + (m.goals?.away ?? 0), 0);
+    const avgGoals = totalGoals / h2hMatches.length;
+    h2hCornerEstimate = 5.0 + avgGoals * 1.3; // Her gol ~1.3 ekstra korner ilişkisi
+  }
+
+  // Form gol ortalamasından korner tahmini
+  const homeGoalAvg = parseFloat(prediction.teams.home?.last_5?.goals?.for?.average || "0") || 1.2;
+  const awayGoalAvg = parseFloat(prediction.teams.away?.last_5?.goals?.for?.average || "0") || 1.0;
+  const formGoalTotal = homeGoalAvg + awayGoalAvg;
+  const formCornerEstimate = 5.0 + formGoalTotal * 1.2;
+
+  // Attack/defense bazlı tahmin (eski formül — fallback)
+  const attDefHomeCorner = 3.0 + (homeAtt / 100) * 4 + (awayDef / 100) * 1.5;
+  const attDefAwayCorner = 2.5 + (awayAtt / 100) * 4 + (homeDef / 100) * 1.5;
+  const attDefTotal = attDefHomeCorner + attDefAwayCorner;
+
+  // Üç kaynağı harmanlama: H2H > Form golleri > Att/Def sentetik
+  let totalAvg: number;
+  if (h2hCornerEstimate > 0) {
+    totalAvg = h2hCornerEstimate * 0.35 + formCornerEstimate * 0.35 + attDefTotal * 0.30;
+  } else {
+    totalAvg = formCornerEstimate * 0.55 + attDefTotal * 0.45;
+  }
+
+  // Ev sahibi avantajı ile dağıt (%55 ev, %45 deplasman)
+  const homeCornerAvg = totalAvg * 0.55;
+  const awayCornerAvg = totalAvg * 0.45;
   const overProb = Math.min(80, Math.max(20, (totalAvg - 8.5) * 15 + 50));
 
   return {
@@ -272,8 +322,18 @@ function extractCornerData(prediction: PredictionResponse | null): CornerCardDat
   };
 }
 
-function extractCardData(prediction: PredictionResponse | null): CornerCardData {
+function extractCardData(
+  prediction: PredictionResponse | null,
+  h2hMatches?: H2HResponse[],
+  refereeProfile?: RefereeProfile | null
+): CornerCardData {
   if (!prediction?.teams) {
+    console.warn("[FALLBACK] extractCardData: prediction.teams yok — varsayılan kart kullanılıyor (2.0 + 2.0)");
+    // Hakem profili varsa ondan al
+    if (refereeProfile) {
+      const avg = refereeProfile.avgCardsPerMatch;
+      return { homeAvg: avg * 0.52, awayAvg: avg * 0.48, totalAvg: avg, overProb: avg > 4.5 ? 60 : 45 };
+    }
     return { homeAvg: 2.0, awayAvg: 2.0, totalAvg: 4.0, overProb: 50 };
   }
 
@@ -313,8 +373,22 @@ function extractCardData(prediction: PredictionResponse | null): CornerCardData 
     }
   }
 
-  const homeAvg = homeMatches > 0 ? homeTotal / homeMatches : 2.0;
-  const awayAvg = awayMatches > 0 ? awayTotal / awayMatches : 2.0;
+  let homeAvg = homeMatches > 0 ? homeTotal / homeMatches : 2.0;
+  let awayAvg = awayMatches > 0 ? awayTotal / awayMatches : 2.0;
+
+  // Hakem profili ile ağırlıklı düzeltme
+  if (refereeProfile) {
+    const refAvg = refereeProfile.avgCardsPerMatch;
+    const teamTotal = homeAvg + awayAvg;
+    if (teamTotal > 0) {
+      // Takım verisi %60 + hakem verisi %40
+      const blendedTotal = teamTotal * 0.6 + refAvg * 0.4;
+      const ratio = homeAvg / teamTotal;
+      homeAvg = blendedTotal * ratio;
+      awayAvg = blendedTotal * (1 - ratio);
+    }
+  }
+
   const totalAvg = homeAvg + awayAvg;
   const overProb = Math.min(80, Math.max(20, (totalAvg - 3.5) * 20 + 50));
 
@@ -472,6 +546,152 @@ function findSimilarMatch(
     similarityScore: Math.min(95, bestSimilarity),
     result: resultNotes.join(", "),
     features,
+  };
+}
+
+// ============================================
+// Veri Kalitesi Göstergesi (Data Quality Score)
+// Her tahmin için veri kaynaklarının kalitesini ölç
+// ============================================
+
+function calculateDataQuality(
+  prediction: PredictionResponse | null,
+  h2h: H2HResponse[],
+  odds: OddsResponse | null,
+  injuries: InjuryResponse[],
+  refereeProfile: RefereeProfile | undefined,
+  matchOdds: MatchOdds | undefined,
+  homeFormString: string,
+  awayFormString: string,
+  fixtureId: number
+): DataQualityScore {
+  const warnings: string[] = [];
+
+  // 1. API Data (comparison + predictions var mı?)
+  let apiData = 0;
+  if (prediction) {
+    apiData += 30; // Prediction verisi var
+    if (prediction.comparison) {
+      const comp = prediction.comparison;
+      const hasAtt = !!(comp["att"] || comp["Att"] || comp["attack"]);
+      const hasDef = !!(comp["def"] || comp["Def"] || comp["defence"]);
+      const hasForm = !!(comp["form"] || comp["Form"]);
+      if (hasAtt) apiData += 20;
+      if (hasDef) apiData += 20;
+      if (hasForm) apiData += 15;
+      if (!hasAtt && !hasDef) warnings.push("Comparison att/def verisi eksik — varsayılan değerler kullanılıyor");
+    } else {
+      apiData += 5;
+      warnings.push("Comparison verisi yok — tüm istatistikler form string'inden türetildi");
+    }
+    if (prediction.teams?.home?.last_5) apiData += 8;
+    if (prediction.teams?.away?.last_5) apiData += 7;
+  } else {
+    warnings.push("API prediction verisi tamamen eksik — tüm değerler varsayılan");
+  }
+
+  // 2. Form Data
+  let formData = 0;
+  if (homeFormString && homeFormString.length >= 3) formData += 50;
+  else if (homeFormString) { formData += 20; warnings.push("Ev sahibi form verisi yetersiz (< 3 maç)"); }
+  else warnings.push("Ev sahibi form verisi yok");
+
+  if (awayFormString && awayFormString.length >= 3) formData += 50;
+  else if (awayFormString) { formData += 20; warnings.push("Deplasman form verisi yetersiz (< 3 maç)"); }
+  else warnings.push("Deplasman form verisi yok");
+
+  // 3. H2H Data
+  let h2hData = 0;
+  if (h2h.length >= 5) h2hData = 100;
+  else if (h2h.length >= 3) h2hData = 70;
+  else if (h2h.length >= 2) { h2hData = 40; warnings.push("H2H sadece 2 maç — güvenilirlik düşük"); }
+  else if (h2h.length === 1) { h2hData = 15; warnings.push("H2H sadece 1 maç — çok yetersiz"); }
+  else warnings.push("H2H verisi yok");
+
+  // 4. Odds Data
+  let oddsData = 0;
+  if (matchOdds) {
+    const realCount = matchOdds.realMarkets?.size ?? 0;
+    if (realCount >= 5) oddsData = 100;
+    else if (matchOdds.home > 1 && matchOdds.away > 1 && matchOdds.draw > 1) {
+      oddsData = 60;
+      if (matchOdds.over25 > 1) oddsData += 15;
+      if (matchOdds.bttsYes > 1) oddsData += 15;
+      if (!matchOdds.htft || Object.keys(matchOdds.htft).length === 0) {
+        oddsData -= 10;
+        warnings.push("İY/MS oranları eksik");
+      }
+    } else {
+      oddsData = 20;
+      warnings.push("Temel 1X2 oranları bile eksik");
+    }
+  } else {
+    warnings.push("Bahis oranları tamamen eksik — pick üretilemez");
+  }
+
+  // 5. Injury Data 
+  let injuryData = 50; // Varsayılan: "bilmiyoruz" = orta
+  if (injuries && injuries.length > 0) injuryData = 100; // API sakatlık verisi var
+  else if (odds) injuryData = 50; // Maç var ama sakatlık bilgisi yok — belirsiz
+
+  // 6. Referee Data
+  let refereeData = 0;
+  if (refereeProfile) refereeData = 100;
+  else {
+    refereeData = 20; // Profil yok ama nötr kullanılıyor
+    warnings.push("Hakem profili bulunamadı — nötr varsayım");
+  }
+
+  // 7. Stats Data (att/def/comparison gerçek mi?)
+  let statsData = 0;
+  if (prediction) {
+    const homeAtt = parseStrength(prediction.teams?.home?.last_5?.att);
+    const awayAtt = parseStrength(prediction.teams?.away?.last_5?.att);
+    const homeDef = parseStrength(prediction.teams?.home?.last_5?.def);
+    const awayDef = parseStrength(prediction.teams?.away?.last_5?.def);
+    
+    // Hepsi 50 ise veri yok demek
+    const allDefault = homeAtt === 50 && awayAtt === 50 && homeDef === 50 && awayDef === 50;
+    if (!allDefault) statsData = 80;
+    else if (prediction.comparison) {
+      const comp = prediction.comparison;
+      const compAtt = comp["att"] || comp["Att"] || comp["attack"];
+      if (compAtt && parseStrength(compAtt.home) !== 50) statsData = 60;
+      else { statsData = 20; warnings.push("Tüm att/def istatistikleri varsayılan (50) — tahmin güvenilirliği düşük"); }
+    } else {
+      statsData = 10;
+      warnings.push("Tüm att/def istatistikleri varsayılan (50) — tahmin güvenilirliği düşük");
+    }
+  }
+
+  // Genel skor (ağırlıklı ortalama)
+  const overall = Math.round(
+    apiData * 0.25 +
+    formData * 0.15 +
+    h2hData * 0.10 +
+    oddsData * 0.20 +
+    injuryData * 0.05 +
+    refereeData * 0.05 +
+    statsData * 0.20
+  );
+
+  // Güven cezası: kalite düştükçe artan ceza
+  let confidencePenalty = 0;
+  if (overall < 30) confidencePenalty = 12;
+  else if (overall < 45) confidencePenalty = 8;
+  else if (overall < 60) confidencePenalty = 4;
+  else if (overall < 75) confidencePenalty = 2;
+
+  // Log warnings
+  if (warnings.length > 0) {
+    console.warn(`[DATA-QUALITY] Fixture ${fixtureId}: Kalite ${overall}/100, Ceza -${confidencePenalty}`, warnings);
+  }
+
+  return {
+    overall,
+    components: { apiData, formData, h2hData, oddsData, injuryData, refereeData, statsData },
+    warnings,
+    confidencePenalty,
   };
 }
 
@@ -782,13 +1002,16 @@ function generatePicks(
   odds: MatchOdds | undefined,
   prediction: PredictionResponse | null,
   fixture: FixtureResponse,
-  weights: { heuristic: number; sim: number } = { heuristic: 0.4, sim: 0.6 }
+  weights: { heuristic: number; sim: number } = { heuristic: 0.4, sim: 0.6 },
+  dataQuality?: DataQualityScore,
+  calibrationAdj?: Record<string, number>
 ): Pick[] {
   const picks: Pick[] = [];
   if (!odds) return picks;
 
   const sim = analysis.simulation;
   const refProfile = analysis.refereeProfile;
+  const qualityPenalty = dataQuality?.confidencePenalty ?? 0;
 
   // === OLASI PROBLEM: Form skoru ≠ Kazanma olasılığı ===
   // Form skoru (0-100) nispi güç göstergesi. Olasılık için API + sim + odds harmanla.
@@ -841,11 +1064,17 @@ function generatePicks(
       awayDefense: analysis.awayDefense,
       homeXg: analysis.homeXg,
       awayXg: analysis.awayXg,
+      h2hGoalAvg: analysis.h2hGoalAvg,
+      h2hHomeWinRate: analysis.h2hAdvantage === "home" ? 65 : analysis.h2hAdvantage === "away" ? 35 : 50,
       refereeProfile: analysis.refereeProfile
         ? { cardsPerMatch: analysis.refereeProfile.avgCardsPerMatch, foulsPerMatch: 25 }
         : null,
       matchImportance: null,
       eloRatings: { home: homeEloApprox, away: awayEloApprox },
+      homeRecentGoalsScored: analysis.homeXg ?? 1.2,
+      awayRecentGoalsScored: analysis.awayXg ?? 1.0,
+      homeRecentGoalsConceded: analysis.awayXg ?? 1.0,
+      awayRecentGoalsConceded: analysis.homeXg ?? 1.2,
     });
   }
 
@@ -872,7 +1101,22 @@ function generatePicks(
     // Sim ve heuristic çok farklıysa → güveni düşür (belirsizlik)
     const divergence = Math.abs(heuristicConf - simConf);
     const penalty = divergence > 20 ? Math.min(8, (divergence - 20) * 0.3) : 0;
-    return Math.round(Math.max(10, blended - penalty));
+
+    // Veri kalitesi cezası — düşük kaliteli veri = düşük güven
+    const qPenalty = qualityPenalty;
+
+    // Kalibrasyon düzeltmesi — geçmiş verilere göre over/under-confident düzeltme
+    let calibAdj = 0;
+    if (calibrationAdj) {
+      // Blended confidence bandına göre düzeltme seç
+      const approxConf = Math.round(blended);
+      if (approxConf >= 80 && calibrationAdj["80+"]) calibAdj = calibrationAdj["80+"];
+      else if (approxConf >= 70 && calibrationAdj["70-80"]) calibAdj = calibrationAdj["70-80"];
+      else if (approxConf >= 60 && calibrationAdj["60-70"]) calibAdj = calibrationAdj["60-70"];
+      else if (approxConf >= 50 && calibrationAdj["50-60"]) calibAdj = calibrationAdj["50-60"];
+    }
+
+    return Math.round(Math.max(10, blended - penalty - qPenalty + calibAdj));
   };
 
   // H2H benzerlik filtresi: çelişen pick'lerin confidence'ını düşür

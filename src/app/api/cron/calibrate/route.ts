@@ -6,6 +6,8 @@
 
 import { NextResponse } from "next/server";
 import { runOptimization } from "@/lib/prediction/optimizer";
+import { autoTrainFromHistory } from "@/lib/prediction/ml-model";
+import { createAdminSupabase, fetchAllRows } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -23,6 +25,39 @@ export async function GET(request: Request) {
     const result = await runOptimization();
 
     console.log(`[CALIBRATE] Tamamlandı: ${result.totalRecords} kayıt analiz edildi, ${result.appliedAdjustments} ayarlama uygulandı`);
+
+    // === ML Model Otomatik Eğitim ===
+    let mlTrainResult = "skipped";
+    try {
+      const supabase = createAdminSupabase();
+      const records = await fetchAllRows(supabase, "predictions", {
+        order: { column: "kickoff", ascending: false },
+        filters: [{ method: "in", args: ["result", ["won", "lost"]] }],
+      });
+
+      if (records.length >= 30) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const trainingData = records.map((r: any) => ({
+          confidence: r.confidence,
+          odds: r.odds,
+          pick: r.pick,
+          result: r.result as "won" | "lost",
+          expected_value: r.expected_value || 0,
+          sim_probability: r.sim_probability || null,
+          home_team: r.home_team,
+          away_team: r.away_team,
+        }));
+
+        const model = await autoTrainFromHistory(trainingData);
+        mlTrainResult = model ? `trained (${Object.keys(model.markets).length} markets)` : "insufficient data";
+      } else {
+        mlTrainResult = `insufficient data (${records.length} records)`;
+      }
+      console.log(`[CALIBRATE] ML model: ${mlTrainResult}`);
+    } catch (mlError) {
+      console.error("[CALIBRATE] ML eğitim hatası:", mlError);
+      mlTrainResult = "error";
+    }
 
     // Önemli ayarlamaları logla
     for (const lc of result.leagueCalibrations) {
@@ -57,6 +92,7 @@ export async function GET(request: Request) {
           deviation: m.deviation,
         })),
       globalMetrics: result.globalMetrics,
+      mlModel: mlTrainResult,
     });
   } catch (error) {
     console.error("[CALIBRATE] Hata:", error);

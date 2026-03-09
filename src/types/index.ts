@@ -53,6 +53,7 @@ export interface MatchPrediction {
   odds?: MatchOdds;
   isLive: boolean;
   insights?: MatchInsights; // Derinlemesine bilgiler
+  dataQuality?: DataQualityScore; // Veri kalitesi göstergesi
 }
 
 export interface Pick {
@@ -122,6 +123,8 @@ export interface MatchAnalysis {
   // Hakem bilgisi
   referee?: string;
   refereeProfile?: RefereeProfile;
+  // Veri kalitesi
+  dataQuality?: DataQualityScore;
 }
 
 export interface GoalTimingData {
@@ -174,6 +177,25 @@ export interface MatchInsights {
   notes: string[];             // Derinlemesine notlar
   simTopScoreline?: string;    // "2-1 (%14.3)"
   simEdgeNote?: string;        // "Üst 2.5 piyasadan %12 fazla"
+}
+
+// ---- Veri Kalitesi Göstergesi ----
+export interface DataQualityScore {
+  /** Genel veri kalitesi (0-100) */
+  overall: number;
+  components: {
+    apiData: number;            // API-Football prediction verisi (0-100)
+    formData: number;           // Form dizesi kalitesi (0-100)
+    h2hData: number;            // H2H veri kalitesi (0-100)
+    oddsData: number;           // Bahis oranı kalitesi (0-100)
+    injuryData: number;         // Sakatlık verisi (0-100)
+    refereeData: number;        // Hakem verisi (0-100)
+    statsData: number;          // İstatistik verisi — att/def/comparison (0-100)
+  };
+  /** Veri eksiklik uyarıları */
+  warnings: string[];
+  /** Düşük kaliteden kaynaklanan güven cezası (0-15 arası) */
+  confidencePenalty: number;
 }
 
 export interface MatchOdds {

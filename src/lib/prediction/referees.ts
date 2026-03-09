@@ -1,9 +1,11 @@
 // ============================================
-// Hakem Profilleri
+// Hakem Profilleri — Statik DB + Dinamik Öğrenme
 // Bilinen hakemlerin kart eğilim tablosu
+// Bilinmeyenler cache'e eklenir
 // ============================================
 
 import type { RefereeProfile } from "@/types";
+import { getCached, setCache } from "@/lib/cache";
 
 /**
  * Hakem kart eğilim veritabanı
@@ -90,9 +92,14 @@ const REFEREE_DATABASE: Record<string, Omit<RefereeProfile, "name">> = {
   "Tobias Welz": { avgCardsPerMatch: 3.6, cardTendency: "moderate" },
 };
 
+// Dinamik öğrenilen hakem profilleri (runtime cache)
+const dynamicRefereeCache = new Map<string, Omit<RefereeProfile, "name">>();
+
 /**
  * Hakem adına göre profil getir
- * Tam eşleşme veya kısmi eşleşme (soyadı) dener
+ * 1. Statik veritabanında tam eşleşme
+ * 2. Statik veritabanında soyadı eşleşmesi
+ * 3. Dinamik cache'te (daha önce öğrenilen)
  * Bulunamazsa undefined döner — filtre uygulanmaz
  */
 export function getRefereeProfile(refereeName: string | null | undefined): RefereeProfile | undefined {
@@ -100,17 +107,16 @@ export function getRefereeProfile(refereeName: string | null | undefined): Refer
 
   const name = refereeName.trim();
 
-  // Tam eşleşme
+  // 1. Statik DB — tam eşleşme
   if (REFEREE_DATABASE[name]) {
     const profile = REFEREE_DATABASE[name];
     return { name, ...profile, tempoImpact: deriveTempoImpact(profile.avgCardsPerMatch) };
   }
 
-  // Kısmi eşleşme — soyadı ile ara
+  // 2. Statik DB — soyadı eşleşmesi
   const nameLower = name.toLowerCase();
   for (const [dbName, profile] of Object.entries(REFEREE_DATABASE)) {
     const dbLower = dbName.toLowerCase();
-    // Soyadı eşleşmesi: DB'deki son kelime, input'un son kelimesiyle aynı mı?
     const dbLastName = dbLower.split(" ").pop() || "";
     const inputLastName = nameLower.split(" ").pop() || "";
     if (dbLastName.length > 2 && dbLastName === inputLastName) {
@@ -118,7 +124,65 @@ export function getRefereeProfile(refereeName: string | null | undefined): Refer
     }
   }
 
+  // 3. Dinamik cache — daha önce öğrenilen
+  const cached = dynamicRefereeCache.get(nameLower);
+  if (cached) {
+    return { name, ...cached, tempoImpact: deriveTempoImpact(cached.avgCardsPerMatch) };
+  }
+
+  // 4. Kalıcı cache kontrol (Supabase'den öğrenilmiş)
+  const persistedProfile = getCached<Omit<RefereeProfile, "name">>(`referee:${nameLower}`);
+  if (persistedProfile) {
+    dynamicRefereeCache.set(nameLower, persistedProfile);
+    return { name, ...persistedProfile, tempoImpact: deriveTempoImpact(persistedProfile.avgCardsPerMatch) };
+  }
+
+  console.warn(`[REFEREE] Hakem bulunamadı: "${name}" — nötr profil kullanılacak`);
   return undefined;
+}
+
+/**
+ * Hakem profilini dinamik olarak öğren ve cache'le.
+ * Tamamlanan maçların istatistiklerinden çağrılır.
+ * @param refereeName Hakem adı
+ * @param totalCards Maçtaki toplam kart sayısı (sarı + kırmızı)
+ */
+export function learnRefereeProfile(refereeName: string, totalCards: number): void {
+  if (!refereeName) return;
+  const name = refereeName.trim();
+  const nameLower = name.toLowerCase();
+
+  // Statik DB'deyse öğrenmeye gerek yok
+  if (REFEREE_DATABASE[name]) return;
+  
+  // Soyadı eşleşmesini de kontrol et
+  for (const dbName of Object.keys(REFEREE_DATABASE)) {
+    const dbLastName = dbName.toLowerCase().split(" ").pop() || "";
+    const inputLastName = nameLower.split(" ").pop() || "";
+    if (dbLastName.length > 2 && dbLastName === inputLastName) return;
+  }
+
+  // Mevcut dinamik profil varsa güncelle (hareketli ortalama)
+  const existing = dynamicRefereeCache.get(nameLower);
+  let avgCards: number;
+
+  if (existing) {
+    // Hareketli ortalama: %70 eski + %30 yeni
+    avgCards = Math.round((existing.avgCardsPerMatch * 0.7 + totalCards * 0.3) * 10) / 10;
+  } else {
+    avgCards = totalCards;
+  }
+
+  const tendency: "strict" | "moderate" | "lenient" =
+    avgCards >= 5.0 ? "strict" : avgCards <= 3.5 ? "lenient" : "moderate";
+  
+  const profile = { avgCardsPerMatch: avgCards, cardTendency: tendency };
+  dynamicRefereeCache.set(nameLower, profile);
+  
+  // 30 gün kalıcı cache
+  setCache(`referee:${nameLower}`, profile, 30 * 24 * 3600);
+  
+  console.log(`[REFEREE] Yeni hakem profili öğrenildi: ${name} → ${avgCards} kart/maç (${tendency})`);
 }
 
 /**

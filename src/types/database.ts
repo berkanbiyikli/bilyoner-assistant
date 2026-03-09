@@ -67,6 +67,24 @@ type TweetRow = {
   created_at: string;
 }
 
+type OddsSnapshotRow = {
+  id: string;
+  fixture_id: number;
+  home_team: string;
+  away_team: string;
+  league: string;
+  kickoff: string;
+  home_odds: number;
+  draw_odds: number;
+  away_odds: number;
+  over25_odds: number | null;
+  under25_odds: number | null;
+  btts_yes_odds: number | null;
+  btts_no_odds: number | null;
+  bookmaker: string | null;
+  captured_at: string;
+}
+
 type ValidationRecordRow = {
   id: string;
   fixture_id: number;
@@ -119,6 +137,12 @@ export type Database = {
         Row: TweetRow;
         Insert: Omit<TweetRow, "id" | "created_at" | "coupon_id" | "fixture_id" | "reply_to_tweet_id"> & { id?: string; coupon_id?: string | null; fixture_id?: number | null; reply_to_tweet_id?: string | null };
         Update: Partial<Omit<TweetRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      odds_snapshots: {
+        Row: OddsSnapshotRow;
+        Insert: Omit<OddsSnapshotRow, "id" | "captured_at"> & { id?: string; captured_at?: string };
+        Update: Partial<Omit<OddsSnapshotRow, "id" | "captured_at">>;
         Relationships: [];
       };
       validation_records: {

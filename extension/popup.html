@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bilyoner Assistant</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 380px;
+      min-height: 200px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    .header {
+      background: linear-gradient(135deg, #1e40af, #7c3aed);
+      padding: 16px;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: white;
+    }
+    .header p {
+      font-size: 11px;
+      color: #c7d2fe;
+      margin-top: 4px;
+    }
+    .settings {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .settings label {
+      display: block;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+    .settings input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 13px;
+    }
+    .settings input:focus {
+      outline: none;
+      border-color: #6366f1;
+    }
+    .coupon-list {
+      padding: 12px 16px;
+      max-height: 350px;
+      overflow-y: auto;
+    }
+    .coupon-item {
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      border-left: 3px solid #6366f1;
+    }
+    .coupon-item .match {
+      font-size: 13px;
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+    .coupon-item .details {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 4px;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+    .coupon-item .pick {
+      color: #a78bfa;
+      font-weight: 600;
+    }
+    .coupon-item .odds {
+      color: #34d399;
+      font-weight: 600;
+    }
+    .coupon-item .confidence {
+      color: #fbbf24;
+    }
+    .actions {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white;
+    }
+    .btn-primary:hover { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
+    .btn-secondary {
+      background: #1e293b;
+      color: #94a3b8;
+      border: 1px solid #334155;
+    }
+    .btn-success {
+      background: linear-gradient(135deg, #059669, #10b981);
+      color: white;
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .status {
+      padding: 8px 16px;
+      font-size: 11px;
+      text-align: center;
+    }
+    .status.success { color: #34d399; }
+    .status.error { color: #f87171; }
+    .status.info { color: #60a5fa; }
+    .empty {
+      text-align: center;
+      padding: 30px 16px;
+      color: #64748b;
+      font-size: 13px;
+    }
+    .total-bar {
+      background: #1e293b;
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      border-top: 1px solid #334155;
+    }
+    .total-bar .total-odds { color: #34d399; }
+    .category-select {
+      display: flex;
+      gap: 6px;
+      padding: 8px 16px;
+    }
+    .cat-btn {
+      flex: 1;
+      padding: 6px;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      background: #1e293b;
+      color: #94a3b8;
+      font-size: 10px;
+      cursor: pointer;
+      text-align: center;
+    }
+    .cat-btn.active {
+      border-color: #6366f1;
+      color: #a78bfa;
+      background: #1e1b4b;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #6366f1;
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px; height: 20px;
+      border: 2px solid #334155;
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>⚽ Bilyoner Assistant</h1>
+    <p>AI Tahminlerini Kupona Aktar</p>
+  </div>
+
+  <div class="settings">
+    <label>API Adresi</label>
+    <input type="text" id="apiUrl" placeholder="https://your-app.vercel.app" />
+  </div>
+
+  <div class="category-select">
+    <button class="cat-btn active" data-cat="safe">🛡️ Güvenli</button>
+    <button class="cat-btn" data-cat="balanced">⚖️ Dengeli</button>
+    <button class="cat-btn" data-cat="risky">🔥 Riskli</button>
+    <button class="cat-btn" data-cat="value">💎 Value</button>
+  </div>
+
+  <div id="content" class="coupon-list">
+    <div class="empty">Tahminleri yüklemek için "Tahminleri Getir" butonuna tıklayın</div>
+  </div>
+
+  <div id="totalBar" class="total-bar" style="display: none;">
+    <span>Toplam Oran:</span>
+    <span class="total-odds" id="totalOdds">-</span>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="fetchBtn">📥 Tahminleri Getir</button>
+    <button class="btn btn-success" id="transferBtn" disabled>🚀 Bilyoner'e Aktar</button>
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

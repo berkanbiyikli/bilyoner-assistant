@@ -98,6 +98,29 @@ CREATE TABLE IF NOT EXISTS tweets (
 
 CREATE INDEX idx_tweets_type ON tweets(type);
 
+-- Odds Snapshots (Oran Geçmişi Takibi)
+CREATE TABLE IF NOT EXISTS odds_snapshots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  fixture_id INTEGER NOT NULL,
+  home_team TEXT NOT NULL,
+  away_team TEXT NOT NULL,
+  league TEXT NOT NULL,
+  kickoff TIMESTAMPTZ NOT NULL,
+  home_odds NUMERIC(6,2) NOT NULL,
+  draw_odds NUMERIC(6,2) NOT NULL,
+  away_odds NUMERIC(6,2) NOT NULL,
+  over25_odds NUMERIC(6,2),
+  under25_odds NUMERIC(6,2),
+  btts_yes_odds NUMERIC(6,2),
+  btts_no_odds NUMERIC(6,2),
+  bookmaker TEXT,
+  captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_odds_fixture ON odds_snapshots(fixture_id);
+CREATE INDEX idx_odds_date ON odds_snapshots(kickoff);
+CREATE INDEX idx_odds_captured ON odds_snapshots(captured_at);
+
 -- Validation Records (Backtest & Feedback Loop)
 CREATE TABLE IF NOT EXISTS validation_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -156,6 +179,11 @@ ALTER TABLE tweets ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tweets_select ON tweets FOR SELECT USING (true);
 CREATE POLICY tweets_insert ON tweets FOR INSERT WITH CHECK (true);
 CREATE POLICY tweets_update ON tweets FOR UPDATE USING (true);
+
+-- Odds Snapshots: public read, server insert
+ALTER TABLE odds_snapshots ENABLE ROW LEVEL SECURITY;
+CREATE POLICY odds_snapshots_select ON odds_snapshots FOR SELECT USING (true);
+CREATE POLICY odds_snapshots_insert ON odds_snapshots FOR INSERT WITH CHECK (true);
 
 -- Validation Records: public read, server insert/update/delete
 ALTER TABLE validation_records ENABLE ROW LEVEL SECURITY;

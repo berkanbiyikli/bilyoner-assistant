@@ -4,6 +4,16 @@ import { analyzeMatches } from "@/lib/prediction";
 import { buildCoupon } from "@/lib/coupon";
 import type { CouponCategory } from "@/types";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -19,12 +29,12 @@ export async function GET(req: NextRequest) {
     const predictions = await analyzeMatches(fixtures);
     const coupon = buildCoupon(predictions, { category, stake });
 
-    return NextResponse.json({ coupon });
+    return NextResponse.json({ coupon }, { headers: CORS_HEADERS });
   } catch (error) {
     console.error("Coupon Generate API error:", error);
     return NextResponse.json(
       { error: "Kupon oluşturulurken hata oluştu" },
-      { status: 500 }
+      { status: 500, headers: CORS_HEADERS }
     );
   }
 }

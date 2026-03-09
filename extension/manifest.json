@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Bilyoner Kupon Aktarıcı",
+  "version": "1.0.0",
+  "description": "Bilyoner Assistant tahminlerini tek tıkla Bilyoner.com kuponunuza aktarın",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.bilyoner.com/*",
+    "https://bilyoner.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.bilyoner.com/*", "https://bilyoner.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

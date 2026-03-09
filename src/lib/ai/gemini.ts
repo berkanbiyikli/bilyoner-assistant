@@ -7,7 +7,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const MODEL_NAME = "gemini-2.0-flash";
+const MODELS = ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"];
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -152,31 +152,43 @@ export async function chatWithAI(
     return "⚠️ Gemini API key tanımlı değil. Lütfen GEMINI_API_KEY environment variable'ını ayarlayın.";
   }
 
-  try {
-    const systemContext = await buildSystemContext();
-    const model = genAI.getGenerativeModel({
-      model: MODEL_NAME,
-      systemInstruction: systemContext,
-    });
+  const systemContext = await buildSystemContext();
+  const history = messages.slice(0, -1).map(m => ({
+    role: m.role === "assistant" ? ("model" as const) : ("user" as const),
+    parts: [{ text: m.content }],
+  }));
+  const lastMessage = messages[messages.length - 1];
 
-    const chat = model.startChat({
-      history: messages.slice(0, -1).map(m => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      })),
-      generationConfig: {
-        temperature: 0.7,
-        topP: 0.9,
-        maxOutputTokens: 2048,
-      },
-    });
+  const errors: string[] = [];
 
-    const lastMessage = messages[messages.length - 1];
-    const result = await chat.sendMessage(lastMessage.content);
-    return result.response.text();
-  } catch (error: unknown) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.error("[GEMINI] Chat hatası:", errMsg);
-    return `❌ AI Hatası: ${errMsg}`;
+  for (const modelName of MODELS) {
+    try {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: systemContext,
+      });
+
+      const chat = model.startChat({
+        history,
+        generationConfig: {
+          temperature: 0.7,
+          topP: 0.9,
+          maxOutputTokens: 2048,
+        },
+      });
+
+      const result = await chat.sendMessage(lastMessage.content);
+      return result.response.text();
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[GEMINI] ${modelName} hatası:`, errMsg);
+      errors.push(`${modelName}: ${errMsg.slice(0, 100)}`);
+      // 429 = rate limit, sonraki modeli dene
+      if (errMsg.includes("429") || errMsg.includes("quota")) continue;
+      // Başka hata ise dur
+      return `❌ AI Hatası: ${errMsg}`;
+    }
   }
+
+  return `❌ Tüm modeller kota limitine ulaştı. Lütfen birkaç dakika sonra tekrar deneyin.\n\n${errors.join("\n")}`;
 }

@@ -15,9 +15,36 @@ export interface ChatMessage {
 }
 
 /**
- * DB'den güncel verileri çek ve system prompt oluştur
+ * Kullanıcı mesajından takım isimlerini çıkart
  */
-async function buildSystemContext(): Promise<string> {
+function extractTeamNames(message: string): string[] {
+  const teams: string[] = [];
+  // "X - Y", "X vs Y", "X – Y" formatlarını yakala
+  const matchPatterns = [
+    /([A-Za-zÀ-ÿğüşıöçĞÜŞİÖÇ\s.]+?)\s*[-–vs]+\s*([A-Za-zÀ-ÿğüşıöçĞÜŞİÖÇ\s.]+)/gi,
+  ];
+  for (const pattern of matchPatterns) {
+    let match;
+    while ((match = pattern.exec(message)) !== null) {
+      const t1 = match[1].trim();
+      const t2 = match[2].trim();
+      if (t1.length >= 3) teams.push(t1);
+      if (t2.length >= 3) teams.push(t2);
+    }
+  }
+  // Eğer pattern bulamadıysa, 3+ kelimelik özel isimleri dene
+  if (teams.length === 0) {
+    const words = message.split(/\s+/).filter(w => w.length >= 3 && /^[A-ZÀ-ÿĞÜŞİÖÇ]/.test(w));
+    teams.push(...words);
+  }
+  return [...new Set(teams)];
+}
+
+/**
+ * DB'den güncel verileri çek ve system prompt oluştur
+ * userMessage: kullanıcının son mesajı — ilgili maçları aramak için kullanılır
+ */
+async function buildSystemContext(userMessage: string): Promise<string> {
   const today = new Date().toISOString().split("T")[0];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,6 +55,12 @@ async function buildSystemContext(): Promise<string> {
   let oddsSnapshots: any[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let coupons: any[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let teamPredictions: any[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let teamOdds: any[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let teamValidations: any[] = [];
 
   try {
     const supabase = createAdminSupabase();
@@ -61,6 +94,54 @@ async function buildSystemContext(): Promise<string> {
     validations = validationRes.data || [];
     oddsSnapshots = oddsRes.data || [];
     coupons = couponsRes.data || [];
+
+    // Kullanıcının sorduğu takımları ara
+    const teamNames = extractTeamNames(userMessage);
+    if (teamNames.length > 0) {
+      const teamQueries = teamNames.flatMap(name => [
+        supabase
+          .from("predictions")
+          .select("*")
+          .or(`home_team.ilike.%${name}%,away_team.ilike.%${name}%`)
+          .order("kickoff", { ascending: false })
+          .limit(10),
+        supabase
+          .from("odds_snapshots")
+          .select("*")
+          .or(`home_team.ilike.%${name}%,away_team.ilike.%${name}%`)
+          .order("captured_at", { ascending: false })
+          .limit(10),
+        supabase
+          .from("validation_records")
+          .select("*")
+          .or(`home_team.ilike.%${name}%,away_team.ilike.%${name}%`)
+          .order("kickoff", { ascending: false })
+          .limit(10),
+      ]);
+
+      const teamResults = await Promise.all(teamQueries);
+      for (let i = 0; i < teamResults.length; i++) {
+        const data = teamResults[i].data || [];
+        const type = i % 3; // 0=predictions, 1=odds, 2=validations
+        if (type === 0) teamPredictions.push(...data);
+        else if (type === 1) teamOdds.push(...data);
+        else teamValidations.push(...data);
+      }
+
+      // Deduplicate by id
+      const dedup = <T extends { id?: number; fixture_id?: number }>(arr: T[]): T[] => {
+        const seen = new Set<string>();
+        return arr.filter(item => {
+          const key = `${item.id || item.fixture_id}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      };
+      teamPredictions = dedup(teamPredictions);
+      teamOdds = dedup(teamOdds);
+      teamValidations = dedup(teamValidations);
+    }
   } catch (dbError) {
     console.error("[GEMINI] DB erişim hatası:", dbError);
   }
@@ -111,6 +192,38 @@ async function buildSystemContext(): Promise<string> {
       }).join("\n")
     : "Henüz kupon yok.";
 
+  // Takım bazlı arama sonuçları
+  let teamSection = "";
+  if (teamPredictions.length > 0 || teamOdds.length > 0 || teamValidations.length > 0) {
+    const teamPredText = teamPredictions.length > 0
+      ? teamPredictions.map(p =>
+          `• ${p.home_team} vs ${p.away_team} (${p.league}) [${p.kickoff}] → ${p.pick} @${p.odds} güven:%${p.confidence} EV:${p.expected_value} ${p.is_value_bet ? "[VALUE]" : ""} sonuç:${p.result || "bekliyor"}`
+        ).join("\n")
+      : "Tahmin bulunamadı.";
+    const teamOddsText = teamOdds.length > 0
+      ? teamOdds.map(o =>
+          `• ${o.home_team} vs ${o.away_team} [${o.kickoff}] — MS1: ${o.home_odds} X: ${o.draw_odds} MS2: ${o.away_odds} (${o.captured_at})`
+        ).join("\n")
+      : "Oran verisi bulunamadı.";
+    const teamValText = teamValidations.length > 0
+      ? teamValidations.map(v =>
+          `• ${v.home_team} vs ${v.away_team} [${v.kickoff}] → tahmin: ${v.pick} sonuç: ${v.result} skor: ${v.actual_score || "?"}`
+        ).join("\n")
+      : "Geçmiş kayıt bulunamadı.";
+    teamSection = `
+
+🔍 KULLANICININ SORDUĞU TAKIMLARA AİT VERİLER:
+
+Tahminler:
+${teamPredText}
+
+Oranlar:
+${teamOddsText}
+
+Geçmiş Sonuçlar:
+${teamValText}`;
+  }
+
   return `Sen "Bilyoner AI" adında profesyonel bir Türk futbol bahis analistisin. Her zaman Türkçe konuşursun.
 
 GÖREVIN:
@@ -132,9 +245,12 @@ ${oddsMovements.length > 0 ? `📈 ORAN HAREKETLERİ (>%3 değişim):\n${oddsMov
 
 🎫 SON KUPONLAR:
 ${couponsText}
+${teamSection}
 
 KURALLAR:
-- Sadece veritabanında gördüğüne dayan, uydurma
+- Önce "KULLANICININ SORDUĞU TAKIMLARA AİT VERİLER" bölümüne bak, orada varsa kullan
+- Genel günlük verileri de kullanabilirsin
+- Veritabanında gerçekten olmayan bilgiyi uydurma
 - Güven oranı düşük tahminlerde uyar
 - Value bet'leri vurgula
 - Oran düşüşlerini "para giriyor" olarak yorumla
@@ -152,12 +268,12 @@ export async function chatWithAI(
     return "⚠️ Gemini API key tanımlı değil. Lütfen GEMINI_API_KEY environment variable'ını ayarlayın.";
   }
 
-  const systemContext = await buildSystemContext();
+  const lastMessage = messages[messages.length - 1];
+  const systemContext = await buildSystemContext(lastMessage.content);
   const history = messages.slice(0, -1).map(m => ({
     role: m.role === "assistant" ? ("model" as const) : ("user" as const),
     parts: [{ text: m.content }],
   }));
-  const lastMessage = messages[messages.length - 1];
 
   const errors: string[] = [];
 

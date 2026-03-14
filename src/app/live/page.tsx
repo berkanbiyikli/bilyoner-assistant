@@ -82,6 +82,9 @@ interface LiveMatchAnalysis {
   nextGoalTeam: "home" | "away" | "either" | "unlikely";
   scorePressure: number;
   enrichedMomentum?: EnrichedMomentumData;
+  winProbability?: { home: number; draw: number; away: number };
+  projectedScore?: { home: number; away: number };
+  matchPhase?: "early" | "mid" | "late" | "final" | "ht";
 }
 
 interface PredictionPick {
@@ -293,7 +296,7 @@ export default function LivePage() {
 
   // Pick status helper
   const getPickLiveStatus = (
-    pickType: string, homeGoals: number, awayGoals: number, elapsed: number
+    pickType: string, homeGoals: number, awayGoals: number, elapsed: number, match?: FixtureResponse
   ): { icon: string; color: string } => {
     const totalGoals = homeGoals + awayGoals;
     switch (pickType) {
@@ -307,7 +310,23 @@ export default function LivePage() {
       case "BTTS No": return homeGoals > 0 && awayGoals > 0 ? { icon: "❌", color: "text-red-400" } : { icon: "✅", color: "text-green-400" };
       case "1X": return homeGoals >= awayGoals ? { icon: "✅", color: "text-green-400" } : { icon: "❌", color: "text-red-400" };
       case "X2": return awayGoals >= homeGoals ? { icon: "✅", color: "text-green-400" } : { icon: "❌", color: "text-red-400" };
-      default: return { icon: "—", color: "text-zinc-500" };
+      case "12": return homeGoals !== awayGoals ? { icon: "✅", color: "text-green-400" } : { icon: "⏳", color: "text-yellow-400" };
+      default: {
+        // İY/MS pick tracking
+        if (pickType.includes("/") && match) {
+          const [htPick, ftPick] = pickType.split("/");
+          const htH = match.score?.halftime?.home ?? null;
+          const htA = match.score?.halftime?.away ?? null;
+          if (htH === null || htA === null) return { icon: "⏳", color: "text-yellow-400" };
+          const htResult = htH > htA ? "1" : htH === htA ? "X" : "2";
+          const ftResult = homeGoals > awayGoals ? "1" : homeGoals === awayGoals ? "X" : "2";
+          if (htResult === htPick && ftResult === ftPick) return { icon: "✅", color: "text-green-400" };
+          if (elapsed >= 46 && htResult !== htPick) return { icon: "❌", color: "text-red-400" };
+          if (elapsed >= 75 && ftResult !== ftPick) return { icon: "❌", color: "text-red-400" };
+          return { icon: "⏳", color: "text-yellow-400" };
+        }
+        return { icon: "—", color: "text-zinc-500" };
+      }
     }
   };
 
@@ -346,6 +365,60 @@ export default function LivePage() {
           </div>
         </div>
       </div>
+
+      {/* ========== LIVE DASHBOARD SUMMARY ========== */}
+      {matches.length > 0 && (() => {
+        const totalGoals = matches.reduce((s, m) => s + (m.fixture.goals.home ?? 0) + (m.fixture.goals.away ?? 0), 0);
+        const avgTemp = matches.reduce((s, m) => s + (m.analysis?.matchTemperature ?? 0), 0) / matches.length;
+        const hotCount = allHotOpportunities.length;
+        const withPreds = matches.filter(m => m.prediction && m.prediction.picks.length > 0).length;
+        const highDanger = matches.filter(m => (m.analysis?.danger.goalProbability ?? 0) >= 60).length;
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl px-3 py-2 flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center text-blue-400 text-sm">⚽</div>
+              <div>
+                <p className="text-lg font-black text-white leading-none">{totalGoals}</p>
+                <p className="text-[10px] text-zinc-500">Toplam Gol</p>
+              </div>
+            </div>
+            <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl px-3 py-2 flex items-center gap-2">
+              <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-sm",
+                avgTemp >= 60 ? "bg-red-500/15 text-red-400" : avgTemp >= 35 ? "bg-amber-500/15 text-amber-400" : "bg-zinc-700/50 text-zinc-400"
+              )}>🌡️</div>
+              <div>
+                <p className="text-lg font-black text-white leading-none">{avgTemp.toFixed(0)}°</p>
+                <p className="text-[10px] text-zinc-500">Ort. Sıcaklık</p>
+              </div>
+            </div>
+            <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl px-3 py-2 flex items-center gap-2">
+              <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-sm",
+                hotCount > 0 ? "bg-orange-500/15 text-orange-400" : "bg-zinc-700/50 text-zinc-400"
+              )}>🔥</div>
+              <div>
+                <p className="text-lg font-black text-white leading-none">{hotCount}</p>
+                <p className="text-[10px] text-zinc-500">HOT Fırsat</p>
+              </div>
+            </div>
+            <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl px-3 py-2 flex items-center gap-2">
+              <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-sm",
+                highDanger > 0 ? "bg-red-500/15 text-red-400" : "bg-zinc-700/50 text-zinc-400"
+              )}>⚡</div>
+              <div>
+                <p className="text-lg font-black text-white leading-none">{highDanger}</p>
+                <p className="text-[10px] text-zinc-500">Yüksek Tehlike</p>
+              </div>
+            </div>
+            <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl px-3 py-2 flex items-center gap-2 col-span-2 sm:col-span-1">
+              <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center text-indigo-400 text-sm">🎯</div>
+              <div>
+                <p className="text-lg font-black text-white leading-none">{withPreds}</p>
+                <p className="text-[10px] text-zinc-500">Tahminli Maç</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Filters */}
       {totalOpportunities > 0 && (
@@ -732,7 +805,7 @@ export default function LivePage() {
                       <div className="flex items-center justify-end gap-1.5 min-w-[120px]">
                         {/* Pick live status */}
                         {bestPick && elapsed && (() => {
-                          const { icon, color } = getPickLiveStatus(bestPick.type, homeGoals, awayGoals, elapsed);
+                          const { icon, color } = getPickLiveStatus(bestPick.type, homeGoals, awayGoals, elapsed, match.fixture);
                           return <span className={cn("text-[11px] font-medium", color)}>{icon}</span>;
                         })()}
                         {/* Goal probability */}
@@ -784,7 +857,7 @@ export default function LivePage() {
                     {match.prediction && match.prediction.picks.length > 1 && !isExpanded && (
                       <div className="px-4 pb-2 flex flex-wrap gap-1.5 sm:pl-[64px]">
                         {match.prediction.picks.slice(1, 5).map((pick, i) => {
-                          const { icon, color } = getPickLiveStatus(pick.type, homeGoals, awayGoals, elapsed || 0);
+                          const { icon, color } = getPickLiveStatus(pick.type, homeGoals, awayGoals, elapsed || 0, match.fixture);
                           return (
                             <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-zinc-800/60 text-zinc-400 px-2 py-0.5 rounded">
                               <span className="font-medium text-zinc-300">{pick.type}</span>
@@ -901,7 +974,7 @@ export default function LivePage() {
 function LiveAnalysisPanel({ analysis, match }: { analysis: LiveMatchAnalysis | null; match: EnrichedLiveMatch }) {
   if (!analysis) return null;
 
-  const { momentum, danger, matchTemperature, nextGoalTeam, scorePressure } = analysis;
+  const { momentum, danger, matchTemperature, nextGoalTeam, scorePressure, enrichedMomentum, winProbability, projectedScore, matchPhase } = analysis;
   const homeName = match.fixture.teams.home.name;
   const awayName = match.fixture.teams.away.name;
 
@@ -910,14 +983,62 @@ function LiveAnalysisPanel({ analysis, match }: { analysis: LiveMatchAnalysis | 
     nextGoalTeam === "away" ? awayName :
     nextGoalTeam === "either" ? "Her iki takım" : "Düşük ihtimal";
 
+  const phaseLabel = matchPhase === "early" ? "Erken" : matchPhase === "mid" ? "Orta" : matchPhase === "late" ? "Geç" : matchPhase === "final" ? "Final" : matchPhase === "ht" ? "Devre Arası" : "—";
+  const phaseColor = matchPhase === "late" || matchPhase === "final" ? "text-red-400" : matchPhase === "ht" ? "text-amber-400" : "text-zinc-400";
+
   return (
     <div className="bg-gradient-to-b from-zinc-800/60 to-transparent px-4 py-4 space-y-4">
+      {/* Win Probability Bar */}
+      {winProbability && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-zinc-500 font-medium flex items-center gap-1"><Target className="w-3 h-3" /> Kazanma Olasılığı</p>
+            <div className="flex items-center gap-2">
+              {matchPhase && <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-700/50", phaseColor)}>{phaseLabel}</span>}
+              {projectedScore && (
+                <span className="text-[10px] text-zinc-400 bg-zinc-700/50 px-2 py-0.5 rounded-full">
+                  Projeksiyon: <span className="font-bold text-white">{projectedScore.home.toFixed(1)}</span> - <span className="font-bold text-white">{projectedScore.away.toFixed(1)}</span>
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex h-6 rounded-lg overflow-hidden bg-zinc-700/30 text-[10px] font-bold">
+            <div
+              className="bg-blue-500/80 flex items-center justify-center transition-all duration-700"
+              style={{ width: `${winProbability.home}%`, minWidth: winProbability.home > 5 ? "32px" : "0" }}
+            >
+              {winProbability.home >= 10 && <span className="text-white">{winProbability.home.toFixed(0)}%</span>}
+            </div>
+            <div
+              className="bg-zinc-500/60 flex items-center justify-center transition-all duration-700"
+              style={{ width: `${winProbability.draw}%`, minWidth: winProbability.draw > 5 ? "32px" : "0" }}
+            >
+              {winProbability.draw >= 10 && <span className="text-white">{winProbability.draw.toFixed(0)}%</span>}
+            </div>
+            <div
+              className="bg-red-500/80 flex items-center justify-center transition-all duration-700"
+              style={{ width: `${winProbability.away}%`, minWidth: winProbability.away > 5 ? "32px" : "0" }}
+            >
+              {winProbability.away >= 10 && <span className="text-white">{winProbability.away.toFixed(0)}%</span>}
+            </div>
+          </div>
+          <div className="flex justify-between text-[10px]">
+            <span className="text-blue-400">{homeName}</span>
+            <span className="text-zinc-500">Beraberlik</span>
+            <span className="text-red-400">{awayName}</span>
+          </div>
+        </div>
+      )}
+
       {/* Top row: Momentum + Temperature + Danger */}
       <div className="grid grid-cols-3 gap-3">
         {/* Momentum */}
         <div className="space-y-2">
           <p className="text-[10px] text-zinc-500 font-medium flex items-center gap-1">
             <TrendingUp className="w-3 h-3" /> Momentum
+            {momentum.trend === "increasing" && <span className="text-green-400 text-[10px]">▲</span>}
+            {momentum.trend === "decreasing" && <span className="text-red-400 text-[10px]">▼</span>}
+            {momentum.trend === "stable" && <span className="text-zinc-500 text-[10px]">—</span>}
           </p>
           <div className="flex items-center gap-2 text-xs">
             <span className={cn("font-bold", momentum.homeScore > momentum.awayScore ? "text-blue-400" : "text-zinc-500")}>
@@ -983,6 +1104,50 @@ function LiveAnalysisPanel({ analysis, match }: { analysis: LiveMatchAnalysis | 
         </div>
       </div>
 
+      {/* xG Comparison */}
+      {enrichedMomentum && (
+        <div className="bg-zinc-800/40 rounded-lg p-3 space-y-2">
+          <p className="text-[10px] text-zinc-500 font-medium">xG Akış Karşılaştırma</p>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-blue-400 min-w-[36px]">{enrichedMomentum.liveXg.home.toFixed(2)}</span>
+                <div className="flex-1 h-2.5 bg-zinc-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-500 rounded-full transition-all duration-700" style={{ width: `${Math.min(enrichedMomentum.liveXg.home / Math.max(enrichedMomentum.liveXg.home + enrichedMomentum.liveXg.away, 0.1) * 100, 100)}%` }} />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-red-400 min-w-[36px]">{enrichedMomentum.liveXg.away.toFixed(2)}</span>
+                <div className="flex-1 h-2.5 bg-zinc-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-red-500 rounded-full transition-all duration-700" style={{ width: `${Math.min(enrichedMomentum.liveXg.away / Math.max(enrichedMomentum.liveXg.home + enrichedMomentum.liveXg.away, 0.1) * 100, 100)}%` }} />
+                </div>
+              </div>
+            </div>
+            <div className="text-center px-2">
+              <span className={cn(
+                "text-xs font-bold",
+                enrichedMomentum.xgDelta > 0.3 ? "text-blue-400" : enrichedMomentum.xgDelta < -0.3 ? "text-red-400" : "text-zinc-400"
+              )}>
+                Δ{enrichedMomentum.xgDelta > 0 ? "+" : ""}{enrichedMomentum.xgDelta.toFixed(2)}
+              </span>
+              <p className="text-[9px] text-zinc-600">xG Farkı</p>
+            </div>
+          </div>
+          {/* Pressure Index */}
+          <div className="flex items-center gap-3 pt-1 border-t border-zinc-700/40">
+            <span className="text-[10px] text-zinc-500 min-w-[52px]">Baskı İndeksi</span>
+            <div className="flex items-center gap-1.5 flex-1">
+              <span className="text-[10px] font-bold text-blue-400">{enrichedMomentum.pressureIndex.home.toFixed(0)}</span>
+              <div className="flex-1 flex h-1.5 rounded-full overflow-hidden bg-zinc-700">
+                <div className="bg-blue-500 transition-all" style={{ width: `${enrichedMomentum.pressureIndex.home / (enrichedMomentum.pressureIndex.home + enrichedMomentum.pressureIndex.away || 1) * 100}%` }} />
+                <div className="bg-red-500 transition-all" style={{ width: `${enrichedMomentum.pressureIndex.away / (enrichedMomentum.pressureIndex.home + enrichedMomentum.pressureIndex.away || 1) * 100}%` }} />
+              </div>
+              <span className="text-[10px] font-bold text-red-400">{enrichedMomentum.pressureIndex.away.toFixed(0)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bottom row: Next goal + Score pressure */}
       <div className="flex items-center justify-between bg-zinc-800/50 rounded-lg px-3 py-2">
         <div className="flex items-center gap-2">
@@ -1014,6 +1179,50 @@ function LiveAnalysisPanel({ analysis, match }: { analysis: LiveMatchAnalysis | 
           <span className="text-[10px] text-zinc-400">{scorePressure}/100</span>
         </div>
       </div>
+
+      {/* Mini Event Timeline */}
+      {match.events && match.events.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-zinc-500 font-medium flex items-center gap-1">
+            <Activity className="w-3 h-3" /> Maç Akışı
+          </p>
+          <div className="relative h-8 bg-zinc-800/50 rounded-lg overflow-hidden">
+            {/* Half-time line */}
+            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-zinc-600/50 z-10" />
+            <span className="absolute left-1/2 -translate-x-1/2 top-0 text-[8px] text-zinc-600 z-10">45&apos;</span>
+            {/* Events positioned along the timeline */}
+            {match.events.filter(e => e.type === "Goal" || e.type === "Card").map((event, i) => {
+              const minute = event.time.elapsed || 0;
+              const leftPct = Math.min(Math.max((minute / 95) * 100, 2), 98);
+              const isGoal = event.type === "Goal";
+              const isRed = event.detail === "Red Card";
+              const isHome = event.team.id === match.fixture.teams.home.id;
+              return (
+                <div
+                  key={i}
+                  className="absolute z-20"
+                  style={{ left: `${leftPct}%`, top: isHome ? "2px" : "16px" }}
+                  title={`${minute}' ${event.player?.name || ""} (${event.team.name})`}
+                >
+                  {isGoal ? (
+                    <div className={cn("w-4 h-4 rounded-full flex items-center justify-center text-[8px]",
+                      isHome ? "bg-blue-500/80 text-white" : "bg-red-500/80 text-white"
+                    )}>⚽</div>
+                  ) : (
+                    <div className={cn("w-3 h-3 rounded-sm",
+                      isRed ? "bg-red-500" : "bg-yellow-500"
+                    )} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-between text-[8px] text-zinc-600 px-1">
+            <span>0&apos;</span>
+            <span>90&apos;</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1409,8 +1618,22 @@ function PredictionsPanel({ prediction, match }: { prediction: MatchPrediction |
         return homeGoals !== awayGoals
           ? { status: "✅ Tutuyor", color: "text-green-400" }
           : { status: elapsed >= 80 ? "⚠️ Beraberlik riski" : "⏳ Berabere", color: elapsed >= 80 ? "text-orange-400" : "text-yellow-400" };
-      default:
+      default: {
+        // İY/MS pick tracking
+        if (pickType.includes("/")) {
+          const [htPick, ftPick] = pickType.split("/");
+          const htH = match.score?.halftime?.home ?? null;
+          const htA = match.score?.halftime?.away ?? null;
+          if (htH === null || htA === null) return { status: "⏳ İlk yarı bekleniyor", color: "text-yellow-400" };
+          const htResult = htH > htA ? "1" : htH === htA ? "X" : "2";
+          const ftResult = homeGoals > awayGoals ? "1" : homeGoals === awayGoals ? "X" : "2";
+          if (htResult === htPick && ftResult === ftPick) return { status: "✅ Tutuyor", color: "text-green-400" };
+          if (elapsed >= 46 && htResult !== htPick) return { status: "❌ İY bozuldu", color: "text-red-400" };
+          if (elapsed >= 75 && ftResult !== ftPick) return { status: "⚠️ MS risk", color: "text-orange-400" };
+          return { status: "⏳ Devam", color: "text-yellow-400" };
+        }
         return { status: "—", color: "text-zinc-500" };
+      }
     }
   };
 

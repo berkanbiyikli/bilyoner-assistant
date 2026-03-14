@@ -103,6 +103,10 @@ interface LiveMatchAnalysis {
   scorePressure: number;
   // v2: Zenginleştirilmiş momentum verileri
   enrichedMomentum?: LiveMomentumEnrichedData;
+  // v3: Win probability + skor projeksiyon
+  winProbability: { home: number; draw: number; away: number };
+  projectedScore: { home: number; away: number };
+  matchPhase: "early" | "mid" | "late" | "final" | "ht";
 }
 
 interface EnrichedLiveMatch {
@@ -675,6 +679,16 @@ function generateLiveAnalysis(
   // === SKOR BASKISI ===
   const scorePressure = calculateScorePressure(elapsed, totalGoals, homeGoals, awayGoals, momentum);
 
+  // === WIN PROBABILITY ===
+  const winProbability = calculateWinProbability(elapsed, homeGoals, awayGoals, momentum, danger, enrichedMomentum, isHT);
+
+  // === SKOR PROJ. ===
+  const projectedScore = projectFinalScore(elapsed, homeGoals, awayGoals, stats, momentum);
+
+  // === MAÇ FAZI ===
+  const matchPhase: "early" | "mid" | "late" | "final" | "ht" =
+    isHT ? "ht" : elapsed <= 30 ? "early" : elapsed <= 60 ? "mid" : elapsed <= 80 ? "late" : "final";
+
   return {
     momentum,
     danger,
@@ -687,6 +701,9 @@ function generateLiveAnalysis(
     nextGoalTeam,
     scorePressure,
     enrichedMomentum,
+    winProbability,
+    projectedScore,
+    matchPhase,
   };
 }
 
@@ -1547,6 +1564,109 @@ function detectOpportunities(
 
       return true;
     });
+}
+
+// ------ CANLI KAZANMA OLASILIGI ------
+function calculateWinProbability(
+  elapsed: number,
+  homeGoals: number,
+  awayGoals: number,
+  momentum: MomentumData,
+  danger: DangerLevel,
+  enriched: LiveMomentumEnrichedData,
+  isHT: boolean
+): { home: number; draw: number; away: number } {
+  const goalDiff = homeGoals - awayGoals;
+  const absGoalDiff = Math.abs(goalDiff);
+  const minutesLeft = Math.max(1, 90 - (isHT ? 45 : elapsed));
+  const timeDecay = minutesLeft / 90; // 1.0 başta → 0.0 sonda
+
+  // Base: scoreline'a göre başlangıç probabiliteleri
+  let homeWin: number, draw: number, awayWin: number;
+
+  if (goalDiff > 0) {
+    // Ev sahibi önde
+    const leadStrength = Math.min(absGoalDiff * 25, 75);
+    homeWin = 50 + leadStrength * (1 - timeDecay * 0.5);
+    draw = (25 - leadStrength * 0.3) * timeDecay;
+    awayWin = 100 - homeWin - draw;
+  } else if (goalDiff < 0) {
+    // Deplasman önde
+    const leadStrength = Math.min(absGoalDiff * 25, 75);
+    awayWin = 50 + leadStrength * (1 - timeDecay * 0.5);
+    draw = (25 - leadStrength * 0.3) * timeDecay;
+    homeWin = 100 - awayWin - draw;
+  } else {
+    // Berabere
+    draw = 33 + (1 - timeDecay) * 30; // Geçen süre arttıkça beraberlik olasılığı artar
+    homeWin = (100 - draw) / 2;
+    awayWin = homeWin;
+  }
+
+  // Momentum etkisi (timeDecay ile ağırlıklı — erken dakikalarda momentum daha az etkili)
+  const momDiff = (momentum.homeScore - momentum.awayScore) * 0.15 * timeDecay;
+  homeWin += momDiff;
+  awayWin -= momDiff;
+
+  // Baskı endeksi etkisi
+  const pressureDiff = (enriched.pressureIndex.home - enriched.pressureIndex.away) * 0.08 * timeDecay;
+  homeWin += pressureDiff;
+  awayWin -= pressureDiff;
+
+  // xG etkisi
+  const xgDiff = (enriched.liveXg.home - enriched.liveXg.away) * 3 * timeDecay;
+  homeWin += xgDiff;
+  awayWin -= xgDiff;
+
+  // Normalize: tüm değerler pozitif ve toplamı 100 olacak
+  homeWin = Math.max(1, homeWin);
+  draw = Math.max(1, draw);
+  awayWin = Math.max(1, awayWin);
+  const total = homeWin + draw + awayWin;
+
+  return {
+    home: Math.round((homeWin / total) * 100),
+    draw: Math.round((draw / total) * 100),
+    away: Math.round((awayWin / total) * 100),
+  };
+}
+
+// ------ SKOR PROJEKSİYONU ------
+function projectFinalScore(
+  elapsed: number,
+  homeGoals: number,
+  awayGoals: number,
+  stats: FixtureStatisticsResponse[] | null,
+  momentum: MomentumData
+): { home: number; away: number } {
+  if (elapsed <= 5) return { home: homeGoals, away: awayGoals };
+
+  const minutesLeft = Math.max(0, 90 - elapsed);
+  const minutesPlayed = Math.max(1, elapsed);
+
+  // xG bazlı projeksiyon
+  let homeXg = 0, awayXg = 0;
+  if (stats && stats.length >= 2) {
+    homeXg = getStat(stats, 0, "expected_goals");
+    awayXg = getStat(stats, 1, "expected_goals");
+  }
+
+  // Gol temposu (mevcut goller / oynan dakika)
+  const homeRate = homeGoals / minutesPlayed;
+  const awayRate = awayGoals / minutesPlayed;
+
+  // xG oranı (xg / oynamış dakika × kalan dakika)
+  const homeXgRate = homeXg / minutesPlayed;
+  const awayXgRate = awayXg / minutesPlayed;
+
+  // Hibrit: %60 xG rate + %40 gol rate
+  const homeProjected = homeGoals + minutesLeft * (homeXgRate * 0.6 + homeRate * 0.4);
+  const awayProjected = awayGoals + minutesLeft * (awayXgRate * 0.6 + awayRate * 0.4);
+
+  return {
+    home: Math.round(homeProjected * 10) / 10,
+    away: Math.round(awayProjected * 10) / 10,
+  };
 }
 
 // ------ MAÇ SICAKLIĞI ------

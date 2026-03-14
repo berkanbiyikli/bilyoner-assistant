@@ -23,6 +23,14 @@ export async function GET(req: NextRequest) {
     );
 
     const apiUsage = getApiUsage();
+
+    // Bugünkü eski no_pick marker'ları temizle (artık re-analiz izni var)
+    await supabase
+      .from("predictions")
+      .delete()
+      .eq("pick", "no_pick")
+      .gte("kickoff", `${date}T00:00:00.000Z`)
+      .lte("kickoff", `${date}T23:59:59.999Z`);
     
     // Daha önce DB'de olan fixture'ları atla — no_pick olanları yeniden analiz et
     const { data: existingPreds } = await supabase

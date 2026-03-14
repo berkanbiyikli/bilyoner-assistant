@@ -14,7 +14,9 @@ export async function GET(req: NextRequest) {
     }
 
     const supabase = createAdminSupabase();
-    const date = new Date().toISOString().split("T")[0];
+    // Manuel tarih parametresi desteği: ?date=2026-03-15
+    const { searchParams } = new URL(req.url);
+    const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
     const allFixtures = await getFixturesByDate(date);
 
     // NS (başlamamış) maçları filtrele — batch analiz (Vercel 60s timeout)

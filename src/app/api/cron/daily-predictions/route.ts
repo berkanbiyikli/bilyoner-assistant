@@ -19,9 +19,9 @@ export async function GET(req: NextRequest) {
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
     const allFixtures = await getFixturesByDate(date);
 
-    // NS (başlamamış) maçları filtrele — batch analiz (Vercel 60s timeout)
+    // Sadece desteklenen liglerdeki NS (başlamamış) maçları filtrele
     const nsFixtures = allFixtures.filter(
-      (f) => f.fixture.status.short === "NS"
+      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
     );
 
     const apiUsage = getApiUsage();

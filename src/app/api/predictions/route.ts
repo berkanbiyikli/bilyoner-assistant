@@ -224,11 +224,11 @@ export async function GET(req: NextRequest) {
           return aPriority - bPriority;
         }
         return 0;
-      }).slice(0, 25);
+      }).slice(0, 50);
 
       if (unseenFixtures.length > 0) {
         try {
-          const liveResults = await analyzeMatches(unseenFixtures, 2);
+          const liveResults = await analyzeMatches(unseenFixtures, 3);
           allLiveAnalyzed.push(...liveResults);
         } catch (err) {
           console.error(`[PREDICTIONS] Live analysis error for ${date}:`, err);

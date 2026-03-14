@@ -1336,7 +1336,7 @@ function generatePicks(
 
         // H2H oran profilinden bonus/ceza
         let h2hBonus = 0;
-        if (h2hPattern && h2hPattern.sampleSize >= 3) {
+        if (h2hPattern && h2hPattern.sampleSize >= 2) {
           const h2hProb = (h2hPattern.distribution[key] || 0) / 100;
           // H2H'de bu pattern sık görülüyorsa → bonus
           if (h2hProb > 0.20) h2hBonus = 0.06; // %20+ → güçlü sinyal
@@ -1360,7 +1360,7 @@ function generatePicks(
           h2hBonus,
         };
       })
-      .filter((e) => e.prob > 0.10) // Min %10 olasılık (eskiden %6 idi)
+      .filter((e) => e.prob > 0.08) // Min %8 olasılık (9-yönlü market)
       .sort((a, b) => b.ev - a.ev);
 
     // En iyi 2 İY/MS pick'i üret
@@ -1372,22 +1372,22 @@ function generatePicks(
       // İY/MS özel confidence hesabı:
       // 9 kombinasyon var, uniform dağılımda her biri %11.
       // %20+ çok güçlü, %15+ güçlü, %10+ orta sinyal.
-      // Confidence = prob'u [10-35] aralığından [50-90] aralığına ölçekle
-      const htftBaseConf = Math.min(90, Math.max(48, 50 + (entry.prob - 0.10) * 180));
+      // Confidence = prob'u [8-35] aralığından [48-90] aralığına ölçekle
+      const htftBaseConf = Math.min(90, Math.max(48, 48 + (entry.prob - 0.08) * 155));
       let conf = Math.round(htftBaseConf);
 
       // EV bonus: pozitif EV → ekstra güven
       if (entry.ev > 0.10) conf = Math.min(92, conf + 3);
 
-      // Sim-heuristic blend via hybridConfidence
-      conf = hybridConfidence(conf, type);
+      // İY/MS için hybridConfidence KULLANMA — simProb %10-30 aralığı
+      // normal pick'ler (%40-80) için tasarlanmış blend'i mahveder
 
       // H2H bonus varsa confidence'a da ekle
       if (entry.h2hBonus > 0) {
         conf = Math.min(92, conf + Math.round(entry.h2hBonus * 50));
       }
 
-      if (conf >= 55 && entry.ev > 0.0) { // Min %55 güven, pozitif EV zorunlu
+      if (conf >= 50 && entry.ev > -0.05) { // Min %50 güven, hafif negatif EV OK
         const htLabel = entry.key.split("/")[0] === "1" ? "Ev" : entry.key.split("/")[0] === "X" ? "Beraberlik" : "Deplasman";
         const ftLabel = entry.key.split("/")[1] === "1" ? "Ev" : entry.key.split("/")[1] === "X" ? "Beraberlik" : "Deplasman";
 

@@ -1368,7 +1368,18 @@ function generatePicks(
     for (const entry of htftEntries) {
       if (htftCount >= 2) break;
       const type = entry.key as PickType;
-      let conf = calculateConfidence(entry.prob, entry.implied, entry.prob > 0.20);
+
+      // İY/MS özel confidence hesabı:
+      // 9 kombinasyon var, uniform dağılımda her biri %11.
+      // %20+ çok güçlü, %15+ güçlü, %10+ orta sinyal.
+      // Confidence = prob'u [10-35] aralığından [50-90] aralığına ölçekle
+      const htftBaseConf = Math.min(90, Math.max(48, 50 + (entry.prob - 0.10) * 180));
+      let conf = Math.round(htftBaseConf);
+
+      // EV bonus: pozitif EV → ekstra güven
+      if (entry.ev > 0.10) conf = Math.min(92, conf + 3);
+
+      // Sim-heuristic blend via hybridConfidence
       conf = hybridConfidence(conf, type);
 
       // H2H bonus varsa confidence'a da ekle

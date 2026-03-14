@@ -126,7 +126,7 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   // Kalibrasyon bazlı güven düzeltmeleri al
   const calibrationAdjustments = await getCalibrationAdjustments().catch(() => ({}));
 
-  const picks = generatePicks(analysis, matchOdds, prediction, fixture, weights, dataQuality, calibrationAdjustments);
+  const picks = await generatePicks(analysis, matchOdds, prediction, fixture, weights, dataQuality, calibrationAdjustments);
 
   // Derinlemesine bilgiler (insights)
   const insights = buildInsights(analysis, xgData, goalTiming, keyMissingPlayers, matchOdds, importance, homeFormAnalysis, awayFormAnalysis);
@@ -740,12 +740,12 @@ function calculateDataQuality(
     statsData * 0.20
   );
 
-  // Güven cezası: kalite düştükçe artan ceza (yumuşatılmış — aşırı ceza pick üretimini bloke ediyordu)
+  // Güven cezası: kalite düştükçe artan ceza
   let confidencePenalty = 0;
-  if (overall < 25) confidencePenalty = 8;
-  else if (overall < 40) confidencePenalty = 5;
-  else if (overall < 55) confidencePenalty = 3;
-  else if (overall < 70) confidencePenalty = 1;
+  if (overall < 25) confidencePenalty = 15; // Çok düşük kalite → ağır ceza
+  else if (overall < 40) confidencePenalty = 10;
+  else if (overall < 55) confidencePenalty = 6;
+  else if (overall < 70) confidencePenalty = 3;
 
   // Log warnings
   if (warnings.length > 0) {
@@ -989,6 +989,10 @@ function buildAnalysis(
     homeForm: homeFormScore !== 50 ? homeFormScore : homeWinProb,
     awayForm: awayFormScore !== 50 ? awayFormScore : awayWinProb,
     drawProb,
+    // Gerçek API kazanma olasılıkları (form skoru ile KARIŞTIRILMAMALI)
+    apiHomeWinProb: homeWinProb,
+    apiAwayWinProb: awayWinProb,
+    apiDrawProb: drawProb,
     homeAttack,
     awayAttack,
     homeDefense,
@@ -1062,7 +1066,7 @@ function buildSmartSummary(
 // Pick Üretimi
 // ============================================
 
-function generatePicks(
+async function generatePicks(
   analysis: MatchAnalysis,
   odds: MatchOdds | undefined,
   prediction: PredictionResponse | null,
@@ -1070,23 +1074,29 @@ function generatePicks(
   weights: { heuristic: number; sim: number } = { heuristic: 0.4, sim: 0.6 },
   dataQuality?: DataQualityScore,
   calibrationAdj?: Record<string, number>
-): Pick[] {
+): Promise<Pick[]> {
   const picks: Pick[] = [];
   if (!odds) return picks;
+
+  // === VERİ KALİTESİ KAPISI: Çok düşük kaliteli veriyle pick üretme ===
+  if (dataQuality && dataQuality.overall < 25) {
+    console.warn(`[QUALITY-GATE] Pick üretimi iptal — veri kalitesi çok düşük: ${dataQuality.overall}/100`);
+    return picks;
+  }
 
   const sim = analysis.simulation;
   const refProfile = analysis.refereeProfile;
   const qualityPenalty = dataQuality?.confidencePenalty ?? 0;
 
   // === OLASI PROBLEM: Form skoru ≠ Kazanma olasılığı ===
-  // Form skoru (0-100) nispi güç göstergesi. Olasılık için API + sim + odds harmanla.
-  // API'nin prediction.percent değerleri (zaten buildAnalysis'te alındı) daha güvenilir.
-  // Sim olasılıkları en güvenilir kaynak — 10K iterasyon Poisson.
+  // analysis.homeForm: güç göstergesi (0-100), olasılık DEĞİL
+  // API'nin prediction.percent değerleri: gerçek olasılık
+  // Sim olasılıkları en güvenilir kaynak — 10K iterasyon NB + Dixon-Coles.
 
-  // 1) API-based probability (buildAnalysis'te homeForm/awayForm olarak gelenleri taban al)
-  const apiHomeProb = analysis.homeForm / 100;
-  const apiAwayProb = analysis.awayForm / 100;
-  const apiDrawProb = (analysis.drawProb ?? (100 - analysis.homeForm - analysis.awayForm)) / 100;
+  // 1) API-based probability (API'nin prediction.predictions.percent değerleri — GERÇEK olasılık)
+  const apiHomeProb = (analysis.apiHomeWinProb ?? 33) / 100;
+  const apiAwayProb = (analysis.apiAwayWinProb ?? 33) / 100;
+  const apiDrawProb = (analysis.apiDrawProb ?? 34) / 100;
 
   // 2) Sim-based probability (en güvenilir)
   const simHomeProb = sim ? sim.simHomeWinProb / 100 : apiHomeProb;
@@ -1117,8 +1127,9 @@ function generatePicks(
   const drawProbability = blendProb(simDrawProb, apiDrawProb, impliedDraw, eloDraw);
 
   // === FAZ 4: ML Model Feature Vector ===
-  const mlAvailable = isMLModelAvailable();
+  const mlAvailable = await isMLModelAvailable();
   let mlFeatures: MLFeatureVector | null = null;
+  const mlProbCache = new Map<string, number>();
   if (mlAvailable) {
     mlFeatures = buildFeatureVector({
       homeForm: analysis.homeForm,
@@ -1141,6 +1152,13 @@ function generatePicks(
       homeRecentGoalsConceded: analysis.awayXg ?? 1.0,
       awayRecentGoalsConceded: analysis.homeXg ?? 1.2,
     });
+
+    // Pre-compute all ML predictions once
+    const allPicks = ["1", "X", "2", "Over 2.5", "Under 2.5", "Over 1.5", "Under 1.5", "Over 3.5", "Under 3.5", "BTTS Yes", "BTTS No"];
+    for (const pick of allPicks) {
+      const prob = await getMLProbability(mlFeatures, pick);
+      if (prob !== undefined) mlProbCache.set(pick, prob);
+    }
   }
 
   // Hibrit confidence hesaplama: self-calibrating ağırlıklar + ML blend
@@ -1150,8 +1168,8 @@ function generatePicks(
     if (simProb === undefined) return heuristicConf;
     const simConf = Math.min(92, simProb); // simProb zaten % cinsinden
 
-    // FAZ 4: ML modelden tahmin al
-    const mlProb = mlFeatures ? getMLProbability(mlFeatures, pickType) : undefined;
+    // FAZ 4: ML modelden tahmin al (pre-computed)
+    const mlProb = mlProbCache.get(pickType);
 
     let blended: number;
     if (mlProb !== undefined) {
@@ -1746,16 +1764,15 @@ function calculateConfidence(modelProb: number, impliedProb: number, extraSignal
   let confidence = modelProb * 100;
   const edge = modelProb - impliedProb;
 
-  // Logaritmik edge ağırlıklandırma — küçük edge'lerde temkinli, büyüklerde agresif
+  // Logaritmik edge ağırlıklandırma — CONSERVATIVE: küçük bonuslar
   if (edge > 0) {
-    // Pozitif edge: log scale ile artan bonus (max 18)
-    const edgeBonus = Math.min(18, Math.log1p(edge * 8) * 10);
+    // Pozitif edge: log scale ile artan bonus (max 10 — eskiden 18)
+    const edgeBonus = Math.min(10, Math.log1p(edge * 5) * 6);
     confidence += edgeBonus;
 
-    // Kelly-inspired ek bonus: edge / odds → oransal artış (max 5)
-    // Yüksek olasılıklı maçlarda edge daha değerli
+    // Kelly-inspired ek bonus (max 3 — eskiden 5)
     if (impliedProb > 0) {
-      const kellySignal = Math.min(5, (edge / impliedProb) * 8);
+      const kellySignal = Math.min(3, (edge / impliedProb) * 4);
       confidence += kellySignal;
     }
   } else {
@@ -1764,20 +1781,19 @@ function calculateConfidence(modelProb: number, impliedProb: number, extraSignal
     confidence -= edgePenalty;
   }
 
-  if (extraSignal) confidence += 4;
+  if (extraSignal) confidence += 2; // Eskiden 4
 
-  // xG veri mevcutsa küçük güven bonusu (daha güvenilir data)
-  // modelProb xG tabanlıysa genelde 0.3-0.7 arasında - heuristic fallback 0.15-0.90
+  // xG veri mevcutsa küçük güven bonusu
   if (modelProb > 0.25 && modelProb < 0.75 && edge > 0) {
-    confidence += 2; // Makul aralıktaki tahminlere küçük ödül
+    confidence += 1; // Eskiden 2
   }
 
-  // Over-confidence freni: %80+ confidence'larda damping
-  if (confidence > 80) {
-    confidence = 80 + (confidence - 80) * 0.5;
+  // Over-confidence freni: %75+ confidence'larda damping (eskiden 80)
+  if (confidence > 75) {
+    confidence = 75 + (confidence - 75) * 0.4; // Daha agresif damping
   }
 
-  return Math.round(Math.max(10, Math.min(92, confidence)));
+  return Math.round(Math.max(10, Math.min(90, confidence)));
 }
 
 function getPickReasoning(type: PickType, confidence: number, prediction: PredictionResponse | null, analysis: MatchAnalysis): string {

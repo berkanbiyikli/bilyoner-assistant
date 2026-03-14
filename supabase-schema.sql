@@ -215,6 +215,24 @@
   DROP POLICY IF EXISTS validation_delete ON validation_records;
   CREATE POLICY validation_delete ON validation_records FOR DELETE USING (true);
 
+  -- ML Models (Trained model persistence)
+  CREATE TABLE IF NOT EXISTS ml_models (
+    id TEXT PRIMARY KEY DEFAULT 'current',
+    model_data JSONB NOT NULL,
+    version TEXT NOT NULL,
+    trained_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    market_count INTEGER NOT NULL DEFAULT 0,
+    record_count INTEGER NOT NULL DEFAULT 0
+  );
+
+  ALTER TABLE ml_models ENABLE ROW LEVEL SECURITY;
+  DROP POLICY IF EXISTS ml_models_select ON ml_models;
+  CREATE POLICY ml_models_select ON ml_models FOR SELECT USING (true);
+  DROP POLICY IF EXISTS ml_models_insert ON ml_models;
+  CREATE POLICY ml_models_insert ON ml_models FOR INSERT WITH CHECK (true);
+  DROP POLICY IF EXISTS ml_models_update ON ml_models;
+  CREATE POLICY ml_models_update ON ml_models FOR UPDATE USING (true);
+
   -- ============================================
   -- RPC: Reset All Stats (SECURITY DEFINER = bypass RLS)
   -- ============================================

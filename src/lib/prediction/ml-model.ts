@@ -1,11 +1,10 @@
 // ============================================
 // ML Model Engine (Faz 4)
-// Logistic Regression / Decision Tree — JSON tabanlı
-// Server-side inference, Python ile eğitim
+// Logistic Regression — Supabase persisted
+// Server-side inference + auto-training
 // ============================================
 
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { createAdminSupabase } from "@/lib/supabase/admin";
 
 // ---- Model Types ----
 
@@ -21,22 +20,7 @@ interface LogisticRegressionModel {
   }>;
 }
 
-interface DecisionTreeModel {
-  type: "decision_tree";
-  version: string;
-  trainedAt: string;
-  markets: Record<string, DecisionTreeNode>;
-}
-
-interface DecisionTreeNode {
-  feature?: string;
-  threshold?: number;
-  left?: DecisionTreeNode;
-  right?: DecisionTreeNode;
-  probability?: number; // leaf node
-}
-
-type MLModel = LogisticRegressionModel | DecisionTreeModel;
+type MLModel = LogisticRegressionModel;
 
 export interface MLFeatureVector {
   homeForm: number;
@@ -69,32 +53,58 @@ export interface MLPrediction {
   confidence: number;
 }
 
-// ---- Model Loading ----
+// ---- Model Loading (Supabase) ----
 
-const MODEL_PATH = join(process.cwd(), "models", "prediction-model.json");
 let cachedModel: MLModel | null = null;
 let modelLoadAttempted = false;
 
-function loadModel(): MLModel | null {
+async function loadModel(): Promise<MLModel | null> {
   if (cachedModel) return cachedModel;
   if (modelLoadAttempted) return null;
 
   modelLoadAttempted = true;
 
   try {
-    if (!existsSync(MODEL_PATH)) {
-      console.log("[ML] Model dosyası bulunamadı:", MODEL_PATH);
+    const supabase = createAdminSupabase();
+    const { data, error } = await supabase
+      .from("ml_models")
+      .select("model_data, version, trained_at")
+      .eq("id", "current")
+      .single();
+
+    if (error || !data) {
+      console.log("[ML] Supabase'de model bulunamadı");
       return null;
     }
 
-    const raw = readFileSync(MODEL_PATH, "utf-8");
-    const model = JSON.parse(raw) as MLModel;
+    const model = data.model_data as unknown as MLModel;
     cachedModel = model;
     console.log(`[ML] Model yüklendi: ${model.type} v${model.version} (${model.trainedAt})`);
     return model;
   } catch (error) {
     console.error("[ML] Model yüklenemedi:", error);
     return null;
+  }
+}
+
+async function saveModelToSupabase(model: MLModel, recordCount: number): Promise<void> {
+  try {
+    const supabase = createAdminSupabase();
+    const { error } = await supabase
+      .from("ml_models")
+      .upsert({
+        id: "current",
+        model_data: model as unknown as Record<string, unknown>,
+        version: model.version,
+        trained_at: model.trainedAt,
+        market_count: Object.keys(model.markets).length,
+        record_count: recordCount,
+      });
+
+    if (error) throw error;
+    console.log(`[ML] Model Supabase'e kaydedildi: v${model.version}`);
+  } catch (error) {
+    console.error("[ML] Model kaydedilemedi:", error);
   }
 }
 
@@ -138,20 +148,6 @@ function predictLogistic(
   return sigmoid(z);
 }
 
-// ---- Decision Tree Inference ----
-
-function predictTree(node: DecisionTreeNode, features: MLFeatureVector): number {
-  if (node.probability !== undefined) return node.probability;
-  if (!node.feature || node.threshold === undefined || !node.left || !node.right) return 0.5;
-
-  const val = features[node.feature as keyof MLFeatureVector];
-  const featureVal = typeof val === "number" ? val : 0;
-
-  return featureVal <= node.threshold
-    ? predictTree(node.left, features)
-    : predictTree(node.right, features);
-}
-
 // ---- Public API ----
 
 const SUPPORTED_MARKETS = [
@@ -165,30 +161,21 @@ const SUPPORTED_MARKETS = [
 /**
  * ML model mevcut ve yüklü mü?
  */
-export function isMLModelAvailable(): boolean {
-  return loadModel() !== null;
+export async function isMLModelAvailable(): Promise<boolean> {
+  return (await loadModel()) !== null;
 }
 
 /**
  * Verilen özellik vektörü için tüm marketlerde ML tahminleri üret
  */
-export function predictWithML(features: MLFeatureVector): MLPrediction[] {
-  const model = loadModel();
+export async function predictWithML(features: MLFeatureVector): Promise<MLPrediction[]> {
+  const model = await loadModel();
   if (!model) return [];
 
   const predictions: MLPrediction[] = [];
 
   for (const market of SUPPORTED_MARKETS) {
-    let prob: number | null = null;
-
-    if (model.type === "logistic_regression") {
-      prob = predictLogistic(model, features, market);
-    } else if (model.type === "decision_tree") {
-      const tree = model.markets[market];
-      if (tree) {
-        prob = predictTree(tree as DecisionTreeNode, features);
-      }
-    }
+    const prob = predictLogistic(model, features, market);
 
     if (prob !== null && prob >= 0 && prob <= 1) {
       predictions.push({
@@ -206,10 +193,10 @@ export function predictWithML(features: MLFeatureVector): MLPrediction[] {
  * ML tahminini belirli bir pick type için al
  * engine.ts'deki hybridConfidence ile harmanlanacak
  */
-export function getMLProbability(
+export async function getMLProbability(
   features: MLFeatureVector,
   pickType: string
-): number | undefined {
+): Promise<number | undefined> {
   const marketMap: Record<string, string> = {
     "1": "home_win",
     "X": "draw",
@@ -227,19 +214,10 @@ export function getMLProbability(
   const market = marketMap[pickType];
   if (!market) return undefined;
 
-  const model = loadModel();
+  const model = await loadModel();
   if (!model) return undefined;
 
-  let prob: number | null = null;
-
-  if (model.type === "logistic_regression") {
-    prob = predictLogistic(model, features, market);
-  } else if (model.type === "decision_tree") {
-    const tree = model.markets[market];
-    if (tree) {
-      prob = predictTree(tree as DecisionTreeNode, features);
-    }
-  }
+  const prob = predictLogistic(model, features, market);
 
   return prob !== null ? prob * 100 : undefined; // % cinsinden döndür
 }
@@ -267,6 +245,10 @@ export function buildFeatureVector(analysis: {
   homeRecentGoalsConceded?: number;
   awayRecentGoalsConceded?: number;
 }): MLFeatureVector {
+  // xG yoksa attack/defense skorlarından türet (daha dürüst fallback)
+  const estHomeXg = analysis.homeXg || (analysis.homeAttack / 50) * 1.3;
+  const estAwayXg = analysis.awayXg || (analysis.awayAttack / 50) * 1.1;
+
   return {
     homeForm: analysis.homeForm,
     awayForm: analysis.awayForm,
@@ -274,22 +256,22 @@ export function buildFeatureVector(analysis: {
     awayAttack: analysis.awayAttack,
     homeDefense: analysis.homeDefense,
     awayDefense: analysis.awayDefense,
-    homeXg: analysis.homeXg || 1.2,
-    awayXg: analysis.awayXg || 1.0,
+    homeXg: estHomeXg,
+    awayXg: estAwayXg,
     h2hHomeWinRate: analysis.h2hHomeWinRate ?? 50,
     h2hGoalAvg: analysis.h2hGoalAvg ?? 2.5,
-    homePossession: 50 + (analysis.homeAttack - analysis.awayAttack) * 0.3, // Hücum farkından türet
+    homePossession: 50 + (analysis.homeAttack - analysis.awayAttack) * 0.3,
     awayPossession: 50 - (analysis.homeAttack - analysis.awayAttack) * 0.3,
     homeElo: analysis.eloRatings?.home || 1500,
     awayElo: analysis.eloRatings?.away || 1500,
-    leagueAvgGoals: (analysis.homeXg || 1.2) + (analysis.awayXg || 1.0),
+    leagueAvgGoals: estHomeXg + estAwayXg,
     matchImportance: analysis.matchImportance?.totalScore || 50,
     refereeCardsPerMatch: analysis.refereeProfile?.cardsPerMatch || 4,
     refereeFoulsPerMatch: analysis.refereeProfile?.foulsPerMatch || 25,
-    homeRecentGoalsScored: analysis.homeRecentGoalsScored ?? (analysis.homeXg || 1.2),
-    awayRecentGoalsScored: analysis.awayRecentGoalsScored ?? (analysis.awayXg || 1.0),
-    homeRecentGoalsConceded: analysis.homeRecentGoalsConceded ?? (analysis.awayXg || 1.0),
-    awayRecentGoalsConceded: analysis.awayRecentGoalsConceded ?? (analysis.homeXg || 1.2),
+    homeRecentGoalsScored: analysis.homeRecentGoalsScored ?? estHomeXg,
+    awayRecentGoalsScored: analysis.awayRecentGoalsScored ?? estAwayXg,
+    homeRecentGoalsConceded: analysis.homeRecentGoalsConceded ?? estAwayXg,
+    awayRecentGoalsConceded: analysis.awayRecentGoalsConceded ?? estHomeXg,
   };
 }
 
@@ -417,10 +399,11 @@ export async function autoTrainFromHistory(
     markets,
   };
 
-  // Modeli cache'e yaz (dosya yerine)
+  // Modeli Supabase'e kaydet + cache'e yaz
   cachedModel = model;
   modelLoadAttempted = true;
-  console.log(`[ML] Model otomatik eğitildi: ${Object.keys(markets).length} market, v${model.version}`);
+  await saveModelToSupabase(model, records.length);
+  console.log(`[ML] Model otomatik eğitildi ve kaydedildi: ${Object.keys(markets).length} market, v${model.version}`);
 
   return model;
 }

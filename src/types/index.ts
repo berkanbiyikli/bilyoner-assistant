@@ -105,9 +105,13 @@ export interface RefereeProfile {
 }
 
 export interface MatchAnalysis {
-  homeForm: number; // 0-100 (gerçek kazanma olasılığı %)
+  homeForm: number; // 0-100 (form/güç göstergesi — olasılık DEĞİL)
   awayForm: number;
   drawProb?: number; // 0-100 beraberlik olasılığı %
+  // API'den gelen gerçek kazanma olasılıkları (0-100)
+  apiHomeWinProb?: number;
+  apiAwayWinProb?: number;
+  apiDrawProb?: number;
   homeAttack: number;
   awayAttack: number;
   homeDefense: number;

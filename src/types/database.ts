@@ -107,6 +107,15 @@ type ValidationRecordRow = {
   created_at: string;
 }
 
+type MLModelRow = {
+  id: string;
+  model_data: Record<string, unknown>;
+  version: string;
+  trained_at: string;
+  market_count: number;
+  record_count: number;
+}
+
 // ---- Database Type ----
 export type Database = {
   public: {
@@ -151,6 +160,12 @@ export type Database = {
         Row: ValidationRecordRow;
         Insert: Omit<ValidationRecordRow, "id" | "created_at"> & { id?: string };
         Update: Partial<Omit<ValidationRecordRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      ml_models: {
+        Row: MLModelRow;
+        Insert: Omit<MLModelRow, "trained_at"> & { trained_at?: string };
+        Update: Partial<Omit<MLModelRow, "id">>;
         Relationships: [];
       };
     };

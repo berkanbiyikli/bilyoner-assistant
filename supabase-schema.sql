@@ -37,6 +37,7 @@
     home_team TEXT NOT NULL,
     away_team TEXT NOT NULL,
     league TEXT NOT NULL,
+    league_id INTEGER,
     kickoff TIMESTAMPTZ NOT NULL,
     pick TEXT NOT NULL,
     odds NUMERIC(5,2) NOT NULL,

@@ -121,6 +121,7 @@ export async function GET(req: NextRequest) {
           home_team: pred.homeTeam.name,
           away_team: pred.awayTeam.name,
           league: pred.league.name,
+          league_id: pred.league.id || null,
           kickoff: pred.kickoff,
           pick: pick.type,
           odds: pick.odds,

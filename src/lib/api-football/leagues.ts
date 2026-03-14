@@ -166,6 +166,10 @@ export function getLeagueById(id: number): LeagueConfig | undefined {
   return LEAGUES.find((l) => l.id === id);
 }
 
+export function getLeagueByName(name: string): LeagueConfig | undefined {
+  return LEAGUES.find((l) => l.name === name);
+}
+
 export function getLeaguesByPriority(priority: number): LeagueConfig[] {
   return LEAGUES.filter((l) => l.priority <= priority);
 }

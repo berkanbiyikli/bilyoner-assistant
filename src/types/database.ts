@@ -45,6 +45,7 @@ type PredictionRow = {
   home_team: string;
   away_team: string;
   league: string;
+  league_id: number | null;
   kickoff: string;
   pick: string;
   odds: number;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById } from "@/lib/api-football";
+import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById, getLeagueByName } from "@/lib/api-football";
 import { analyzeMatch, analyzeMatches } from "@/lib/prediction";
 import { getSimProbability, simulateMatch } from "@/lib/prediction/simulator";
 import { createAdminSupabase } from "@/lib/supabase/admin";
@@ -123,6 +123,18 @@ export async function GET(req: NextRequest) {
         const sortedPreds = preds.sort((a, b) => b.confidence - a.confidence);
         const firstPred = sortedPreds[0];
 
+        // League bilgisi: fixture varsa onu kullan, yoksa LEAGUES config'den bul
+        let leagueObj;
+        if (fixture) {
+          leagueObj = fixture.league;
+        } else {
+          const leagueId = firstPred.league_id as number | undefined;
+          const config = leagueId ? getLeagueById(leagueId) : getLeagueByName(firstPred.league);
+          leagueObj = config
+            ? { id: config.id, name: config.name, country: config.country, logo: "", flag: config.flag, season: 0, round: "" }
+            : { id: 0, name: firstPred.league, country: "", logo: "", flag: "", season: 0, round: "" };
+        }
+
         // Canlı analiz sonucu varsa onu kullan
         const liveAnalysis = dbAnalysisResults.get(fixtureId);
 
@@ -171,7 +183,7 @@ export async function GET(req: NextRequest) {
         return {
           fixtureId,
           fixture: fixture ?? null,
-          league: fixture?.league ?? { id: 0, name: firstPred.league, country: "", logo: "", flag: "", season: 0, round: "" },
+          league: leagueObj,
           homeTeam: fixture?.teams.home ?? { id: 0, name: firstPred.home_team, logo: "", winner: null },
           awayTeam: fixture?.teams.away ?? { id: 0, name: firstPred.away_team, logo: "", winner: null },
           kickoff: firstPred.kickoff,
@@ -274,6 +286,13 @@ export async function GET(req: NextRequest) {
           const sortedPreds = preds!.sort((a, b) => b.confidence - a.confidence);
           const firstPred = sortedPreds[0];
 
+          // League bilgisi: LEAGUES config'den bul
+          const leagueId = firstPred.league_id as number | undefined;
+          const config = leagueId ? getLeagueById(leagueId) : getLeagueByName(firstPred.league);
+          const leagueObj = config
+            ? { id: config.id, name: config.name, country: config.country, logo: "", flag: config.flag, season: 0, round: "" }
+            : { id: 0, name: firstPred.league, country: "", logo: "", flag: "", season: 0, round: "" };
+
           // DB'de saklı analysis_data varsa onu kullan
           const storedData = firstPred.analysis_data as { analysis?: MatchAnalysis; insights?: MatchInsights; odds?: MatchOdds } | null;
           let analysis: MatchAnalysis;
@@ -302,7 +321,7 @@ export async function GET(req: NextRequest) {
           return {
             fixtureId,
             fixture: null,
-            league: { id: 0, name: firstPred.league, country: "", logo: "", flag: "", season: 0, round: "" },
+            league: leagueObj,
             homeTeam: { id: 0, name: firstPred.home_team, logo: "", winner: null },
             awayTeam: { id: 0, name: firstPred.away_team, logo: "", winner: null },
             kickoff: firstPred.kickoff,

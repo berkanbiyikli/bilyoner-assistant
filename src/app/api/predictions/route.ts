@@ -224,6 +224,34 @@ export async function GET(req: NextRequest) {
 
     const allPredictions = [...allDbEnriched, ...allLiveAnalyzed];
 
+    // Post-process: odds eksik olan tahminler için simülasyon/pick'lerden türet
+    for (const pred of allPredictions as Array<Record<string, unknown>>) {
+      if (!pred.odds && pred.analysis) {
+        const a = pred.analysis as { simulation?: { simHomeWinProb: number; simDrawProb: number; simAwayWinProb: number; simOver25Prob: number; simBttsProb: number; simOver15Prob: number; simOver35Prob: number } };
+        const sim = a.simulation;
+        if (sim) {
+          // Simülasyon olasılıklarından %5 margin ile oran türet
+          const margin = 1.05;
+          const probToOdds = (prob: number) => prob > 0 ? Math.round(margin * 100 / prob * 100) / 100 : 0;
+          pred.odds = {
+            home: probToOdds(sim.simHomeWinProb),
+            draw: probToOdds(sim.simDrawProb),
+            away: probToOdds(sim.simAwayWinProb),
+            over25: probToOdds(sim.simOver25Prob),
+            under25: probToOdds(100 - sim.simOver25Prob),
+            bttsYes: probToOdds(sim.simBttsProb),
+            bttsNo: probToOdds(100 - sim.simBttsProb),
+            over15: probToOdds(sim.simOver15Prob),
+            under15: probToOdds(100 - sim.simOver15Prob),
+            over35: probToOdds(sim.simOver35Prob),
+            under35: probToOdds(100 - sim.simOver35Prob),
+            bookmaker: "sim-derived",
+            realMarkets: [],
+          };
+        }
+      }
+    }
+
     // Eğer hiç tahmin yoksa ve API limiti dolmuşsa, en son tahminleri göster
     if (allPredictions.length === 0) {
       const { data: latestPreds } = await supabase

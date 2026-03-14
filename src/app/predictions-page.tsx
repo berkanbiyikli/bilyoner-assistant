@@ -268,19 +268,21 @@ export function PredictionsPage() {
     }
   }), [upcomingPredictions, filters.sortBy]);
 
-  // Group by time slot + league (aynı saatteki aynı lig maçları bir arada)
+  // Group by league (same league matches together, sorted by kickoff inside)
   const leagueGroups = useMemo(() => {
-    const groups = new Map<string, MatchPrediction[]>();
+    const groups = new Map<string, { leagueId: number; matches: MatchPrediction[] }>();
     for (const p of sortedPredictions) {
-      const timeSlot = p.kickoff
-        ? new Date(p.kickoff).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
-        : "--:--";
-      const leagueName = `${p.league.country} - ${p.league.name}`;
-      const key = `${timeSlot}|||${leagueName}`;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(p);
+      const leagueKey = `${p.league.id}|||${p.league.country} - ${p.league.name}`;
+      if (!groups.has(leagueKey)) groups.set(leagueKey, { leagueId: p.league.id, matches: [] });
+      groups.get(leagueKey)!.matches.push(p);
     }
-    return groups;
+    // Sort groups: by earliest kickoff in each group
+    const sorted = Array.from(groups.entries()).sort(([, a], [, b]) => {
+      const aTime = Math.min(...a.matches.map(m => new Date(m.kickoff).getTime()));
+      const bTime = Math.min(...b.matches.map(m => new Date(m.kickoff).getTime()));
+      return aTime - bTime;
+    });
+    return new Map(sorted);
   }, [sortedPredictions]);
 
   // Summary stats
@@ -499,19 +501,26 @@ export function PredictionsPage() {
               </div>
             ) : sortedPredictions.length > 0 ? (
               <div className="space-y-3">
-                {Array.from(leagueGroups.entries()).map(([groupKey, matches]) => {
-                  const [timeSlot, leagueName] = groupKey.split("|||");
+                {Array.from(leagueGroups.entries()).map(([groupKey, { matches }]) => {
+                  const [, leagueName] = groupKey.split("|||");
                   const leagueFlag = matches[0]?.league?.flag;
+                  const leagueLogo = (matches[0]?.league as unknown as Record<string, unknown>)?.logo as string | undefined;
+                  const earliestTime = matches.length > 0
+                    ? new Date(Math.min(...matches.map(m => new Date(m.kickoff).getTime())))
+                        .toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
+                    : "--:--";
 
                   return (
                     <div key={groupKey} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                      {/* Time + League Header */}
+                      {/* League Header */}
                       <div className="flex items-center justify-between bg-zinc-800/60 px-4 py-2">
                         <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">{timeSlot}</span>
-                          {leagueFlag && (
+                          <span className="text-[11px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">{earliestTime}</span>
+                          {leagueLogo ? (
+                            <Image src={leagueLogo} alt="" width={18} height={18} className="w-[18px] h-[18px] object-contain rounded-sm" />
+                          ) : leagueFlag ? (
                             <Image src={leagueFlag} alt="" width={16} height={12} className="rounded-sm" />
-                          )}
+                          ) : null}
                           <span className="text-xs font-semibold text-zinc-300">{leagueName}</span>
                           <span className="text-[10px] text-zinc-600">({matches.length})</span>
                         </div>

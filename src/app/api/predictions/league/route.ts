@@ -23,10 +23,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "league parametresi gerekli" }, { status: 400 });
     }
 
-    const leagueConfig = getLeagueById(leagueId);
-    if (!leagueConfig) {
-      return NextResponse.json({ error: "Desteklenmeyen lig" }, { status: 400 });
-    }
+    const leagueConfig = getLeagueById(leagueId) || {
+      id: leagueId,
+      name: `League ${leagueId}`,
+      country: "",
+      flag: "⚽",
+      priority: 5,
+      volatility: "high" as const,
+    };
 
     // Cache kontrol
     const cacheKey = `league-predictions:${leagueId}:${days}`;
@@ -52,29 +56,8 @@ export async function GET(req: NextRequest) {
     }
 
     const supabase = createAdminSupabase();
-
-    // ---- 1) DB'deki kayıtlı tahminleri çek (lig adına göre) ----
     const dayStart = `${dates[0]}T00:00:00.000Z`;
     const dayEnd = `${dates[dates.length - 1]}T23:59:59.999Z`;
-
-    const { data: dbPredictions } = await supabase
-      .from("predictions")
-      .select("*")
-      .gte("kickoff", dayStart)
-      .lte("kickoff", dayEnd)
-      .eq("league", leagueConfig.name)
-      .neq("pick", "no_pick")
-      .order("confidence", { ascending: false });
-
-    const dbFixtureIds = new Set((dbPredictions || []).map((p: { fixture_id: number }) => p.fixture_id));
-
-    // DB tahminlerini fixture bazlı grupla
-    const fixtureGrouped = new Map<number, typeof dbPredictions>();
-    for (const dbPred of (dbPredictions || [])) {
-      const group = fixtureGrouped.get(dbPred.fixture_id) || [];
-      group.push(dbPred);
-      fixtureGrouped.set(dbPred.fixture_id, group);
-    }
 
     // ---- 2) Maçları API'den çek ve ligleye filtrele (fixture detayları için) ----
     const allFixtures: FixtureResponse[] = [];
@@ -86,6 +69,34 @@ export async function GET(req: NextRequest) {
       } catch (err) {
         console.error(`[LEAGUE-PRED] Error fetching ${date}:`, err);
       }
+    }
+
+    // Fixture'dan gerçek lig bilgisini al (dinamik lig desteği)
+    const fixtureLeague = allFixtures[0]?.league;
+    const resolvedLeagueConfig = fixtureLeague ? {
+      ...leagueConfig,
+      name: fixtureLeague.name || leagueConfig.name,
+      country: fixtureLeague.country || leagueConfig.country,
+    } : leagueConfig;
+
+    // ---- 1) DB'deki kayıtlı tahminleri çek (lig adına göre) ----
+    const { data: dbPredictions } = await supabase
+      .from("predictions")
+      .select("*")
+      .gte("kickoff", dayStart)
+      .lte("kickoff", dayEnd)
+      .eq("league", resolvedLeagueConfig.name)
+      .neq("pick", "no_pick")
+      .order("confidence", { ascending: false });
+
+    const dbFixtureIds = new Set((dbPredictions || []).map((p: { fixture_id: number }) => p.fixture_id));
+
+    // DB tahminlerini fixture bazlı grupla
+    const fixtureGrouped = new Map<number, typeof dbPredictions>();
+    for (const dbPred of (dbPredictions || [])) {
+      const group = fixtureGrouped.get(dbPred.fixture_id) || [];
+      group.push(dbPred);
+      fixtureGrouped.set(dbPred.fixture_id, group);
     }
 
     // ---- 3) DB'deki tahminleri zenginleştir ----
@@ -100,10 +111,10 @@ export async function GET(req: NextRequest) {
         fixture: fixture ?? null,
         league: fixture?.league ?? {
           id: leagueId,
-          name: leagueConfig.name,
-          country: leagueConfig.country,
+          name: resolvedLeagueConfig.name,
+          country: resolvedLeagueConfig.country,
           logo: "",
-          flag: leagueConfig.flag,
+          flag: resolvedLeagueConfig.flag,
           season: 0,
           round: "",
         },
@@ -171,7 +182,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      league: leagueConfig,
+      league: resolvedLeagueConfig,
       source: dbEnriched.length > 0 && liveAnalyzed.length > 0
         ? "hybrid"
         : dbEnriched.length > 0

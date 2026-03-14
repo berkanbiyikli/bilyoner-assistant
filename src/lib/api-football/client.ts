@@ -92,8 +92,11 @@ async function apiFetch<T>(
 
 // ---- Fixtures ----
 
-export async function getFixturesByDate(date: string): Promise<FixtureResponse[]> {
-  const data = await apiFetch<FixtureResponse>("/fixtures", { date }, { revalidate: 300, cacheTtl: 600 });
+export async function getFixturesByDate(date: string, forceRefresh = false): Promise<FixtureResponse[]> {
+  const data = await apiFetch<FixtureResponse>("/fixtures", { date }, {
+    cache: "no-store",
+    cacheTtl: forceRefresh ? 0 : 300,
+  });
   return data.response;
 }
 

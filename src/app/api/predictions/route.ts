@@ -48,10 +48,12 @@ export async function GET(req: NextRequest) {
       // 1) Günün maçlarını API'den çek
       let allFixtures: FixtureResponse[] = [];
       try {
-        allFixtures = await getFixturesByDate(date);
+        allFixtures = await getFixturesByDate(date, forceRefresh);
       } catch (err) {
         console.error(`[PREDICTIONS] getFixturesByDate(${date}) error:`, err);
       }
+      // Sadece desteklenen liglerdeki maçları al (1800+ fixture yerine ~200)
+      allFixtures = allFixtures.filter((f) => LEAGUE_IDS.includes(f.league.id));
       totalFixtures += allFixtures.length;
 
       // 2) DB'deki kayıtlı tahminleri çek
@@ -361,8 +363,8 @@ export async function GET(req: NextRequest) {
           dates: predDates,
           source: "redirect",
           redirectDates: predDates,
-          message: `${dates.join(", ")} tarihinde maç bulunamadı. ${predDates.join(", ")} tahminleri gösteriliyor.`,
-          total: 0,
+          message: `${dates.join(", ")} tarihinde tahmin bulunamadı. ${predDates.join(", ")} tahminleri gösteriliyor.`,
+          total: totalFixtures,
           fromDb: 0,
           fromLive: 0,
           analyzed: fallbackPredictions.length,

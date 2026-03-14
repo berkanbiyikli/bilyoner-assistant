@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
     // Manuel tarih parametresi desteği: ?date=2026-03-15
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
+    const forceRegenerate = searchParams.get("force") === "true";
     const allFixtures = await getFixturesByDate(date);
 
     // Sadece desteklenen liglerdeki NS (başlamamış) maçları filtrele
@@ -33,6 +34,15 @@ export async function GET(req: NextRequest) {
       .eq("pick", "no_pick")
       .gte("kickoff", `${date}T00:00:00.000Z`)
       .lte("kickoff", `${date}T23:59:59.999Z`);
+
+    // force=true ise tüm tahminleri sil ve yeniden üret
+    if (forceRegenerate) {
+      await supabase
+        .from("predictions")
+        .delete()
+        .gte("kickoff", `${date}T00:00:00.000Z`)
+        .lte("kickoff", `${date}T23:59:59.999Z`);
+    }
     
     // Daha önce DB'de olan fixture'ları atla — no_pick olanları yeniden analiz et
     const { data: existingPreds } = await supabase

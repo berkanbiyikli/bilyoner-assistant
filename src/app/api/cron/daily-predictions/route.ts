@@ -24,15 +24,18 @@ export async function GET(req: NextRequest) {
 
     const apiUsage = getApiUsage();
     
-    // Daha önce DB'de olan fixture'ları atla
+    // Daha önce DB'de olan fixture'ları atla — no_pick olanları yeniden analiz et
     const { data: existingPreds } = await supabase
       .from("predictions")
       .select("fixture_id, pick")
       .gte("kickoff", `${date}T00:00:00.000Z`)
       .lte("kickoff", `${date}T23:59:59.999Z`);
     
-    const existingFixtureIds = new Set((existingPreds || []).map((p) => p.fixture_id));
-    const newFixtures = nsFixtures.filter((f) => !existingFixtureIds.has(f.fixture.id));
+    // Gerçek pick'i olan fixture'ları atla, no_pick olanları yeniden dene
+    const fixturesWithRealPicks = new Set(
+      (existingPreds || []).filter((p) => p.pick !== "no_pick").map((p) => p.fixture_id)
+    );
+    const newFixtures = nsFixtures.filter((f) => !fixturesWithRealPicks.has(f.fixture.id));
     
     // Büyük ligleri önceliklendir: LEAGUE_IDS'deki ligler önce, priority'ye göre sırala
     const sortedFixtures = [...newFixtures].sort((a, b) => {
@@ -76,25 +79,16 @@ export async function GET(req: NextRequest) {
 
     for (const pred of predictions) {
       if (pred.picks.length === 0) {
-        // Pick üretilmeyen maçı da işaretle ki tekrar analiz edilmesin
-        const markerKey = `${pred.fixtureId}_no_pick`;
-        if (!existingPickKeys.has(markerKey)) {
-          await supabase.from("predictions").insert({
-            fixture_id: pred.fixtureId,
-            home_team: pred.homeTeam.name,
-            away_team: pred.awayTeam.name,
-            league: pred.league.name,
-            kickoff: pred.kickoff,
-            pick: "no_pick",
-            odds: 0,
-            confidence: 0,
-            expected_value: 0,
-            is_value_bet: false,
-            analysis_summary: "Analiz sonucu pick üretilmedi",
-          });
-        }
+        // Pick üretilmeyen maç — no_pick yazmıyoruz, sonraki cron tekrar deneyecek
         continue;
       }
+
+      // Daha önce no_pick varsa temizle (yeniden analiz başarılı oldu)
+      await supabase
+        .from("predictions")
+        .delete()
+        .eq("fixture_id", pred.fixtureId)
+        .eq("pick", "no_pick");
 
       for (const pick of pred.picks) {
         const key = `${pred.fixtureId}_${pick.type}`;

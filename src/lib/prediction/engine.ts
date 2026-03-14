@@ -675,12 +675,12 @@ function calculateDataQuality(
     statsData * 0.20
   );
 
-  // Güven cezası: kalite düştükçe artan ceza
+  // Güven cezası: kalite düştükçe artan ceza (yumuşatılmış — aşırı ceza pick üretimini bloke ediyordu)
   let confidencePenalty = 0;
-  if (overall < 30) confidencePenalty = 12;
-  else if (overall < 45) confidencePenalty = 8;
-  else if (overall < 60) confidencePenalty = 4;
-  else if (overall < 75) confidencePenalty = 2;
+  if (overall < 25) confidencePenalty = 8;
+  else if (overall < 40) confidencePenalty = 5;
+  else if (overall < 55) confidencePenalty = 3;
+  else if (overall < 70) confidencePenalty = 1;
 
   // Log warnings
   if (warnings.length > 0) {
@@ -1100,7 +1100,7 @@ function generatePicks(
 
     // Sim ve heuristic çok farklıysa → güveni düşür (belirsizlik)
     const divergence = Math.abs(heuristicConf - simConf);
-    const penalty = divergence > 15 ? Math.min(12, (divergence - 15) * 0.4) : 0;
+    const penalty = divergence > 20 ? Math.min(8, (divergence - 20) * 0.3) : 0;
 
     // Veri kalitesi cezası — düşük kaliteli veri = düşük güven
     const qPenalty = qualityPenalty;
@@ -1363,10 +1363,10 @@ function generatePicks(
       let conf = calculateConfidence(entry.prob, 1 / entry.odds, entry.prob > 0.10);
       conf = hybridConfidence(conf, type);
 
-      if (conf >= 45) {
+      if (conf >= 25 && entry.ev > -0.05) {
         picks.push({
           type,
-          confidence: conf,
+          confidence: Math.max(conf, 30), // CS doğası gereği düşük conf — min 30 göster
           odds: entry.odds,
           reasoning: `En olası skor ${entry.score} — sim. %${(entry.prob * 100).toFixed(1)}`,
           expectedValue: Math.round(entry.ev * 100) / 100,
@@ -1579,7 +1579,7 @@ function calculateConfidence(modelProb: number, impliedProb: number, extraSignal
 
   // Over-confidence freni: %80+ confidence'larda damping
   if (confidence > 80) {
-    confidence = 80 + (confidence - 80) * 0.45; // Daha sert damping (0.5 → 0.45)
+    confidence = 80 + (confidence - 80) * 0.5;
   }
 
   return Math.round(Math.max(10, Math.min(92, confidence)));

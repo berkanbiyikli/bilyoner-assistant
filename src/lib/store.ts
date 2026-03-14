@@ -18,6 +18,9 @@ export type MarketFilter =
   | "combo"
   | "score";
 
+// İY/MS alt filtresi
+export type HtFtSubFilter = "all" | "straight" | "comeback" | "draw_path" | string;
+
 export interface PreferenceFilters {
   market: MarketFilter;
   minConfidence: number;     // 0-100
@@ -25,6 +28,12 @@ export interface PreferenceFilters {
   maxOdds: number;           // maximum oran
   valueBetsOnly: boolean;    // sadece value bet
   sortBy: "confidence" | "odds" | "ev"; // sıralama
+  // Gelişmiş filtreler
+  minEV: number;             // minimum beklenen değer
+  minSimProb: number;        // minimum simülasyon olasılığı
+  htftSubFilter: HtFtSubFilter; // İY/MS alt filtresi
+  htftSelectedCombos: string[]; // Seçili İY/MS kombinasyonları (boş = hepsi)
+  showOnlyH2HSupported: boolean; // Sadece H2H destekli İY/MS
 }
 
 const DEFAULT_FILTERS: PreferenceFilters = {
@@ -34,6 +43,11 @@ const DEFAULT_FILTERS: PreferenceFilters = {
   maxOdds: 50.0,
   valueBetsOnly: false,
   sortBy: "confidence",
+  minEV: -1.0,
+  minSimProb: 0,
+  htftSubFilter: "all",
+  htftSelectedCombos: [],
+  showOnlyH2HSupported: false,
 };
 
 interface AppState {

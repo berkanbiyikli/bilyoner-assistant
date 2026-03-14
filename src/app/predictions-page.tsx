@@ -235,15 +235,38 @@ export function PredictionsPage() {
       if (filters.market !== "all") {
         const allowedPicks = MARKET_PICK_MAP[filters.market];
         if (filters.market === "score") filteredPicks = filteredPicks.filter((pick) => pick.type.startsWith("CS "));
+        else if (filters.market === "htft") {
+          // İY/MS: önce market filtresi
+          filteredPicks = filteredPicks.filter((pick) => allowedPicks.includes(pick.type));
+          // İY/MS alt filtresi: seçili kombinasyonlar
+          if (filters.htftSelectedCombos.length > 0) {
+            filteredPicks = filteredPicks.filter((pick) => filters.htftSelectedCombos.includes(pick.type));
+          }
+          // H2H destekli filtre
+          if (filters.showOnlyH2HSupported) {
+            filteredPicks = filteredPicks.filter((pick) => pick.reasoning?.includes("H2H"));
+          }
+        }
         else if (allowedPicks.length > 0) filteredPicks = filteredPicks.filter((pick) => allowedPicks.includes(pick.type));
       }
       if (filters.minConfidence > 0) filteredPicks = filteredPicks.filter((pick) => pick.confidence >= filters.minConfidence);
       if (filters.minOdds > 1.0 || filters.maxOdds < 50.0) filteredPicks = filteredPicks.filter((pick) => pick.odds >= filters.minOdds && pick.odds <= filters.maxOdds);
       if (filters.valueBetsOnly) filteredPicks = filteredPicks.filter((pick) => pick.isValueBet);
+      // Gelişmiş filtreler
+      if (filters.minEV > -1.0) filteredPicks = filteredPicks.filter((pick) => (pick.expectedValue ?? -1) >= filters.minEV);
+      if (filters.minSimProb > 0) filteredPicks = filteredPicks.filter((pick) => (pick.simProbability ?? 0) >= filters.minSimProb);
       if (filteredPicks.length === 0) return null;
       return { ...p, picks: filteredPicks };
     })
     .filter(Boolean) as typeof predictions;
+
+  // İY/MS pick sayısı — filtre UI'a göndermek için
+  const htftPickCount = useMemo(() => {
+    return leagueFiltered.reduce((sum, p) => {
+      const htftPicks = (p.picks || []).filter(pk => MARKET_PICK_MAP.htft.includes(pk.type));
+      return sum + htftPicks.length;
+    }, 0);
+  }, [leagueFiltered]);
 
   // Quick filter: KG Var, Ü2.5, İY KG Var
   const quickFiltered = useMemo(() => {
@@ -253,6 +276,7 @@ export function PredictionsPage() {
       if (quickFilters.has("btts") && !pickTypes.includes("BTTS Yes")) return false;
       if (quickFilters.has("over25") && !pickTypes.includes("Over 2.5")) return false;
       if (quickFilters.has("ht_btts") && !pickTypes.includes("HT BTTS Yes")) return false;
+      if (quickFilters.has("htft") && !pickTypes.some(t => MARKET_PICK_MAP.htft.includes(t))) return false;
       return true;
     });
   }, [filteredPredictions, quickFilters]);
@@ -427,7 +451,7 @@ export function PredictionsPage() {
               </div>
             )}
             <LeagueFilter predictions={predictions} />
-            <PreferenceFilter />
+            <PreferenceFilter htftPickCount={htftPickCount} />
 
             {/* Hızlı Market Filtreleri */}
             <div className="flex flex-wrap items-center gap-2">
@@ -436,6 +460,7 @@ export function PredictionsPage() {
                 { key: "btts", label: "KG Var", icon: "🥅" },
                 { key: "over25", label: "2.5 Üst", icon: "📊" },
                 { key: "ht_btts", label: "İY KG Var", icon: "🥇" },
+                { key: "htft", label: "İY/MS", icon: "⏱️" },
               ].map(f => {
                 const active = quickFilters.has(f.key);
                 const count = filteredPredictions.filter(p => {
@@ -443,6 +468,7 @@ export function PredictionsPage() {
                   if (f.key === "btts") return types.includes("BTTS Yes");
                   if (f.key === "over25") return types.includes("Over 2.5");
                   if (f.key === "ht_btts") return types.includes("HT BTTS Yes");
+                  if (f.key === "htft") return types.some(t => MARKET_PICK_MAP.htft.includes(t));
                   return false;
                 }).length;
                 return (

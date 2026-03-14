@@ -48,8 +48,8 @@ export async function GET(req: NextRequest) {
       return 0;
     });
 
-    // Batch: max 15 maç per cron run (15 × 4 = 60 API call, ~45s)
-    const fixtures = sortedFixtures.slice(0, 15);
+    // Batch: max 25 maç per cron run — kalan maçlar sonraki çalışmada işlenir
+    const fixtures = sortedFixtures.slice(0, 25);
     console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${nsFixtures.length} NS, ${newFixtures.length} yeni, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {

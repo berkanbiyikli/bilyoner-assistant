@@ -162,17 +162,42 @@ function gammaRandom(alpha: number, scale: number): number {
  * Araştırma: Bundesliga ve Eredivisie gol profili daha "patlak", Serie A daha öngörülebilir
  */
 const LEAGUE_OVERDISPERSION: Record<number, number> = {
+  // Top 5
   78:  4.5,  // Bundesliga — yüksek gollü, sürprizli
+  79:  4.5,  // 2. Bundesliga
   88:  4.5,  // Eredivisie — benzer profil
   203: 5.0,  // Süper Lig — taraftar etkisiyle volatil
+  204: 4.5,  // 1. Lig — düşük kalite
   39:  6.0,  // Premier League — dengeli ama fiziksel
+  40:  5.0,  // Championship — kaotik
   140: 6.5,  // La Liga — daha taktiksel, öngörülebilir
+  141: 5.5,  // La Liga 2
   135: 7.0,  // Serie A — defansif, düşük varyans
+  136: 5.5,  // Serie B — daha kaotik
   61:  5.5,  // Ligue 1 — PSG etkisi
+  62:  5.0,  // Ligue 2
   94:  5.5,  // Primeira Liga
+  // Avrupa kupaları
   2:   5.0,  // Champions League — knockout volatilitesi
   3:   5.0,  // Europa League
   848: 4.5,  // Conference League — kalite farkları yüksek
+  // İskandinav
+  113: 4.5,  // Allsvenskan — açık futbol
+  103: 4.5,  // Eliteserien
+  119: 5.0,  // Danish Superliga
+  244: 4.0,  // Veikkausliiga — yüksek varyans
+  // Doğu Avrupa
+  106: 5.0,  // Ekstraklasa
+  345: 5.5,  // Czech Liga
+  197: 5.0,  // Greek Super League
+  210: 5.0,  // Croatian HNL
+  // Güney Amerika
+  71:  4.0,  // Brasileirão — son derece volatil
+  128: 4.0,  // Argentina — aynı
+  // Asya / Orta Doğu
+  307: 5.5,  // Saudi Pro League
+  98:  5.5,  // J1 League
+  292: 5.5,  // K League
 };
 
 const DEFAULT_OVERDISPERSION = 6.0;
@@ -188,22 +213,59 @@ function getOverdispersion(leagueId?: number): number {
  * Kaynak: 2023-24 sezonu ampirik verileri
  */
 const LEAGUE_AVG_GOALS_PER_TEAM: Record<number, number> = {
+  // Top 5
   78:  1.65, // Bundesliga — yüksek tempolu
+  79:  1.55, // 2. Bundesliga
   88:  1.60, // Eredivisie — açık futbol
   203: 1.40, // Süper Lig — defansif eğilimli
+  204: 1.35, // 1. Lig
   39:  1.45, // Premier League — fiziksel, dengeli
+  40:  1.40, // Championship
   140: 1.30, // La Liga — taktiksel, düşük gollü
+  141: 1.35, // La Liga 2
   135: 1.25, // Serie A — defansif gelenek
+  136: 1.30, // Serie B
   61:  1.40, // Ligue 1
+  62:  1.35, // Ligue 2
   94:  1.35, // Primeira Liga
+  // Avrupa kupaları
   2:   1.35, // Champions League
   3:   1.40, // Europa League
   848: 1.45, // Conference League — kalite farkı
+  // İskandinav
+  113: 1.50, // Allsvenskan — açık
+  103: 1.45, // Eliteserien
+  119: 1.45, // Danish Superliga
+  244: 1.45, // Veikkausliiga
+  // İskoçya
   179: 1.50, // Scottish Premiership
-  144: 1.35, // Belgian Pro League
-  218: 1.30, // MLS (düşük defans kalitesi ama temposu da düşük)
-  253: 1.50, // Argentine Primera División
+  // Doğu Avrupa
+  106: 1.35, // Ekstraklasa
+  345: 1.35, // Czech Liga
+  197: 1.30, // Greek Super League
+  210: 1.35, // Croatian HNL
+  283: 1.30, // Romanian Liga I
+  271: 1.35, // Hungarian NB I
+  286: 1.35, // Serbian Super Liga
+  // GÜney Amerika
   71:  1.55, // Brazilian Serie A
+  72:  1.45, // Brazilian Serie B
+  128: 1.45, // Argentina Liga Profesional
+  239: 1.35, // Colombia
+  // Kuzey Amerika
+  253: 1.50, // MLS
+  262: 1.40, // Liga MX
+  // Asya & Orta Doğu
+  98:  1.40, // J1 League
+  292: 1.35, // K League
+  307: 1.45, // Saudi Pro League
+  188: 1.50, // A-League
+  // Diğer Avrupa
+  144: 1.40, // Belgian Pro League
+  207: 1.40, // Swiss Super League
+  218: 1.45, // Austrian Bundesliga
+  235: 1.35, // Russian Premier Liga
+  382: 1.35, // Israeli Ligat Ha'al
 };
 
 const DEFAULT_AVG_GOALS = 1.40;

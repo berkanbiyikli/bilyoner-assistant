@@ -224,7 +224,7 @@ export async function GET(req: NextRequest) {
           return aPriority - bPriority;
         }
         return 0;
-      }).slice(0, 50);
+      }).slice(0, 40);
 
       if (unseenFixtures.length > 0) {
         try {

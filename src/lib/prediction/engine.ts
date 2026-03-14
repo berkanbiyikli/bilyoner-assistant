@@ -1200,17 +1200,17 @@ function generatePicks(
 
   // --- Üst/Alt 1.5 ve 3.5 (sim-driven) ---
   if (sim) {
-    if (sim.simOver15Prob > 70) {
-      addPick("Over 1.5", sim.simOver15Prob / 100, 1 / odds.over15, odds.over15, xgTotal > 2.5, 55);
+    if (sim.simOver15Prob > 82) {
+      addPick("Over 1.5", sim.simOver15Prob / 100, 1 / odds.over15, odds.over15, xgTotal > 2.5, 62);
     }
-    if ((100 - sim.simOver15Prob) > 30) {
-      addPick("Under 1.5", (100 - sim.simOver15Prob) / 100, 1 / odds.under15, odds.under15, xgTotal < 1.5, 55);
+    if ((100 - sim.simOver15Prob) > 45) {
+      addPick("Under 1.5", (100 - sim.simOver15Prob) / 100, 1 / odds.under15, odds.under15, xgTotal < 1.5, 58);
     }
-    if (sim.simOver35Prob > 35) {
-      addPick("Over 3.5", sim.simOver35Prob / 100, 1 / odds.over35, odds.over35, xgTotal > 3.5, 48);
+    if (sim.simOver35Prob > 50 && xgTotal > 3.0) {
+      addPick("Over 3.5", sim.simOver35Prob / 100, 1 / odds.over35, odds.over35, xgTotal > 3.5, 58);
     }
-    if ((100 - sim.simOver35Prob) > 60) {
-      addPick("Under 3.5", (100 - sim.simOver35Prob) / 100, 1 / odds.under35, odds.under35, xgTotal < 2.5, 48);
+    if ((100 - sim.simOver35Prob) > 65) {
+      addPick("Under 3.5", (100 - sim.simOver35Prob) / 100, 1 / odds.under35, odds.under35, xgTotal < 2.5, 52);
     }
   }
 
@@ -1587,20 +1587,29 @@ function calculateConfidence(modelProb: number, impliedProb: number, extraSignal
 
 function getPickReasoning(type: PickType, confidence: number, prediction: PredictionResponse | null, analysis: MatchAnalysis): string {
   const level = confidence >= 70 ? "Güçlü" : confidence >= 55 ? "Orta" : "Zayıf";
-  const apiAdvice = prediction?.predictions?.advice;
   const xgNote = analysis.xgDelta && analysis.xgDelta > 0.5 ? " | xG verimsizlik var" : "";
   const injuryNote = (analysis.injuryImpact.home > 5 || analysis.injuryImpact.away > 5) ? " | Sakatlık etkisi önemli" : "";
+  const sim = analysis.simulation;
 
   const reasons: Record<string, string> = {
     "1": `${level} ev sahibi — form, xG ve oran analizi${injuryNote}`,
     "X": `Dengeli güçler — beraberlik olasılığı yüksek${xgNote}`,
     "2": `${level} deplasman — istatistikler destekliyor${injuryNote}`,
+    "Over 1.5": `${level} tahmin — Ü1.5 olasılığı yüksek${sim ? ` (sim %${sim.simOver15Prob.toFixed(0)})` : ""}`,
+    "Under 1.5": `Az gollü maç bekleniyor — savunma baskın${sim ? ` (sim %${(100 - sim.simOver15Prob).toFixed(0)})` : ""}`,
     "Over 2.5": `Gollü maç — hücum, H2H ve xG destekliyor${xgNote}`,
     "Under 2.5": `Golsüz maç — savunma güçlü, H2H destekliyor`,
+    "Over 3.5": `Çok gollü maç bekleniyor — hücumlar baskın${sim ? ` (sim %${sim.simOver35Prob.toFixed(0)})` : ""}${xgNote}`,
+    "Under 3.5": `3.5 altı gol bekleniyor — savunmalar stabil`,
     "BTTS Yes": `Her iki hücum güçlü — KG beklentisi${xgNote}`,
     "BTTS No": `Savunma ağırlıklı — en az bir taraf gol atamayabilir`,
     "HT BTTS Yes": `İlk yarıda her iki takım da gol bulabilir — hücum dengeleri güçlü${xgNote}`,
     "HT BTTS No": `İlk yarı gol olasılığı düşük — savunma ağırlıklı başlangıç`,
+    "1X": `Ev sahibi veya berabere — ${level} çifte şans`,
+    "X2": `Deplasman veya berabere — ${level} çifte şans`,
+    "12": `Beraberlik zor — ${level} çifte şans`,
+    "1 & Over 1.5": `Ev sahibi kazanır + 2 gol üstü — ${level} combo`,
+    "2 & Over 1.5": `Deplasman kazanır + 2 gol üstü — ${level} combo`,
     "1/1": `${level} İY/MS — ev sahibi dominasyonu bekleniyor`,
     "1/X": `İY ev sahibi önde, MS beraberlik — tempo düşmesi bekleniyor`,
     "1/2": `İY ev önde ama deplasman geri dönüşü — riskli senaryo`,
@@ -1613,7 +1622,12 @@ function getPickReasoning(type: PickType, confidence: number, prediction: Predic
   };
 
   const base = reasons[type] || `${level} tahmin`;
-  if (apiAdvice && confidence >= 60) return `${base}. API: ${apiAdvice}`;
+
+  // API advice sadece 1X2 pick'lerinde ekle (diğer marketlerde alakasız olabiliyor)
+  const apiAdvice = prediction?.predictions?.advice;
+  if (apiAdvice && confidence >= 60 && (type === "1" || type === "X" || type === "2")) {
+    return `${base}. API: ${apiAdvice}`;
+  }
   return base;
 }
 

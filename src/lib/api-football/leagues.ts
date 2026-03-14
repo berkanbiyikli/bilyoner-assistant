@@ -34,6 +34,9 @@ export const LEAGUES: LeagueConfig[] = [
   // İtalya
   { id: 135, name: "Serie A", country: "Italy", flag: "🇮🇹", priority: 1, volatility: "low" },
   { id: 136, name: "Serie B", country: "Italy", flag: "🇮🇹", priority: 3, volatility: "high" },
+  { id: 138, name: "Serie C - Girone A", country: "Italy", flag: "🇮🇹", priority: 4, volatility: "high" },
+  { id: 942, name: "Serie C - Girone B", country: "Italy", flag: "🇮🇹", priority: 4, volatility: "high" },
+  { id: 943, name: "Serie C - Girone C", country: "Italy", flag: "🇮🇹", priority: 4, volatility: "high" },
 
   // Almanya
   { id: 78, name: "Bundesliga", country: "Germany", flag: "🇩🇪", priority: 1, volatility: "medium" },

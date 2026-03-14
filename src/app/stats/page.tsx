@@ -6,7 +6,6 @@ import {
   Trophy,
   Target,
   BarChart3,
-  Twitter,
   RefreshCw,
   Gem,
   Activity,
@@ -87,6 +86,17 @@ interface StatsData {
       createdAt: string;
     }>;
   };
+  mlModel: {
+    trainedAt: string;
+    recordCount: number;
+    version: string;
+    marketCount: number;
+    markets: Array<{
+      market: string;
+      accuracy: number;
+      auc: number;
+    }>;
+  } | null;
 }
 
 interface HistoryPrediction {
@@ -344,150 +354,252 @@ export default function StatsPage() {
 // ==========================================
 function PerformanceTab({ stats }: { stats: StatsData | null }) {
   const o = stats?.overview;
+
+  // Sort leagues by hit rate (desc), min 3 settled
+  const rankedLeagues = [...(stats?.leagueStats || [])]
+    .filter(ls => (ls.won + ls.lost) >= 3)
+    .sort((a, b) => b.hitRate - a.hitRate);
+
+  // Sort pick types by hit rate (desc), min 3 settled
+  const rankedPicks = [...(stats?.pickStats || [])]
+    .filter(ps => (ps.won + ps.lost) >= 3)
+    .sort((a, b) => b.hitRate - a.hitRate);
   
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          icon={<Trophy className="h-5 w-5 text-primary" />}
-          label="Toplam Tahmin"
-          value={o?.totalPredictions || 0}
-        />
-        <StatCard
-          icon={<CheckCircle2 className="h-5 w-5 text-green-500" />}
-          label="Kazanan"
-          value={o?.won || 0}
-          accent="text-green-500"
-        />
-        <StatCard
-          icon={<XCircle className="h-5 w-5 text-red-500" />}
-          label="Kaybeden"
-          value={o?.lost || 0}
-          accent="text-red-500"
-        />
-        <StatCard
-          icon={<Clock className="h-5 w-5 text-yellow-500" />}
-          label="Bekleyen"
-          value={o?.pending || 0}
-          accent="text-yellow-500"
-        />
+      {/* Overview KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <MetricCard icon={<Trophy className="h-5 w-5 text-primary" />} label="Toplam" value={`${o?.totalPredictions || 0}`} color="text-foreground" />
+        <MetricCard icon={<Target className="h-5 w-5" />} label="İsabet" value={`%${o?.hitRate || 0}`} color={getHitRateColor(o?.hitRate || 0)} />
+        <MetricCard icon={<Percent className="h-5 w-5" />} label="ROI" value={`${(o?.roi || 0) >= 0 ? "+" : ""}${o?.roi || 0}%`} color={(o?.roi || 0) >= 0 ? "text-green-500" : "text-red-500"} />
+        <MetricCard icon={<BarChart3 className="h-5 w-5" />} label="Ort. Odds" value={(o?.avgOdds || 0).toFixed(2)} color="text-blue-400" />
       </div>
 
-      {/* Performans Metrikleri */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <MetricCard
-          icon={<Target className="h-5 w-5" />}
-          label="İsabet Oranı"
-          value={`%${o?.hitRate || 0}`}
-          color={getHitRateColor(o?.hitRate || 0)}
-        />
-        <MetricCard
-          icon={<Percent className="h-5 w-5" />}
-          label="ROI"
-          value={`${(o?.roi || 0) >= 0 ? "+" : ""}${o?.roi || 0}%`}
-          color={(o?.roi || 0) >= 0 ? "text-green-500" : "text-red-500"}
-        />
-        <MetricCard
-          icon={<BarChart3 className="h-5 w-5" />}
-          label="Ort. Odds"
-          value={(o?.avgOdds || 0).toFixed(2)}
-          color="text-blue-400"
-        />
-        <MetricCard
-          icon={<DollarSign className="h-5 w-5" />}
-          label="Ort. Kazanan Odds"
-          value={(o?.avgWonOdds || 0).toFixed(2)}
-          color="text-green-400"
-        />
+      {/* W/L/P summary bar */}
+      {o && o.totalPredictions > 0 && (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center gap-4 mb-3">
+            <div className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+              <span className="text-xs text-muted-foreground">Kazanan <strong className="text-green-500">{o.won}</strong></span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+              <span className="text-xs text-muted-foreground">Kaybeden <strong className="text-red-500">{o.lost}</strong></span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-yellow-500" />
+              <span className="text-xs text-muted-foreground">Bekleyen <strong className="text-yellow-500">{o.pending}</strong></span>
+            </div>
+          </div>
+          <div className="flex h-3 rounded-full overflow-hidden bg-muted/50">
+            {o.won > 0 && <div className="bg-green-500" style={{ width: `${(o.won / o.totalPredictions) * 100}%` }} />}
+            {o.lost > 0 && <div className="bg-red-500" style={{ width: `${(o.lost / o.totalPredictions) * 100}%` }} />}
+            {o.pending > 0 && <div className="bg-yellow-500/60" style={{ width: `${(o.pending / o.totalPredictions) * 100}%` }} />}
+          </div>
+        </div>
+      )}
+
+      {/* League & Pick Reliability — side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* League Reliability Ranking */}
+        {rankedLeagues.length > 0 && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="font-semibold flex items-center gap-2 mb-1">
+              <Activity className="h-4 w-4 text-primary" />
+              Lig Güvenilirliği
+            </h3>
+            <p className="text-[10px] text-muted-foreground mb-4">İsabet oranına göre sıralanmış (min. 3 sonuçlanan)</p>
+            <div className="space-y-2">
+              {rankedLeagues.map((ls, i) => {
+                const settled = ls.won + ls.lost;
+                const isReliable = ls.hitRate >= 60 && settled >= 5;
+                return (
+                  <div key={ls.league} className="group">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={cn(
+                        "text-[10px] font-bold w-5 h-5 rounded flex items-center justify-center shrink-0",
+                        i === 0 ? "bg-amber-500/15 text-amber-400" :
+                        i === 1 ? "bg-zinc-400/15 text-zinc-400" :
+                        i === 2 ? "bg-orange-500/15 text-orange-400" :
+                        "bg-muted/50 text-muted-foreground"
+                      )}>
+                        {i + 1}
+                      </span>
+                      <span className="text-xs font-medium truncate flex-1">{ls.league}</span>
+                      {isReliable && (
+                        <span className="text-[9px] font-bold bg-green-500/10 text-green-500 px-1.5 py-0.5 rounded-full shrink-0">
+                          GÜVENİLİR
+                        </span>
+                      )}
+                      <span className={cn("text-xs font-bold shrink-0", getHitRateColor(ls.hitRate))}>
+                        %{ls.hitRate.toFixed(0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 ml-7">
+                      <div className="flex-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            ls.hitRate >= 65 ? "bg-green-500" : ls.hitRate >= 50 ? "bg-yellow-500" : "bg-red-500"
+                          )}
+                          style={{ width: `${ls.hitRate}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-muted-foreground shrink-0 w-16 text-right">
+                        {ls.won}W {ls.lost}L
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Pick Type Reliability Ranking */}
+        {rankedPicks.length > 0 && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="font-semibold flex items-center gap-2 mb-1">
+              <Target className="h-4 w-4 text-primary" />
+              Bahis Tipi Güvenilirliği
+            </h3>
+            <p className="text-[10px] text-muted-foreground mb-4">Hangi marketlerde başarılıyız? (min. 3 sonuçlanan)</p>
+            <div className="space-y-2">
+              {rankedPicks.map((ps, i) => {
+                const settled = ps.won + ps.lost;
+                const isReliable = ps.hitRate >= 60 && settled >= 5;
+                return (
+                  <div key={ps.pick} className="group">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={cn(
+                        "text-[10px] font-bold w-5 h-5 rounded flex items-center justify-center shrink-0",
+                        i === 0 ? "bg-amber-500/15 text-amber-400" :
+                        i === 1 ? "bg-zinc-400/15 text-zinc-400" :
+                        i === 2 ? "bg-orange-500/15 text-orange-400" :
+                        "bg-muted/50 text-muted-foreground"
+                      )}>
+                        {i + 1}
+                      </span>
+                      <span className="text-xs font-medium flex-1">{ps.pick}</span>
+                      {isReliable && (
+                        <span className="text-[9px] font-bold bg-green-500/10 text-green-500 px-1.5 py-0.5 rounded-full shrink-0">
+                          GÜVENİLİR
+                        </span>
+                      )}
+                      <span className={cn("text-xs font-bold shrink-0", getHitRateColor(ps.hitRate))}>
+                        %{ps.hitRate.toFixed(0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 ml-7">
+                      <div className="flex-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            ps.hitRate >= 65 ? "bg-green-500" : ps.hitRate >= 50 ? "bg-yellow-500" : "bg-red-500"
+                          )}
+                          style={{ width: `${ps.hitRate}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-muted-foreground shrink-0 w-16 text-right">
+                        {ps.won}W {ps.lost}L
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Value Bet + Tweet Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Value Bet İstatistikleri */}
+      {/* Value Bet Stats */}
+      {stats?.valueBets && stats.valueBets.total > 0 && (
         <div className="rounded-xl border border-border bg-card p-5">
           <h3 className="font-semibold flex items-center gap-2 mb-4">
             <Gem className="h-4 w-4 text-yellow-500" />
             Value Bet Performansı
           </h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-lg bg-muted/50 p-3 text-center">
-              <div className="text-xl font-bold">{stats?.valueBets.total || 0}</div>
-              <div className="text-[11px] text-muted-foreground">Toplam</div>
+          <div className="grid grid-cols-4 gap-3">
+            <div className="text-center">
+              <div className="text-xl font-bold">{stats.valueBets.total}</div>
+              <div className="text-[10px] text-muted-foreground">Toplam</div>
             </div>
-            <div className="rounded-lg bg-muted/50 p-3 text-center">
-              <div className="text-xl font-bold text-green-500">{stats?.valueBets.won || 0}</div>
-              <div className="text-[11px] text-muted-foreground">Kazanan</div>
+            <div className="text-center">
+              <div className="text-xl font-bold text-green-500">{stats.valueBets.won}</div>
+              <div className="text-[10px] text-muted-foreground">Kazanan</div>
             </div>
-            <div className="rounded-lg bg-muted/50 p-3 text-center">
-              <div className="text-xl font-bold">{stats?.valueBets.settled || 0}</div>
-              <div className="text-[11px] text-muted-foreground">Sonuçlanan</div>
+            <div className="text-center">
+              <div className="text-xl font-bold">{stats.valueBets.settled}</div>
+              <div className="text-[10px] text-muted-foreground">Sonuçlanan</div>
             </div>
-            <div className="rounded-lg bg-muted/50 p-3 text-center">
-              <div className={cn("text-xl font-bold", getHitRateColor(stats?.valueBets.hitRate || 0))}>
-                %{stats?.valueBets.hitRate || 0}
+            <div className="text-center">
+              <div className={cn("text-xl font-bold", getHitRateColor(stats.valueBets.hitRate))}>
+                %{stats.valueBets.hitRate}
               </div>
-              <div className="text-[11px] text-muted-foreground">İsabet</div>
+              <div className="text-[10px] text-muted-foreground">İsabet</div>
             </div>
           </div>
         </div>
+      )}
 
-        {/* Twitter Bot İstatistikleri */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="font-semibold flex items-center gap-2 mb-4">
-            <Twitter className="h-4 w-4 text-blue-400" />
-            Twitter Bot Aktivitesi
-          </h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-lg bg-muted/50 p-3 text-center">
-              <div className="text-xl font-bold text-blue-400">{stats?.tweetStats.total || 0}</div>
-              <div className="text-[11px] text-muted-foreground">Toplam Tweet</div>
-            </div>
-            <div className="rounded-lg bg-muted/50 p-3 text-center">
-              <div className="text-xl font-bold">{stats?.tweetStats.dailyPicks || 0}</div>
-              <div className="text-[11px] text-muted-foreground">Günlük Tahminler</div>
-            </div>
-            <div className="rounded-lg bg-muted/50 p-3 text-center">
-              <div className="text-xl font-bold">{stats?.tweetStats.coupons || 0}</div>
-              <div className="text-[11px] text-muted-foreground">Kupon Tweetleri</div>
-            </div>
-            <div className="rounded-lg bg-muted/50 p-3 text-center">
-              <div className="text-xl font-bold">{stats?.tweetStats.liveAlerts || 0}</div>
-              <div className="text-[11px] text-muted-foreground">Canlı Bildirimler</div>
+      {/* ML Model Insights */}
+      {stats?.mlModel && (
+        <div className="rounded-xl border border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 via-transparent to-transparent p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold flex items-center gap-2">
+              <Zap className="h-4 w-4 text-indigo-400" />
+              ML Model
+            </h3>
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              <span>v{stats.mlModel.version}</span>
+              <span>·</span>
+              <span>{stats.mlModel.recordCount} kayıt</span>
+              <span>·</span>
+              <span>{new Date(stats.mlModel.trainedAt).toLocaleDateString("tr-TR")}</span>
             </div>
           </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {stats.mlModel.markets.map((m) => (
+              <div key={m.market} className="bg-zinc-800/50 border border-zinc-700/30 rounded-lg px-3 py-2">
+                <p className="text-[10px] text-muted-foreground truncate">{m.market}</p>
+                <div className="flex items-center justify-between mt-1">
+                  <span className={cn(
+                    "text-sm font-bold",
+                    m.accuracy >= 65 ? "text-green-400" : m.accuracy >= 50 ? "text-yellow-400" : "text-red-400"
+                  )}>
+                    %{(m.accuracy * 100).toFixed(0)}
+                  </span>
+                  <span className="text-[9px] text-muted-foreground">AUC {(m.auc * 100).toFixed(0)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Günlük Performans */}
+      {/* Daily Performance */}
       {stats?.dailyStats && stats.dailyStats.length > 0 && (
         <div className="rounded-xl border border-border bg-card p-5">
           <h3 className="font-semibold flex items-center gap-2 mb-4">
             <Calendar className="h-4 w-4 text-primary" />
-            Günlük Performans (Son 30 Gün)
+            Günlük Performans
           </h3>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {stats.dailyStats.map((day) => (
               <div key={day.date} className="flex items-center gap-3 text-sm">
-                <span className="text-muted-foreground w-24 text-xs">{formatDate(day.date)}</span>
-                <div className="flex-1 h-5 bg-muted/50 rounded-full overflow-hidden flex">
+                <span className="text-muted-foreground w-16 text-[11px] tabular-nums">{formatDate(day.date)}</span>
+                <div className="flex-1 h-4 bg-muted/30 rounded-full overflow-hidden flex">
                   {day.won > 0 && (
-                    <div
-                      className="h-full bg-green-500/80 flex items-center justify-center text-[10px] font-medium text-white"
-                      style={{ width: `${(day.won / day.total) * 100}%` }}
-                    >
-                      {day.won}
-                    </div>
+                    <div className="h-full bg-green-500/80 flex items-center justify-center text-[9px] font-bold text-white"
+                      style={{ width: `${(day.won / day.total) * 100}%` }}>{day.won}</div>
                   )}
                   {day.lost > 0 && (
-                    <div
-                      className="h-full bg-red-500/60 flex items-center justify-center text-[10px] font-medium text-white"
-                      style={{ width: `${(day.lost / day.total) * 100}%` }}
-                    >
-                      {day.lost}
-                    </div>
+                    <div className="h-full bg-red-500/60 flex items-center justify-center text-[9px] font-bold text-white"
+                      style={{ width: `${(day.lost / day.total) * 100}%` }}>{day.lost}</div>
                   )}
                 </div>
-                <span className={cn("text-xs font-medium w-12 text-right", getHitRateColor(day.hitRate))}>
+                <span className={cn("text-[11px] font-bold w-10 text-right tabular-nums", getHitRateColor(day.hitRate))}>
                   %{day.hitRate.toFixed(0)}
                 </span>
               </div>
@@ -496,116 +608,12 @@ function PerformanceTab({ stats }: { stats: StatsData | null }) {
         </div>
       )}
 
-      {/* Lig + Pick Tabloları */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Lig Bazlı */}
-        {stats?.leagueStats && stats.leagueStats.length > 0 && (
-          <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="font-semibold flex items-center gap-2 mb-4">
-              <Activity className="h-4 w-4 text-primary" />
-              Lig Bazlı Performans
-            </h3>
-            <div className="space-y-0.5">
-              <div className="grid grid-cols-6 gap-1 text-[10px] text-muted-foreground font-medium py-1 px-2">
-                <span className="col-span-2">Lig</span>
-                <span className="text-center">Toplam</span>
-                <span className="text-center">W</span>
-                <span className="text-center">L</span>
-                <span className="text-right">İsabet</span>
-              </div>
-              {stats.leagueStats.slice(0, 15).map((ls) => (
-                <div key={ls.league} className="grid grid-cols-6 gap-1 text-xs py-1.5 px-2 rounded hover:bg-muted/50 transition-colors">
-                  <span className="col-span-2 truncate font-medium">{ls.league}</span>
-                  <span className="text-center text-muted-foreground">{ls.total}</span>
-                  <span className="text-center text-green-500">{ls.won}</span>
-                  <span className="text-center text-red-500">{ls.lost}</span>
-                  <span className={cn("text-right font-medium", getHitRateColor(ls.hitRate))}>
-                    %{ls.hitRate.toFixed(0)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Pick Tipi Bazlı */}
-        {stats?.pickStats && stats.pickStats.length > 0 && (
-          <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="font-semibold flex items-center gap-2 mb-4">
-              <Target className="h-4 w-4 text-primary" />
-              Tahmin Tipi Performansı
-            </h3>
-            <div className="space-y-0.5">
-              <div className="grid grid-cols-6 gap-1 text-[10px] text-muted-foreground font-medium py-1 px-2">
-                <span className="col-span-2">Tip</span>
-                <span className="text-center">Toplam</span>
-                <span className="text-center">W</span>
-                <span className="text-center">L</span>
-                <span className="text-right">İsabet</span>
-              </div>
-              {stats.pickStats.map((ps) => (
-                <div key={ps.pick} className="grid grid-cols-6 gap-1 text-xs py-1.5 px-2 rounded hover:bg-muted/50 transition-colors">
-                  <span className="col-span-2 font-medium">{ps.pick}</span>
-                  <span className="text-center text-muted-foreground">{ps.total}</span>
-                  <span className="text-center text-green-500">{ps.won}</span>
-                  <span className="text-center text-red-500">{ps.lost}</span>
-                  <span className={cn("text-right font-medium", getHitRateColor(ps.hitRate))}>
-                    %{ps.hitRate.toFixed(0)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Son Tweetler */}
-      {stats?.tweetStats.recentTweets && stats.tweetStats.recentTweets.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="font-semibold flex items-center gap-2 mb-4">
-            <Twitter className="h-4 w-4 text-blue-400" />
-            Son Tweetler
-          </h3>
-          <div className="space-y-3">
-            {stats.tweetStats.recentTweets.map((tweet) => (
-              <div key={tweet.id} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30">
-                <div className={cn(
-                  "rounded-full px-2 py-0.5 text-[10px] font-medium border shrink-0",
-                  tweet.type === "daily_picks" ? "border-primary text-primary" :
-                  tweet.type === "coupon" ? "border-yellow-500 text-yellow-500" :
-                  tweet.type === "live_alert" ? "border-red-500 text-red-500" :
-                  "border-green-500 text-green-500"
-                )}>
-                  {tweet.type === "daily_picks" ? "Tahmin" :
-                   tweet.type === "coupon" ? "Kupon" :
-                   tweet.type === "live_alert" ? "Canlı" : "Sonuç"}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-muted-foreground whitespace-pre-line line-clamp-2">{tweet.content}</p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-1">
-                    {new Date(tweet.createdAt).toLocaleString("tr-TR")}
-                  </p>
-                </div>
-                <a
-                  href={`https://x.com/i/status/${tweet.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:text-blue-300 text-xs shrink-0"
-                >
-                  Görüntüle →
-                </a>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Veri yoksa */}
+      {/* No Data */}
       {(!stats || stats.overview.totalPredictions === 0) && (
         <div className="rounded-xl border border-border bg-card p-12 text-center">
-          <BarChart3 className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="font-semibold text-lg mb-2">Henüz Veri Yok</h3>
-          <p className="text-sm text-muted-foreground">
+          <BarChart3 className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
+          <h3 className="font-semibold mb-1">Henüz Veri Yok</h3>
+          <p className="text-xs text-muted-foreground">
             Cron job&apos;lar çalışmaya başladığında veriler burada görünecek.
           </p>
         </div>
@@ -1009,28 +1017,6 @@ function KpiCard({
 }
 
 // ---- Helper Components ----
-
-function StatCard({
-  icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  accent?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        {icon}
-        <span className="text-xs text-muted-foreground">{label}</span>
-      </div>
-      <div className={cn("text-2xl font-bold", accent)}>{value.toLocaleString("tr-TR")}</div>
-    </div>
-  );
-}
 
 function MetricCard({
   icon,

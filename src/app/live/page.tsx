@@ -351,29 +351,29 @@ export default function LivePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Radio className="h-6 w-6 text-red-500 animate-pulse" />
+            <Radio className="h-5 w-5 text-red-500 animate-pulse" />
             Canlı Maçlar
           </h1>
-          <p className="text-sm text-zinc-400 mt-1">
-            Anlık Fırsatlar · Momentum · Tehlike Analizi — 30 sn&apos;de bir güncellenir
+          <p className="text-sm text-zinc-500 mt-0.5">
+            Anlık fırsatlar · Momentum · Tehlike analizi
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] text-zinc-500">
-            Son: {lastUpdate.toLocaleTimeString("tr-TR")}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-zinc-600 tabular-nums">
+            {lastUpdate.toLocaleTimeString("tr-TR")}
           </span>
           <button
             onClick={() => { setLoading(true); fetchLive(); }}
-            className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
+            className="p-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 transition-colors"
           >
             <RefreshCw className={cn("w-4 h-4 text-zinc-400", loading && "animate-spin")} />
           </button>
-          <div className="flex items-center gap-1.5 bg-zinc-800/50 px-3 py-1.5 rounded-full">
-            <span className="relative flex h-2 w-2">
+          <div className="flex items-center gap-1.5 bg-zinc-800/50 px-2.5 py-1 rounded-full">
+            <span className="relative flex h-1.5 w-1.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
             </span>
-            <span className="text-xs font-medium text-zinc-300">{matches.length} maç</span>
+            <span className="text-xs font-medium text-zinc-300">{matches.length}</span>
           </div>
         </div>
       </div>
@@ -385,16 +385,23 @@ export default function LivePage() {
         const hotCount = allHotOpportunities.length;
         const highDanger = matches.filter(m => (m.analysis?.danger.goalProbability ?? 0) >= 60).length;
         return (
-          <div className="flex items-center gap-3 flex-wrap bg-zinc-800/40 border border-zinc-700/40 rounded-xl px-4 py-2.5">
-            <span className="text-xs text-zinc-300 font-medium">⚽ {totalGoals} gol</span>
-            <span className="text-zinc-700">·</span>
-            <span className={cn("text-xs font-medium", avgTemp >= 55 ? "text-red-400" : avgTemp >= 35 ? "text-amber-400" : "text-zinc-400")}>🌡️ {avgTemp}°</span>
-            <span className="text-zinc-700">·</span>
-            <span className={cn("text-xs font-bold", hotCount > 0 ? "text-orange-400" : "text-zinc-500")}>🔥 {hotCount} HOT fırsat</span>
-            {highDanger > 0 && (<>
-              <span className="text-zinc-700">·</span>
-              <span className="text-xs font-medium text-red-400">⚡ {highDanger} yüksek tehlike</span>
-            </>)}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="bg-zinc-800/50 border border-zinc-700/30 rounded-xl px-3 py-2 text-center">
+              <p className="text-lg font-black text-white tabular-nums">{totalGoals}</p>
+              <p className="text-[10px] text-zinc-500">Toplam Gol</p>
+            </div>
+            <div className="bg-zinc-800/50 border border-zinc-700/30 rounded-xl px-3 py-2 text-center">
+              <p className={cn("text-lg font-black tabular-nums", avgTemp >= 55 ? "text-red-400" : avgTemp >= 35 ? "text-amber-400" : "text-zinc-400")}>{avgTemp}°</p>
+              <p className="text-[10px] text-zinc-500">Ort. Sıcaklık</p>
+            </div>
+            <div className="bg-zinc-800/50 border border-zinc-700/30 rounded-xl px-3 py-2 text-center">
+              <p className={cn("text-lg font-black tabular-nums", hotCount > 0 ? "text-orange-400" : "text-zinc-500")}>{hotCount}</p>
+              <p className="text-[10px] text-zinc-500">HOT Fırsat</p>
+            </div>
+            <div className="bg-zinc-800/50 border border-zinc-700/30 rounded-xl px-3 py-2 text-center">
+              <p className={cn("text-lg font-black tabular-nums", highDanger > 0 ? "text-red-400" : "text-zinc-500")}>{highDanger}</p>
+              <p className="text-[10px] text-zinc-500">Yüksek Tehlike</p>
+            </div>
           </div>
         );
       })()}
@@ -796,20 +803,17 @@ export default function LivePage() {
           ))}
         </div>
       ) : (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-16 text-center">
-          <Radio className="mx-auto h-12 w-12 text-zinc-600 mb-4" />
-          <h3 className="font-semibold text-lg text-white mb-2">
-            {showOnlyOpportunities ? "Aktif Fırsat Yok" : "Canlı Maç Yok"}
-          </h3>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-12 text-center">
+          <Radio className="mx-auto h-10 w-10 text-zinc-700 mb-3" />
           <p className="text-sm text-zinc-400">
             {showOnlyOpportunities
-              ? "Şu anda tespit edilen fırsat bulunmuyor. Filtreyi kaldırıp tüm maçlara bakabilirsin."
-              : "Şu anda oynanan maç bulunmuyor."}
+              ? "Aktif fırsat yok — filtreyi kaldırıp tüm maçlara bakabilirsin."
+              : "Şu anda canlı maç bulunmuyor."}
           </p>
           {showOnlyOpportunities && (
             <button
               onClick={() => setShowOnlyOpportunities(false)}
-              className="mt-4 px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm hover:bg-zinc-700 transition-colors"
+              className="mt-3 px-3 py-1.5 bg-zinc-800 text-zinc-300 rounded-lg text-xs hover:bg-zinc-700 transition-colors"
             >
               Tüm Maçları Göster
             </button>

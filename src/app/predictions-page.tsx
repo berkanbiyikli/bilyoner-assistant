@@ -4,13 +4,13 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { LeagueFilter } from "@/components/league-filter";
 import { PreferenceFilter } from "@/components/preference-filter";
 import { CouponSidebar } from "@/components/coupon-sidebar";
-import { SystemPerformanceWidget } from "@/components/system-performance";
 import { useAppStore, MARKET_PICK_MAP } from "@/lib/store";
 import type { MatchPrediction, Pick as PickT, CrazyPickResult } from "@/types";
 import {
   Trophy, Calendar, RefreshCw, Dices, Flame, TrendingUp, Zap,
   AlertTriangle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Target, Shield, Swords, BarChart3, Plus, Check, Sparkles,
+  Star, ArrowUpRight, Filter, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
@@ -341,144 +341,237 @@ export function PredictionsPage() {
   const getDetailTab = (fid: number) => detailTab[fid] || "analysis";
   const setDTab = (fid: number, tab: string) => setDetailTab((prev) => ({ ...prev, [fid]: tab }));
 
+  // Top Picks of the Day — top 5 by confidence score
+  const topPicks = useMemo(() => {
+    if (sortedPredictions.length === 0) return [];
+    const candidates: { prediction: MatchPrediction; pick: PickT; score: number }[] = [];
+    for (const p of sortedPredictions) {
+      for (const pick of p.picks) {
+        const evBonus = pick.expectedValue > 0 ? pick.expectedValue * 20 : 0;
+        const score = pick.confidence + evBonus + (pick.isValueBet ? 5 : 0);
+        candidates.push({ prediction: p, pick, score });
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    // Unique by fixture (max 1 pick per match in hero)
+    const seen = new Set<number>();
+    const result: typeof candidates = [];
+    for (const c of candidates) {
+      if (seen.has(c.prediction.fixtureId)) continue;
+      seen.add(c.prediction.fixtureId);
+      result.push(c);
+      if (result.length >= 5) break;
+    }
+    return result;
+  }, [sortedPredictions]);
+
+  const [showFilters, setShowFilters] = useState(false);
+
   return (
     <div className="flex gap-6">
       {/* Main Content */}
-      <div className="flex-1 space-y-4">
+      <div className="flex-1 min-w-0 space-y-5">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Trophy className="h-6 w-6 text-indigo-500" />
-              Günün Tahminleri
-            </h1>
-            <p className="text-sm text-zinc-400 mt-1">
-              AI destekli maç analizi ve tahminler — Monte Carlo simülasyon
-            </p>
+            <h1 className="text-2xl font-bold text-white">Tahminler</h1>
+            <p className="text-sm text-zinc-500 mt-0.5">Monte Carlo simülasyon destekli AI analiz</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={activeTab === "predictions" ? fetchPredictions : fetchCrazyPicks}
               disabled={loading || crazyLoading}
-              className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors disabled:opacity-50"
+              className="p-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={cn("w-4 h-4 text-zinc-400", (loading || crazyLoading) && "animate-spin")} />
             </button>
-            <div className="flex items-center gap-1.5 bg-zinc-800/50 px-3 py-1.5 rounded-full">
-              <span className="text-xs font-medium text-zinc-300">{sortedPredictions.length} maç</span>
-            </div>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 rounded-xl bg-zinc-900 border border-zinc-800 p-1">
-          <button
-            onClick={() => setActiveTab("predictions")}
-            className={cn(
-              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all",
-              activeTab === "predictions"
-                ? "bg-zinc-800 text-white shadow-sm"
-                : "text-zinc-500 hover:text-zinc-300"
-            )}
-          >
-            <Trophy className="h-4 w-4" />
-            Tahminler
-            {predictions.length > 0 && (
-              <span className="ml-1 rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] text-indigo-400 font-bold">
-                {predictions.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("crazy-picks")}
-            className={cn(
-              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all",
-              activeTab === "crazy-picks"
-                ? "bg-zinc-800 text-white shadow-sm"
-                : "text-zinc-500 hover:text-zinc-300"
-            )}
-          >
-            <Dices className="h-4 w-4" />
-            Sürpriz Tahminler
-            {crazyPicks.length > 0 && (
-              <span className="ml-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] text-orange-400 font-bold">
-                {crazyPicks.length}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Date Picker */}
-        {activeTab === "predictions" && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-            <button onClick={() => setPreset("today")} className={cn(
-              "rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
-              selectedDates.length === 1 && selectedDates[0] === today
-                ? "bg-indigo-500 text-white shadow-sm" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-            )}>Bugün</button>
-            <button onClick={() => setPreset("tomorrow")} className={cn(
-              "rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
-              selectedDates.length === 1 && selectedDates[0] === formatDateStr((() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })())
-                ? "bg-indigo-500 text-white shadow-sm" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-            )}>Yarın</button>
-            <button onClick={() => setPreset("weekend")} className={cn(
-              "rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
-              selectedDates.length >= 2
-                ? "bg-indigo-500 text-white shadow-sm" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-            )}>Hafta Sonu</button>
-
-            <div className="mx-2 h-6 w-px bg-zinc-800" />
-
-            <button onClick={() => shiftDates(-1)} className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors">
-              <ChevronLeft className="h-4 w-4" />
+        {/* Tabs + Date Picker Row */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          {/* Tab Toggle */}
+          <div className="flex gap-1 rounded-lg bg-zinc-900 border border-zinc-800 p-0.5 shrink-0">
+            <button
+              onClick={() => setActiveTab("predictions")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                activeTab === "predictions"
+                  ? "bg-indigo-500 text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              )}
+            >
+              <Target className="h-3.5 w-3.5" />
+              Tahminler
+              {predictions.length > 0 && (
+                <span className={cn(
+                  "text-[10px] font-bold rounded-full px-1.5 py-0.5",
+                  activeTab === "predictions" ? "bg-white/20" : "bg-zinc-800 text-zinc-500"
+                )}>
+                  {sortedPredictions.length}
+                </span>
+              )}
             </button>
-            <div className="flex flex-wrap gap-1.5">
-              {selectedDates.map((d) => {
-                const dt = new Date(d + "T12:00:00");
-                const dayName = dt.toLocaleDateString("tr-TR", { weekday: "short" });
-                const dayMonth = dt.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+            <button
+              onClick={() => setActiveTab("crazy-picks")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+                activeTab === "crazy-picks"
+                  ? "bg-orange-500 text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              )}
+            >
+              <Dices className="h-3.5 w-3.5" />
+              Sürpriz
+              {crazyPicks.length > 0 && (
+                <span className={cn(
+                  "text-[10px] font-bold rounded-full px-1.5 py-0.5",
+                  activeTab === "crazy-picks" ? "bg-white/20" : "bg-zinc-800 text-zinc-500"
+                )}>
+                  {crazyPicks.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Date Picker (inline) */}
+          {activeTab === "predictions" && (
+            <div className="flex flex-wrap items-center gap-1.5 flex-1">
+              {(["today", "tomorrow", "weekend"] as const).map((preset) => {
+                const labels = { today: "Bugün", tomorrow: "Yarın", weekend: "H.Sonu" };
+                const isActive = preset === "today" ? selectedDates.length === 1 && selectedDates[0] === today
+                  : preset === "tomorrow" ? selectedDates.length === 1 && selectedDates[0] === formatDateStr((() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })())
+                  : selectedDates.length >= 2;
                 return (
-                  <button key={d} onClick={() => toggleDate(d)} className="flex items-center gap-1 rounded-lg bg-indigo-500/10 px-2.5 py-1 text-xs font-medium text-indigo-400 hover:bg-indigo-500/20 transition-colors">
-                    <Calendar className="h-3 w-3" />
-                    {dayName} {dayMonth}
-                    {selectedDates.length > 1 && <span className="ml-0.5 text-indigo-400/50">×</span>}
-                  </button>
+                  <button key={preset} onClick={() => setPreset(preset)} className={cn(
+                    "rounded-md px-2.5 py-1 text-xs font-medium transition-all",
+                    isActive ? "bg-indigo-500/15 text-indigo-400 ring-1 ring-indigo-500/30" : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+                  )}>{labels[preset]}</button>
                 );
               })}
+              <div className="flex items-center gap-0.5">
+                <button onClick={() => shiftDates(-1)} className="p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors">
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                {selectedDates.map((d) => {
+                  const dt = new Date(d + "T12:00:00");
+                  return (
+                    <button key={d} onClick={() => toggleDate(d)} className="flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-700 transition-colors">
+                      <Calendar className="h-3 w-3 text-zinc-500" />
+                      {dt.toLocaleDateString("tr-TR", { day: "numeric", month: "short", weekday: "short" })}
+                      {selectedDates.length > 1 && <X className="h-2.5 w-2.5 text-zinc-500" />}
+                    </button>
+                  );
+                })}
+                <button onClick={() => shiftDates(1)} className="p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors">
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-0.5 ml-auto">
+                <Calendar className="h-3 w-3 text-zinc-600" />
+                <input type="date" onChange={(e) => { if (e.target.value) toggleDate(e.target.value); }} className="bg-transparent text-[11px] text-zinc-400 outline-none w-[100px]" />
+              </div>
             </div>
-            <button onClick={() => shiftDates(1)} className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors">
-              <ChevronRight className="h-4 w-4" />
-            </button>
-            <div className="ml-auto flex items-center gap-1.5 rounded-lg border border-zinc-800 px-2.5 py-1">
-              <Calendar className="h-3.5 w-3.5 text-zinc-500" />
-              <input type="date" onChange={(e) => { if (e.target.value) toggleDate(e.target.value); }} className="bg-transparent text-xs text-zinc-300 outline-none w-[110px]" />
-            </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* TAB: Predictions */}
         {activeTab === "predictions" && (
           <>
             {apiMessage && (
-              <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3 flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />
-                <p className="text-sm text-yellow-500">{apiMessage}</p>
+              <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-2.5 flex items-center gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
+                <p className="text-xs text-yellow-500">{apiMessage}</p>
               </div>
             )}
-            <LeagueFilter predictions={predictions} />
-            <PreferenceFilter htftPickCount={htftPickCount} />
 
-            {/* Hızlı Market Filtreleri */}
+            {/* Top Picks Hero */}
+            {!loading && topPicks.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Star className="h-4 w-4 text-amber-400" />
+                  <h2 className="text-sm font-semibold text-white">Günün En İyileri</h2>
+                  <span className="text-[10px] text-zinc-600">En yüksek güven × değer</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
+                  {topPicks.map(({ prediction: tp, pick: tpick }, i) => (
+                    <button
+                      key={tp.fixtureId}
+                      onClick={() => setExpandedMatch(expandedMatch === tp.fixtureId ? null : tp.fixtureId)}
+                      className={cn(
+                        "relative rounded-xl border p-3 text-left transition-all hover:scale-[1.02]",
+                        i === 0
+                          ? "border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-zinc-900"
+                          : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
+                      )}
+                    >
+                      {i === 0 && (
+                        <div className="absolute -top-2 left-3 bg-amber-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full">
+                          TOP PICK
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between mb-2 mt-1">
+                        <span className={cn(
+                          "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                          tpick.isValueBet ? "bg-emerald-500/15 text-emerald-400" : "bg-indigo-500/15 text-indigo-400"
+                        )}>
+                          {pickLabel(tpick.type)}
+                        </span>
+                        <span className={cn(
+                          "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                          tpick.confidence >= 70 ? "bg-green-500/15 text-green-400" :
+                          tpick.confidence >= 55 ? "bg-yellow-500/15 text-yellow-400" :
+                          "bg-red-500/10 text-red-400"
+                        )}>
+                          %{tpick.confidence}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-300 font-medium truncate">{tp.homeTeam.name}</p>
+                      <p className="text-[11px] text-zinc-500 truncate">vs {tp.awayTeam.name}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-[10px] text-zinc-600">
+                          {new Date(tp.kickoff).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <span className="text-xs font-bold text-yellow-500">{tpick.odds.toFixed(2)}</span>
+                      </div>
+                      {tpick.isValueBet && (
+                        <div className="flex items-center gap-1 mt-1.5">
+                          <TrendingUp className="h-3 w-3 text-emerald-400" />
+                          <span className="text-[9px] text-emerald-400 font-medium">Value Bet · EV +{(tpick.expectedValue * 100).toFixed(0)}%</span>
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Filters Row */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Hızlı Filtre:</span>
+              {/* Toggle filters panel */}
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition-all",
+                  showFilters
+                    ? "border-indigo-500 bg-indigo-500/10 text-indigo-400"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600"
+                )}
+              >
+                <Filter className="h-3 w-3" />
+                Filtreler
+                {(filters.market !== "all" || filters.minConfidence > 0 || filters.valueBetsOnly) && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                )}
+              </button>
+
+              {/* Quick Filters */}
               {[
-                { key: "btts", label: "KG Var", icon: "🥅" },
-                { key: "over25", label: "2.5 Üst", icon: "📊" },
-                { key: "ht_btts", label: "İY KG Var", icon: "🥇" },
-                { key: "htft", label: "İY/MS", icon: "⏱️" },
-                { key: "comeback", label: "Geri Dönüş", icon: "🔄" },
-                { key: "htft_12", label: "1/2", icon: "🟠" },
-                { key: "htft_21", label: "2/1", icon: "🟣" },
+                { key: "btts", label: "KG Var" },
+                { key: "over25", label: "Ü2.5" },
+                { key: "ht_btts", label: "İY KG" },
+                { key: "htft", label: "İY/MS" },
+                { key: "comeback", label: "Geri Dönüş" },
               ].map(f => {
                 const active = quickFilters.has(f.key);
                 const count = filteredPredictions.filter(p => {
@@ -488,8 +581,6 @@ export function PredictionsPage() {
                   if (f.key === "ht_btts") return types.includes("HT BTTS Yes");
                   if (f.key === "htft") return types.some(t => MARKET_PICK_MAP.htft.includes(t));
                   if (f.key === "comeback") return types.includes("1/2") || types.includes("2/1");
-                  if (f.key === "htft_12") return types.includes("1/2");
-                  if (f.key === "htft_21") return types.includes("2/1");
                   return false;
                 }).length;
                 return (
@@ -497,63 +588,55 @@ export function PredictionsPage() {
                     key={f.key}
                     onClick={() => toggleQuickFilter(f.key)}
                     className={cn(
-                      "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all border",
+                      "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all border",
                       active
-                        ? "border-indigo-500 bg-indigo-500/10 text-indigo-400"
-                        : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600"
+                        ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-400"
+                        : "border-zinc-800 bg-zinc-900 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700"
                     )}
                   >
-                    <span>{f.icon}</span>
-                    <span>{f.label}</span>
+                    {f.label}
                     <span className={cn(
-                      "text-[10px] px-1.5 py-0.5 rounded-full",
-                      active ? "bg-indigo-500/20 text-indigo-400" : "bg-zinc-700 text-zinc-500"
+                      "text-[10px] px-1 rounded",
+                      active ? "text-indigo-400" : "text-zinc-600"
                     )}>{count}</span>
                   </button>
                 );
               })}
               {quickFilters.size > 0 && (
-                <button
-                  onClick={() => setQuickFilters(new Set())}
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
-                >
-                  Temizle ×
+                <button onClick={() => setQuickFilters(new Set())} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">
+                  Temizle
                 </button>
               )}
-            </div>
 
-            {/* Quick Stats Banner */}
-            {sortedPredictions.length > 0 && (
-              <div className="flex gap-3 overflow-x-auto pb-1">
-                <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 shrink-0">
-                  <Trophy className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="text-[11px] text-zinc-400">Toplam</span>
-                  <span className="text-[11px] font-bold text-white">{sortedPredictions.length}</span>
-                </div>
+              {/* Stats pills */}
+              <div className="ml-auto flex items-center gap-2">
                 {valueBetCount > 0 && (
-                  <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 shrink-0">
-                    <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-[11px] text-zinc-400">Value Bet</span>
-                    <span className="text-[11px] font-bold text-emerald-400">{valueBetCount}</span>
-                  </div>
+                  <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                    <TrendingUp className="h-3 w-3" /> {valueBetCount} value
+                  </span>
                 )}
                 {highConfCount > 0 && (
-                  <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 shrink-0">
-                    <Target className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="text-[11px] text-zinc-400">%70+ Güven</span>
-                    <span className="text-[11px] font-bold text-amber-400">{highConfCount}</span>
-                  </div>
+                  <span className="flex items-center gap-1 text-[10px] text-amber-400">
+                    <Target className="h-3 w-3" /> {highConfCount} güvenli
+                  </span>
                 )}
+                <span className="text-[10px] text-zinc-600">{sortedPredictions.length} maç</span>
+              </div>
+            </div>
+
+            {/* Collapsible Filter Panels */}
+            {showFilters && (
+              <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
+                <LeagueFilter predictions={predictions} />
+                <PreferenceFilter htftPickCount={htftPickCount} />
               </div>
             )}
 
-            <SystemPerformanceWidget />
-
-            {/* Main Table */}
+            {/* Main Match List */}
             {loading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl h-16 animate-pulse" />
+              <div className="space-y-2">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl h-14 animate-pulse" />
                 ))}
               </div>
             ) : sortedPredictions.length > 0 ? (
@@ -562,65 +645,52 @@ export function PredictionsPage() {
                   const [, leagueName] = groupKey.split("|||");
                   const leagueFlag = matches[0]?.league?.flag;
                   const leagueLogo = (matches[0]?.league as unknown as Record<string, unknown>)?.logo as string | undefined;
-                  const earliestTime = matches.length > 0
-                    ? new Date(Math.min(...matches.map(m => new Date(m.kickoff).getTime())))
-                        .toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
-                    : "--:--";
 
                   return (
-                    <div key={groupKey} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                    <div key={groupKey} className="rounded-xl border border-zinc-800 overflow-hidden">
                       {/* League Header */}
-                      <div className="flex items-center justify-between bg-zinc-800/60 px-4 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">{earliestTime}</span>
-                          {leagueLogo ? (
-                            <Image src={leagueLogo} alt="" width={18} height={18} className="w-[18px] h-[18px] object-contain rounded-sm" />
-                          ) : leagueFlag ? (
-                            <Image src={leagueFlag} alt="" width={16} height={12} className="rounded-sm" />
-                          ) : null}
-                          <span className="text-xs font-semibold text-zinc-300">{leagueName}</span>
-                          <span className="text-[10px] text-zinc-600">({matches.length})</span>
-                        </div>
-                      </div>
-
-                      {/* Column Headers */}
-                      <div className="hidden sm:grid sm:grid-cols-[55px_1fr_auto_1fr_minmax(180px,1fr)_80px] items-center px-4 py-1.5 text-[10px] text-zinc-600 font-medium border-b border-zinc-800/50 bg-zinc-800/20 gap-x-2">
-                        <span>Saat</span>
-                        <span>Ev Sahibi</span>
-                        <span className="text-center w-[130px]">1 — X — 2</span>
-                        <span>Deplasman</span>
-                        <span>Tahmin</span>
-                        <span className="text-center">Güven</span>
+                      <div className="flex items-center gap-2.5 bg-zinc-900 px-4 py-2 border-b border-zinc-800/50">
+                        {leagueLogo ? (
+                          <Image src={leagueLogo} alt="" width={16} height={16} className="w-4 h-4 object-contain" />
+                        ) : leagueFlag ? (
+                          <Image src={leagueFlag} alt="" width={16} height={12} className="rounded-sm" />
+                        ) : (
+                          <Trophy className="h-3.5 w-3.5 text-zinc-600" />
+                        )}
+                        <span className="text-xs font-semibold text-zinc-300">{leagueName}</span>
+                        <span className="text-[10px] text-zinc-600">{matches.length} maç</span>
                       </div>
 
                       {/* Matches */}
-                      {matches.map((p) => (
-                        <PredictionRow
-                          key={p.fixtureId}
-                          prediction={p}
-                          isFinished={false}
-                          isExpanded={expandedMatch === p.fixtureId}
-                          onToggle={() => setExpandedMatch(expandedMatch === p.fixtureId ? null : p.fixtureId)}
-                          isInCoupon={isInCoupon}
-                          onAddToCoupon={(pick) => handleAddToCoupon(p, pick)}
-                          activeDetailTab={getDetailTab(p.fixtureId)}
-                          onSetDetailTab={(tab) => setDTab(p.fixtureId, tab)}
-                        />
-                      ))}
+                      <div className="divide-y divide-zinc-800/40">
+                        {matches.map((p) => (
+                          <PredictionRow
+                            key={p.fixtureId}
+                            prediction={p}
+                            isFinished={false}
+                            isExpanded={expandedMatch === p.fixtureId}
+                            onToggle={() => setExpandedMatch(expandedMatch === p.fixtureId ? null : p.fixtureId)}
+                            isInCoupon={isInCoupon}
+                            onAddToCoupon={(pick) => handleAddToCoupon(p, pick)}
+                            activeDetailTab={getDetailTab(p.fixtureId)}
+                            onSetDetailTab={(tab) => setDTab(p.fixtureId, tab)}
+                          />
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-16 text-center">
-                <Trophy className="mx-auto h-12 w-12 text-zinc-600 mb-4" />
-                <h3 className="font-semibold text-lg text-white mb-2">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-16 text-center">
+                <Target className="mx-auto h-10 w-10 text-zinc-700 mb-3" />
+                <h3 className="font-semibold text-white mb-1">
                   {predictions.length > 0 ? "Filtreye Uygun Tahmin Yok" : "Tahmin Bulunamadı"}
                 </h3>
-                <p className="text-sm text-zinc-400">
+                <p className="text-xs text-zinc-500">
                   {predictions.length > 0
-                    ? "Filtre ayarlarını değiştirip tekrar deneyin."
-                    : "Bu tarih için henüz tahmin bulunmuyor. Farklı bir tarih deneyin."}
+                    ? "Filtre ayarlarınızı değiştirip tekrar deneyin."
+                    : "Bu tarih için henüz tahmin yok. Farklı bir tarih seçin."}
                 </p>
               </div>
             )}
@@ -640,7 +710,7 @@ export function PredictionsPage() {
       </div>
 
       {/* Coupon Sidebar */}
-      <div className="hidden md:block w-80 shrink-0">
+      <div className="hidden md:block w-72 shrink-0">
         <div className="sticky top-20">
           <CouponSidebar />
         </div>
@@ -684,23 +754,22 @@ function PredictionRow({
   const isLive = fixtureStatus != null && ["1H", "2H", "HT", "ET", "P", "BT", "LIVE"].includes(fixtureStatus);
   const elapsed = p.fixture?.fixture?.status?.elapsed;
 
-  // 1X2 odds
   const o1 = odds?.home || 0;
   const oX = odds?.draw || 0;
   const o2 = odds?.away || 0;
 
   return (
     <div className={cn(
-      "border-b border-zinc-800/40 last:border-b-0 transition-colors",
-      isFinished ? "opacity-50" : hasValueBet ? "bg-emerald-500/[0.03]" : "hover:bg-zinc-800/30"
+      "transition-colors",
+      isFinished ? "opacity-40" : hasValueBet ? "bg-emerald-500/[0.02]" : "hover:bg-zinc-800/20"
     )}>
       {/* Main Row */}
       <button
         onClick={onToggle}
-        className="w-full sm:grid sm:grid-cols-[55px_1fr_auto_1fr_minmax(180px,1fr)_80px] flex flex-wrap items-center px-4 py-2.5 text-left gap-x-2 gap-y-1"
+        className="w-full flex items-center px-4 py-2.5 text-left gap-3"
       >
         {/* Time */}
-        <div className="flex items-center gap-1.5 min-w-[55px]">
+        <div className="w-11 shrink-0">
           {isLive ? (
             <div className="flex items-center gap-1">
               <span className="relative flex h-1.5 w-1.5">
@@ -710,144 +779,134 @@ function PredictionRow({
               <span className="text-[11px] font-bold text-red-400">{elapsed}&apos;</span>
             </div>
           ) : fixtureStatus === "FT" || fixtureStatus === "AET" || fixtureStatus === "PEN" ? (
-            <span className="text-[11px] font-bold text-zinc-500">MS</span>
+            <span className="text-[10px] font-bold text-zinc-600">MS</span>
           ) : (
-            <span className="text-[11px] text-zinc-400">{kickoffTime}</span>
+            <span className="text-[11px] text-zinc-500 tabular-nums">{kickoffTime}</span>
           )}
         </div>
 
-        {/* Home Team */}
-        <div className="flex items-center gap-2 min-w-0">
-          {p.homeTeam.logo && (
-            <Image src={p.homeTeam.logo} alt="" width={18} height={18} className="w-[18px] h-[18px] object-contain shrink-0" />
-          )}
-          <span className={cn(
-            "text-[13px] truncate",
-            homeGoals != null && awayGoals != null && homeGoals > awayGoals ? "text-white font-semibold" : "text-zinc-300"
-          )}>
-            {p.homeTeam.name}
-          </span>
-        </div>
-
-        {/* 1X2 Odds Center */}
-        <div className="flex items-center gap-1 w-[130px] justify-center" onClick={(e) => e.stopPropagation()}>
-          {homeGoals != null && awayGoals != null && isFinished ? (
-            <div className="flex items-center gap-1">
-              <span className={cn("text-base font-black tabular-nums", homeGoals > awayGoals ? "text-white" : "text-zinc-400")}>{homeGoals}</span>
-              <span className="text-zinc-600 text-xs">-</span>
-              <span className={cn("text-base font-black tabular-nums", awayGoals > homeGoals ? "text-white" : "text-zinc-400")}>{awayGoals}</span>
-            </div>
-          ) : (
-            <>
-              {[
-                { label: "1", odds: o1, type: "1" as const },
-                { label: "X", odds: oX, type: "X" as const },
-                { label: "2", odds: o2, type: "2" as const },
-              ].map(({ label, odds: oddVal, type }) => {
-                const inCoupon = isInCoupon(p.fixtureId, type);
-                const pick1x2 = p.picks.find(pk => pk.type === type);
-                return (
-                  <button
-                    key={type}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (pick1x2) onAddToCoupon(pick1x2);
-                    }}
-                    disabled={!pick1x2 && !oddVal}
-                    className={cn(
-                      "flex flex-col items-center px-2 py-1 rounded-md text-[10px] min-w-[38px] transition-all",
-                      inCoupon
-                        ? "bg-indigo-500/20 border border-indigo-500/40 text-indigo-400"
-                        : pick1x2?.isValueBet
-                          ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
-                          : "bg-zinc-800/60 border border-zinc-700/50 text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-200"
-                    )}
-                  >
-                    <span className="font-medium text-[9px] text-zinc-500">{label}</span>
-                    <span className="font-bold text-[11px]">{oddVal ? oddVal.toFixed(2) : "-"}</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
-        </div>
-
-        {/* Away Team */}
-        <div className="flex items-center gap-2 min-w-0">
-          {p.awayTeam.logo && (
-            <Image src={p.awayTeam.logo} alt="" width={18} height={18} className="w-[18px] h-[18px] object-contain shrink-0" />
-          )}
-          <span className={cn(
-            "text-[13px] truncate",
-            homeGoals != null && awayGoals != null && awayGoals > homeGoals ? "text-white font-semibold" : "text-zinc-300"
-          )}>
-            {p.awayTeam.name}
-          </span>
-        </div>
-
-        {/* Best Pick Column */}
-        <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-          {bestPick && (
-            <>
-              <span className={cn(
-                "text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0",
-                bestPick.isValueBet
-                  ? "bg-emerald-500/15 text-emerald-400"
-                  : "bg-indigo-500/15 text-indigo-400"
-              )}>
-                {pickLabel(bestPick.type)}
-              </span>
-              <span className="text-[10px] text-yellow-500/80 shrink-0 font-medium">
-                {bestPick.odds.toFixed(2)}
-              </span>
-              {bestPick.isValueBet && (
-                <span className="text-[8px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 shrink-0 font-bold">VAL</span>
-              )}
-              <span className="text-[10px] text-zinc-600 truncate">{bestPick.reasoning}</span>
-            </>
-          )}
-        </div>
-
-        {/* Confidence + Expand */}
-        <div className="flex items-center justify-end gap-1.5 min-w-[80px]">
-          {bestPick && (
+        {/* Teams */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            {p.homeTeam.logo && (
+              <Image src={p.homeTeam.logo} alt="" width={16} height={16} className="w-4 h-4 object-contain shrink-0" />
+            )}
             <span className={cn(
-              "text-[11px] font-bold px-2 py-0.5 rounded-full",
-              bestPick.confidence >= 70 ? "bg-green-500/15 text-green-400" :
-              bestPick.confidence >= 55 ? "bg-yellow-500/15 text-yellow-400" :
-              "bg-red-500/10 text-red-400"
+              "text-[13px] truncate",
+              homeGoals != null && awayGoals != null && homeGoals > awayGoals ? "text-white font-semibold" : "text-zinc-300"
             )}>
-              %{bestPick.confidence}
+              {p.homeTeam.name}
             </span>
+            {homeGoals != null && awayGoals != null && (
+              <span className={cn("text-xs font-bold ml-auto tabular-nums", homeGoals > awayGoals ? "text-white" : "text-zinc-500")}>
+                {homeGoals}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            {p.awayTeam.logo && (
+              <Image src={p.awayTeam.logo} alt="" width={16} height={16} className="w-4 h-4 object-contain shrink-0" />
+            )}
+            <span className={cn(
+              "text-[13px] truncate",
+              homeGoals != null && awayGoals != null && awayGoals > homeGoals ? "text-white font-semibold" : "text-zinc-300"
+            )}>
+              {p.awayTeam.name}
+            </span>
+            {homeGoals != null && awayGoals != null && (
+              <span className={cn("text-xs font-bold ml-auto tabular-nums", awayGoals > homeGoals ? "text-white" : "text-zinc-500")}>
+                {awayGoals}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* 1X2 Odds */}
+        {!isFinished && (
+          <div className="hidden sm:flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            {[
+              { label: "1", odds: o1, type: "1" as const },
+              { label: "X", odds: oX, type: "X" as const },
+              { label: "2", odds: o2, type: "2" as const },
+            ].map(({ label, odds: oddVal, type }) => {
+              const inCoupon = isInCoupon(p.fixtureId, type);
+              const pick1x2 = p.picks.find(pk => pk.type === type);
+              return (
+                <button
+                  key={type}
+                  onClick={(e) => { e.stopPropagation(); if (pick1x2) onAddToCoupon(pick1x2); }}
+                  disabled={!pick1x2 && !oddVal}
+                  className={cn(
+                    "flex flex-col items-center px-2 py-1 rounded text-[10px] min-w-[36px] transition-all",
+                    inCoupon
+                      ? "bg-indigo-500/20 ring-1 ring-indigo-500/40 text-indigo-400"
+                      : pick1x2?.isValueBet
+                        ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15"
+                        : "bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/60"
+                  )}
+                >
+                  <span className="text-[8px] text-zinc-600 font-medium">{label}</span>
+                  <span className="font-bold text-[11px] tabular-nums">{oddVal ? oddVal.toFixed(2) : "-"}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Best Pick */}
+        <div className="flex items-center gap-2 shrink-0">
+          {bestPick && (
+            <>
+              <div className={cn(
+                "flex items-center gap-1.5 px-2 py-1 rounded-md",
+                bestPick.isValueBet
+                  ? "bg-emerald-500/10 ring-1 ring-emerald-500/20"
+                  : "bg-indigo-500/10 ring-1 ring-indigo-500/20"
+              )}>
+                <span className={cn(
+                  "text-[11px] font-bold",
+                  bestPick.isValueBet ? "text-emerald-400" : "text-indigo-400"
+                )}>
+                  {pickLabel(bestPick.type)}
+                </span>
+                <span className="text-[11px] font-bold text-yellow-500 tabular-nums">{bestPick.odds.toFixed(2)}</span>
+              </div>
+              <span className={cn(
+                "text-[11px] font-bold tabular-nums",
+                bestPick.confidence >= 70 ? "text-green-400" :
+                bestPick.confidence >= 55 ? "text-yellow-400" :
+                "text-red-400"
+              )}>
+                %{bestPick.confidence}
+              </span>
+            </>
           )}
-          {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-zinc-500 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />}
+          {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-zinc-600" /> : <ChevronDown className="w-3.5 h-3.5 text-zinc-600" />}
         </div>
       </button>
 
-      {/* Extra picks row (compact, below main) */}
+      {/* Extra picks row */}
       {p.picks.length > 1 && !isExpanded && (
-        <div className="px-4 pb-2 flex flex-wrap gap-1.5 sm:pl-[59px]">
-          {p.picks.slice(1, 6).map((pick, i) => (
+        <div className="px-4 pb-2 flex flex-wrap gap-1 pl-[60px]">
+          {p.picks.slice(1, 5).map((pick, i) => (
             <button
               key={i}
               onClick={() => onAddToCoupon(pick)}
               className={cn(
-                "inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-colors",
+                "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors",
                 isInCoupon(p.fixtureId, pick.type)
-                  ? "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30"
-                  : "bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700/60"
+                  ? "bg-indigo-500/15 text-indigo-400"
+                  : "bg-zinc-800/40 text-zinc-500 hover:text-zinc-300"
               )}
             >
-              <span className="font-medium text-zinc-300">{pickLabel(pick.type)}</span>
-              <span className="text-zinc-600">%{pick.confidence}</span>
-              <span className="text-yellow-500/60">{pick.odds.toFixed(2)}</span>
+              <span className="font-medium">{pickLabel(pick.type)}</span>
+              <span className="text-zinc-600">{pick.odds.toFixed(2)}</span>
               {pick.isValueBet && <span className="text-[8px] text-emerald-400 font-bold">V</span>}
             </button>
           ))}
-          {/* Sim top scoreline */}
           {sim?.topScorelines?.[0] && (
-            <span className="text-[10px] text-zinc-600 flex items-center gap-1">
-              📊 {sim.topScorelines[0].score} (%{sim.topScorelines[0].probability.toFixed(1)})
+            <span className="text-[10px] text-zinc-600 flex items-center gap-0.5">
+              {sim.topScorelines[0].score} %{sim.topScorelines[0].probability.toFixed(0)}
             </span>
           )}
         </div>

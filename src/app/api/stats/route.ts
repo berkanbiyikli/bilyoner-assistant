@@ -141,6 +141,38 @@ export async function GET() {
       })),
     };
 
+    // ML Model bilgisi
+    const { data: mlModelRow } = await supabase
+      .from("ml_models")
+      .select("model_data, trained_at, record_count")
+      .order("trained_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    let mlModelInfo = null;
+    if (mlModelRow?.model_data) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const modelData = mlModelRow.model_data as any;
+      const markets = modelData.markets
+        ? Object.entries(modelData.markets).map(([name, data]: [string, unknown]) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const d = data as any;
+            return {
+              market: name,
+              accuracy: d.metrics?.accuracy ?? 0,
+              auc: d.metrics?.auc ?? 0,
+            };
+          })
+        : [];
+      mlModelInfo = {
+        trainedAt: mlModelRow.trained_at,
+        recordCount: mlModelRow.record_count,
+        version: modelData.version || "1.0",
+        marketCount: markets.length,
+        markets: markets.sort((a, b) => b.accuracy - a.accuracy),
+      };
+    }
+
     return NextResponse.json({
       overview: {
         totalPredictions: all.length,
@@ -164,6 +196,7 @@ export async function GET() {
       pickStats,
       dailyStats,
       tweetStats,
+      mlModel: mlModelInfo,
     });
   } catch (error) {
     console.error("Stats API error:", error);

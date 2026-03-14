@@ -73,11 +73,23 @@ interface EnrichedMomentumData {
   scenarioMessage: string;
 }
 
+type InsightBias = "over" | "under" | "home" | "away" | "btts" | "draw" | "neutral";
+
+interface SmartInsight {
+  type: string;
+  icon: string;
+  text: string;
+  bettingAngle: string;
+  bias: InsightBias;
+  strength: number;
+}
+
 interface LiveMatchAnalysis {
   momentum: MomentumData;
   danger: DangerLevel;
   opportunities: LiveOpportunity[];
   insights: string[];
+  smartInsights?: SmartInsight[];
   matchTemperature: number;
   nextGoalTeam: "home" | "away" | "either" | "unlikely";
   scorePressure: number;
@@ -935,6 +947,84 @@ function LiveAnalysisPanel({ analysis, match }: { analysis: LiveMatchAnalysis | 
           })}
           <div className="absolute bottom-0 left-1 text-[7px] text-zinc-600">0&apos;</div>
           <div className="absolute bottom-0 right-1 text-[7px] text-zinc-600">90&apos;</div>
+        </div>
+      )}
+
+      {/* Smart Insights — İstatistik Bazlı Bahis Sinyalleri */}
+      {analysis.smartInsights && analysis.smartInsights.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 font-medium">
+            <Crosshair className="w-3 h-3" />
+            <span>İstatistik Sinyalleri</span>
+          </div>
+          {analysis.smartInsights.map((insight, i) => {
+            const biasColors: Record<string, string> = {
+              over: "border-green-500/30 bg-green-500/5",
+              under: "border-blue-500/30 bg-blue-500/5",
+              home: "border-blue-400/30 bg-blue-400/5",
+              away: "border-red-400/30 bg-red-400/5",
+              btts: "border-amber-500/30 bg-amber-500/5",
+              draw: "border-zinc-400/30 bg-zinc-400/5",
+              neutral: "border-zinc-600/30 bg-zinc-700/5",
+            };
+            const biasLabels: Record<string, string> = {
+              over: "OVER",
+              under: "UNDER",
+              home: "EV",
+              away: "DEP",
+              btts: "BTTS",
+              draw: "X",
+              neutral: "—",
+            };
+            const biasLabelColors: Record<string, string> = {
+              over: "text-green-400",
+              under: "text-blue-400",
+              home: "text-blue-400",
+              away: "text-red-400",
+              btts: "text-amber-400",
+              draw: "text-zinc-400",
+              neutral: "text-zinc-500",
+            };
+            const strengthDots = Array.from({ length: 5 }, (_, j) => j < insight.strength);
+
+            return (
+              <div
+                key={i}
+                className={cn(
+                  "rounded-lg border px-3 py-2 transition-all",
+                  biasColors[insight.bias] || biasColors.neutral
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm">{insight.icon}</span>
+                      <span className="text-[11px] font-medium text-zinc-200 leading-tight">{insight.text}</span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 mt-1 leading-relaxed">{insight.bettingAngle}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded", biasLabelColors[insight.bias] || "text-zinc-500", "bg-zinc-800/60")}>
+                      {biasLabels[insight.bias] || "—"}
+                    </span>
+                    <div className="flex gap-0.5">
+                      {strengthDots.map((active, j) => (
+                        <div
+                          key={j}
+                          className={cn(
+                            "w-1.5 h-1.5 rounded-full",
+                            active
+                              ? insight.strength >= 4 ? "bg-green-400" : insight.strength >= 3 ? "bg-amber-400" : "bg-zinc-400"
+                              : "bg-zinc-700"
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

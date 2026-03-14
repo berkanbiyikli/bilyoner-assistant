@@ -93,11 +93,24 @@ interface LiveMomentumEnrichedData {
   scenarioMessage: string;
 }
 
+type InsightType = "shot_efficiency" | "possession_quality" | "blocked_defense" | "pass_dominance" | "gk_heroics" | "xg_regression" | "foul_escalation" | "sub_impact" | "goalless_pressure" | "corner_dominance" | "shot_volume" | "clinical_finishing" | "half_shift";
+type InsightBias = "over" | "under" | "home" | "away" | "btts" | "draw" | "neutral";
+
+interface SmartInsight {
+  type: InsightType;
+  icon: string;
+  text: string;
+  bettingAngle: string;
+  bias: InsightBias;
+  strength: number; // 1-5
+}
+
 interface LiveMatchAnalysis {
   momentum: MomentumData;
   danger: DangerLevel;
   opportunities: LiveOpportunity[];
   insights: string[];
+  smartInsights: SmartInsight[];
   matchTemperature: number;
   nextGoalTeam: "home" | "away" | "either" | "unlikely";
   scorePressure: number;
@@ -336,7 +349,7 @@ function generateLiveInsights(
     insights.push("⚡ Gol festivali — Over 3.5 tuttu");
   }
 
-  // 2. İstatistik bazlı
+  // 2. İstatistik bazlı (GELİŞTİRİLMİŞ)
   if (stats && stats.length >= 2) {
     const getStat = (teamIdx: number, type: string) => {
       const s = stats[teamIdx]?.statistics?.find((s) => s.type === type);
@@ -351,16 +364,144 @@ function generateLiveInsights(
     const awaySoG = getStat(1, "Shots on Goal");
     const homeCorners = getStat(0, "Corner Kicks");
     const awayCorners = getStat(1, "Corner Kicks");
+    const homeBlocked = getStat(0, "Blocked Shots");
+    const awayBlocked = getStat(1, "Blocked Shots");
+    const homeGkSaves = getStat(0, "Goalkeeper Saves");
+    const awayGkSaves = getStat(1, "Goalkeeper Saves");
+    const homeXg = getStat(0, "expected_goals");
+    const awayXg = getStat(1, "expected_goals");
+    const homePasses = getStat(0, "Total passes");
+    const awayPasses = getStat(1, "Total passes");
+    const homePassAcc = getStat(0, "Passes %");
+    const awayPassAcc = getStat(1, "Passes %");
+    const homeFouls = getStat(0, "Fouls");
+    const awayFouls = getStat(1, "Fouls");
+    const homeYellow = getStat(0, "Yellow Cards");
+    const awayYellow = getStat(1, "Yellow Cards");
+    const homeDangerous = getStat(0, "Shots insidebox");
+    const awayDangerous = getStat(1, "Shots insidebox");
 
-    if (homePoss > 65) insights.push(`📊 ${homeName} top hakimiyeti %${homePoss} — baskı altında`);
-    if (awayPoss > 65) insights.push(`📊 ${awayName} top hakimiyeti %${awayPoss} — baskı altında`);
-    if (homeShots >= 15 && homeGoals === 0) insights.push(`🎯 ${homeName} ${homeShots} şut ama gol yok — şanssız`);
-    if (awayShots >= 15 && awayGoals === 0) insights.push(`🎯 ${awayName} ${awayShots} şut ama gol yok — şanssız`);
-    if (homeSoG + awaySoG >= 12) insights.push(`🔫 Toplam ${homeSoG + awaySoG} isabetli şut — aksiyon yoğun`);
-    if (homeCorners + awayCorners >= 10) insights.push(`🚩 Toplam ${homeCorners + awayCorners} korner — set piece fırsatları`);
+    // --- Şut Verimliliği ---
+    if (homeShots >= 8 && homeGoals === 0 && homeSoG >= 3) {
+      const efficiency = Math.round((homeGoals / homeShots) * 100);
+      insights.push(`🎯 ${homeName} ${homeShots} şut (${homeSoG} isabetli) ama 0 gol — %${efficiency} verimlilik, bitiricilikte sıkıntı`);
+    }
+    if (awayShots >= 8 && awayGoals === 0 && awaySoG >= 3) {
+      const efficiency = Math.round((awayGoals / awayShots) * 100);
+      insights.push(`🎯 ${awayName} ${awayShots} şut (${awaySoG} isabetli) ama 0 gol — %${efficiency} verimlilik, bitiricilikte sıkıntı`);
+    }
+
+    // Klinik bitiricilik (az şut, çok gol)
+    if (homeGoals >= 2 && homeShots <= 6) {
+      insights.push(`🔪 ${homeName} klinik! ${homeShots} şutta ${homeGoals} gol — her pozisyonu değerlendiriyor`);
+    }
+    if (awayGoals >= 2 && awayShots <= 6) {
+      insights.push(`🔪 ${awayName} klinik! ${awayShots} şutta ${awayGoals} gol — her pozisyonu değerlendiriyor`);
+    }
+
+    // --- Top Hakimiyeti Kalitesi ---
+    if (homePoss > 62 && homeSoG <= 1 && elapsed >= 30) {
+      insights.push(`📊 ${homeName} %${homePoss} top hakimiyeti ama ${homeSoG} isabetli şut — boş hakimiyet, tehlike yok`);
+    } else if (homePoss > 62 && homeSoG >= 4) {
+      insights.push(`📊 ${homeName} %${homePoss} top + ${homeSoG} isabetli şut — gerçek baskı, gol kapıda`);
+    }
+    if (awayPoss > 62 && awaySoG <= 1 && elapsed >= 30) {
+      insights.push(`📊 ${awayName} %${awayPoss} top hakimiyeti ama ${awaySoG} isabetli şut — boş hakimiyet, tehlike yok`);
+    } else if (awayPoss > 62 && awaySoG >= 4) {
+      insights.push(`📊 ${awayName} %${awayPoss} top + ${awaySoG} isabetli şut — gerçek baskı, gol kapıda`);
+    }
+
+    // --- Bloke Şut Analizi (kompakt savunma sinyali) ---
+    const totalBlocked = homeBlocked + awayBlocked;
+    if (totalBlocked >= 6 && totalGoals <= 1 && elapsed >= 30) {
+      insights.push(`🛡️ ${totalBlocked} bloke şut — kompakt savunmalar, gol bulmak zor (Under sinyali)`);
+    }
+    if (awayBlocked >= 4 && homeGoals === 0) {
+      insights.push(`🛡️ ${awayName} ${awayBlocked} şutu bloke etti — ${homeName}'ın ataklarını kesiyor`);
+    }
+    if (homeBlocked >= 4 && awayGoals === 0) {
+      insights.push(`🛡️ ${homeName} ${homeBlocked} şutu bloke etti — ${awayName}'ın ataklarını kesiyor`);
+    }
+
+    // --- Kaleci Kurtarışı (tek kişilik savunma) ---
+    if (homeGkSaves >= 5 && awayGoals <= 1) {
+      insights.push(`🧤 ${homeName} kalecisi ${homeGkSaves} kurtarış! Tek başına skoru tutuyor`);
+    }
+    if (awayGkSaves >= 5 && homeGoals <= 1) {
+      insights.push(`🧤 ${awayName} kalecisi ${awayGkSaves} kurtarış! Tek başına skoru tutuyor`);
+    }
+
+    // --- Pas Hakimiyeti Farkı ---
+    if (homePasses > 0 && awayPasses > 0) {
+      const passRatio = homePasses / (homePasses + awayPasses);
+      if (homePassAcc >= 85 && awayPassAcc <= 72) {
+        insights.push(`🎯 Pas farkı ciddi: ${homeName} %${homePassAcc} isabetli, ${awayName} %${awayPassAcc} — oyun kontrolü tek taraflı`);
+      } else if (awayPassAcc >= 85 && homePassAcc <= 72) {
+        insights.push(`🎯 Pas farkı ciddi: ${awayName} %${awayPassAcc} isabetli, ${homeName} %${homePassAcc} — oyun kontrolü tek taraflı`);
+      }
+      if (passRatio > 0.62 && homePoss > 60) {
+        insights.push(`📈 ${homeName} ${homePasses} pas (toplam %${Math.round(passRatio * 100)}) — rakibi sahalara hapsetti`);
+      } else if (passRatio < 0.38 && awayPoss > 60) {
+        insights.push(`📈 ${awayName} ${awayPasses} pas (toplam %${Math.round((1 - passRatio) * 100)}) — rakibi sahalara hapsetti`);
+      }
+    }
+
+    // --- xG vs Gerçek Gol Farkı ---
+    const totalXg = homeXg + awayXg;
+    if (totalXg > totalGoals + 1.2 && elapsed >= 35) {
+      insights.push(`📉 xG ${totalXg.toFixed(1)} ama ${totalGoals} gol — istatistiksel düzeltme (regresyon) bekleniyor, Over baskısı`);
+    }
+    if (totalGoals > totalXg + 1.0 && totalGoals >= 3) {
+      insights.push(`📈 ${totalGoals} gol ama xG sadece ${totalXg.toFixed(1)} — goller pozisyon kalitesinin üstünde, düşük kalite şutlar girmiş`);
+    }
+    // Tek takım xG-gol farkı
+    if (homeXg > homeGoals + 0.8 && elapsed >= 30) {
+      insights.push(`⚡ ${homeName} xG: ${homeXg.toFixed(1)}, gol: ${homeGoals} — şansız, gol gelmesi an meselesi`);
+    }
+    if (awayXg > awayGoals + 0.8 && elapsed >= 30) {
+      insights.push(`⚡ ${awayName} xG: ${awayXg.toFixed(1)}, gol: ${awayGoals} — şansız, gol gelmesi an meselesi`);
+    }
+
+    // --- Faul Yoğunluğu & Kart Baskısı ---
+    const totalFouls = homeFouls + awayFouls;
+    const foulPerMin = elapsed > 0 ? totalFouls / elapsed : 0;
+    if (foulPerMin > 0.5 && totalFouls >= 20) {
+      insights.push(`⚠️ ${totalFouls} faul (dk başına ${foulPerMin.toFixed(1)}) — gergin maç, sarı/kırmızı kart riski yüksek`);
+    }
+    if (homeYellow + awayYellow >= 5) {
+      insights.push(`🟨 Toplamda ${homeYellow + awayYellow} sarı kart — hakem sert, kart bahisleri için iyi sinyal`);
+    }
+    // Tek takım faul yoğunluğu
+    if (homeFouls >= 12 && awayFouls <= 6) {
+      insights.push(`⚠️ ${homeName} ${homeFouls} faul yaptı — sürekli kesintiye uğratıyor, ${awayName} ritim bulamıyor`);
+    } else if (awayFouls >= 12 && homeFouls <= 6) {
+      insights.push(`⚠️ ${awayName} ${awayFouls} faul yaptı — sürekli kesintiye uğratıyor, ${homeName} ritim bulamıyor`);
+    }
+
+    // --- Korner Baskısı ---
+    const totalCorners = homeCorners + awayCorners;
+    if (totalCorners >= 10) {
+      insights.push(`🚩 ${totalCorners} korner — set piece fırsatları çok, korner bahislerine dikkat`);
+    }
+    if (homeCorners >= 7 && awayCorners <= 2) {
+      insights.push(`🚩 ${homeName} ${homeCorners} korner, ${awayName} sadece ${awayCorners} — tek taraflı set piece baskısı`);
+    } else if (awayCorners >= 7 && homeCorners <= 2) {
+      insights.push(`🚩 ${awayName} ${awayCorners} korner, ${homeName} sadece ${homeCorners} — tek taraflı set piece baskısı`);
+    }
+
+    // --- Ceza Sahası İçi Şut Oranı ---
+    if (homeDangerous + awayDangerous > 0 && homeShots + awayShots > 0) {
+      const insideBoxRatio = (homeDangerous + awayDangerous) / (homeShots + awayShots);
+      if (insideBoxRatio > 0.6 && homeShots + awayShots >= 12) {
+        insights.push(`🎯 Şutların %${Math.round(insideBoxRatio * 100)}'i ceza sahasından — kaliteli pozisyonlar, gol olasılığı yüksek`);
+      }
+      if (insideBoxRatio < 0.3 && homeShots + awayShots >= 15) {
+        insights.push(`📊 Şutların sadece %${Math.round(insideBoxRatio * 100)}'i ceza sahasından — uzak mesafe denemeler, gol zor`);
+      }
+    }
   }
 
-  // 3. Olay bazlı
+  // 3. Olay bazlı (GELİŞTİRİLMİŞ)
   if (events) {
     const redCards = events.filter((e) => e.type === "Card" && e.detail === "Red Card");
     if (redCards.length > 0) {
@@ -372,6 +513,33 @@ function generateLiveInsights(
     const recentGoal = goals.find((g) => elapsed - g.time.elapsed <= 5);
     if (recentGoal) {
       insights.push(`⚽ SON GOL! ${recentGoal.player.name} (${recentGoal.team.name}) — ${recentGoal.time.elapsed}'`);
+    }
+
+    // Oyuncu değişikliği analizi (yeni!)
+    const subs = events.filter((e) => e.type === "subst");
+    if (subs.length > 0) {
+      const recentSubs = subs.filter((s) => elapsed - s.time.elapsed <= 10);
+      if (recentSubs.length >= 2) {
+        const teamSubs = new Map<string, number>();
+        for (const s of recentSubs) {
+          teamSubs.set(s.team.name, (teamSubs.get(s.team.name) || 0) + 1);
+        }
+        for (const [team, count] of teamSubs) {
+          if (count >= 2) {
+            insights.push(`🔄 ${team} son 10dk'da ${count} değişiklik — taktik hamle, tempo değişecek`);
+          }
+        }
+      }
+    }
+
+    // Golsüz baskı analizi
+    if (totalGoals === 0 && elapsed >= 40) {
+      const totalShots = stats && stats.length >= 2
+        ? getStat(stats, 0, "Total Shots") + getStat(stats, 1, "Total Shots")
+        : 0;
+      if (totalShots >= 15) {
+        insights.push(`💫 ${elapsed} dakika, ${totalShots} şut ama 0 gol — patlama yakın, geç gol beklentisi yüksek`);
+      }
     }
   }
 
@@ -406,6 +574,349 @@ function generateLiveInsights(
   }
 
   return insights;
+}
+
+// =============================================
+// AKILLI İÇGÖRÜ MOTORU — Derin istatistik bazlı bahis sinyalleri
+// =============================================
+function generateSmartInsights(
+  match: FixtureResponse,
+  stats: FixtureStatisticsResponse[] | null,
+  events: FixtureEvent[] | null,
+  enriched: LiveMomentumEnrichedData,
+  momentum: MomentumData,
+  danger: DangerLevel
+): SmartInsight[] {
+  const si: SmartInsight[] = [];
+  const elapsed = match.fixture.status.elapsed || 0;
+  const homeGoals = match.goals.home ?? 0;
+  const awayGoals = match.goals.away ?? 0;
+  const totalGoals = homeGoals + awayGoals;
+  const homeName = match.teams.home.name;
+  const awayName = match.teams.away.name;
+
+  if (!stats || stats.length < 2 || elapsed < 15) return si;
+
+  const homeShots = getStat(stats, 0, "Total Shots");
+  const awayShots = getStat(stats, 1, "Total Shots");
+  const homeSoG = getStat(stats, 0, "Shots on Goal");
+  const awaySoG = getStat(stats, 1, "Shots on Goal");
+  const homePoss = getStat(stats, 0, "Ball Possession");
+  const awayPoss = getStat(stats, 1, "Ball Possession");
+  const homeBlocked = getStat(stats, 0, "Blocked Shots");
+  const awayBlocked = getStat(stats, 1, "Blocked Shots");
+  const homeGkSaves = getStat(stats, 0, "Goalkeeper Saves");
+  const awayGkSaves = getStat(stats, 1, "Goalkeeper Saves");
+  const homeXg = getStat(stats, 0, "expected_goals");
+  const awayXg = getStat(stats, 1, "expected_goals");
+  const homePasses = getStat(stats, 0, "Total passes");
+  const awayPasses = getStat(stats, 1, "Total passes");
+  const homePassAcc = getStat(stats, 0, "Passes %");
+  const awayPassAcc = getStat(stats, 1, "Passes %");
+  const homeFouls = getStat(stats, 0, "Fouls");
+  const awayFouls = getStat(stats, 1, "Fouls");
+  const homeYellow = getStat(stats, 0, "Yellow Cards");
+  const awayYellow = getStat(stats, 1, "Yellow Cards");
+  const homeCorners = getStat(stats, 0, "Corner Kicks");
+  const awayCorners = getStat(stats, 1, "Corner Kicks");
+  const homeDangerous = getStat(stats, 0, "Shots insidebox");
+  const awayDangerous = getStat(stats, 1, "Shots insidebox");
+  const totalXg = homeXg + awayXg;
+  const totalShots = homeShots + awayShots;
+  const totalSoG = homeSoG + awaySoG;
+  const totalBlocked = homeBlocked + awayBlocked;
+  const totalFouls = homeFouls + awayFouls;
+  const totalCorners = homeCorners + awayCorners;
+
+  // ===== 1. ŞUT VERİMLİLİĞİ =====
+  // Çok şut, az gol → gol geliyor sinyali
+  for (const [team, shots, sog, goals, xg, name] of [
+    ["home", homeShots, homeSoG, homeGoals, homeXg, homeName],
+    ["away", awayShots, awaySoG, awayGoals, awayXg, awayName],
+  ] as const) {
+    if ((shots as number) >= 8 && (goals as number) === 0 && (sog as number) >= 3) {
+      si.push({
+        type: "shot_efficiency",
+        icon: "🎯",
+        text: `${name} ${shots} şut / ${sog} isabetli → 0 gol`,
+        bettingAngle: `Bitiricilikte sıkıntı var ama pozisyon üretiyor. xG regresyonu yakın → Over/Sıradaki Gol ${name}`,
+        bias: "over",
+        strength: (sog as number) >= 5 ? 4 : 3,
+      });
+    }
+    // Klinik bitiricilik
+    if ((goals as number) >= 2 && (shots as number) <= 6 && (shots as number) > 0) {
+      si.push({
+        type: "clinical_finishing",
+        icon: "🔪",
+        text: `${name} klinik: ${shots} şutta ${goals} gol (%${Math.round(((goals as number) / (shots as number)) * 100)})`,
+        bettingAngle: `Her pozisyonu gole çeviriyor. Rakip defansı çözmüş → ${name} MS/Handicap`,
+        bias: team === "home" ? "home" : "away",
+        strength: 4,
+      });
+    }
+  }
+
+  // ===== 2. TOP HAKİMİYETİ KALİTESİ =====
+  for (const [poss, sog, shots, dangerous, name, bias] of [
+    [homePoss, homeSoG, homeShots, homeDangerous, homeName, "home" as InsightBias],
+    [awayPoss, awaySoG, awayShots, awayDangerous, awayName, "away" as InsightBias],
+  ] as const) {
+    if ((poss as number) > 62 && (sog as number) <= 1 && elapsed >= 30) {
+      si.push({
+        type: "possession_quality",
+        icon: "📊",
+        text: `${name} %${poss} top ama ${sog} isabetli şut`,
+        bettingAngle: `Boş hakimiyet — top çeviriyor ama tehlike yok. Rakip kontraya açık → Under veya karşı takım kontra golü`,
+        bias: "under",
+        strength: 3,
+      });
+    } else if ((poss as number) > 62 && (sog as number) >= 4 && (dangerous as number) >= 3) {
+      si.push({
+        type: "possession_quality",
+        icon: "📊",
+        text: `${name} %${poss} top + ${sog} isabetli şut + ${dangerous} ceza sahası şutu`,
+        bettingAngle: `Gerçek baskı — hakimiyet tehlikeye dönüşüyor → ${name} Gol / MS / Over`,
+        bias: bias as InsightBias,
+        strength: 4,
+      });
+    }
+  }
+
+  // ===== 3. BLOKE SAVUNMA SİNYALİ =====
+  if (totalBlocked >= 6 && totalGoals <= 1 && elapsed >= 30) {
+    si.push({
+      type: "blocked_defense",
+      icon: "🛡️",
+      text: `${totalBlocked} bloke şut — savunmalar kompakt`,
+      bettingAngle: `Her iki takım da duvar örüyor, gol bulmak zor. Under güçleniyor.`,
+      bias: "under",
+      strength: totalBlocked >= 8 ? 4 : 3,
+    });
+  }
+  // Tek takım siper savunması
+  for (const [blocked, attackerGoals, defenderName, attackerName] of [
+    [awayBlocked, homeGoals, awayName, homeName],
+    [homeBlocked, awayGoals, homeName, awayName],
+  ] as const) {
+    if ((blocked as number) >= 4 && (attackerGoals as number) === 0) {
+      si.push({
+        type: "blocked_defense",
+        icon: "🧱",
+        text: `${defenderName} ${blocked} şut bloke etti → ${attackerName} gol bulamıyor`,
+        bettingAngle: `Siper savunma. ${attackerName} pozisyon buluyor ama bitiremez → Under veya ${defenderName} MS`,
+        bias: "under",
+        strength: 3,
+      });
+    }
+  }
+
+  // ===== 4. PAS HAKİMİYETİ =====
+  if (homePasses > 0 && awayPasses > 0) {
+    if (homePassAcc >= 85 && awayPassAcc <= 72) {
+      si.push({
+        type: "pass_dominance",
+        icon: "🎯",
+        text: `Pas isabeti: ${homeName} %${homePassAcc} vs ${awayName} %${awayPassAcc}`,
+        bettingAngle: `Oyun kontrolü tamamen ${homeName}'da. ${awayName} pas yapamıyor → ${homeName} MS / Korner Üst`,
+        bias: "home",
+        strength: Math.abs(homePassAcc - awayPassAcc) >= 18 ? 4 : 3,
+      });
+    } else if (awayPassAcc >= 85 && homePassAcc <= 72) {
+      si.push({
+        type: "pass_dominance",
+        icon: "🎯",
+        text: `Pas isabeti: ${awayName} %${awayPassAcc} vs ${homeName} %${homePassAcc}`,
+        bettingAngle: `Oyun kontrolü tamamen ${awayName}'da. ${homeName} pas yapamıyor → ${awayName} MS / Korner Üst`,
+        bias: "away",
+        strength: Math.abs(awayPassAcc - homePassAcc) >= 18 ? 4 : 3,
+      });
+    }
+  }
+
+  // ===== 5. KALECİ PERFORMANSI =====
+  for (const [saves, goalsConc, gkTeam, attTeam, bias] of [
+    [homeGkSaves, awayGoals, homeName, awayName, "home" as InsightBias],
+    [awayGkSaves, homeGoals, awayName, homeName, "away" as InsightBias],
+  ] as const) {
+    if ((saves as number) >= 5 && (goalsConc as number) <= 1) {
+      si.push({
+        type: "gk_heroics",
+        icon: "🧤",
+        text: `${gkTeam} kalecisi ${saves} kurtarış — tek başına skoru tutuyor`,
+        bettingAngle: `Kaleci olağanüstü performansta. Ama bu seviye sürdürülebilir değil → ${attTeam} gol bulacak (Over/BTTS)`,
+        bias: "over",
+        strength: (saves as number) >= 7 ? 5 : 4,
+      });
+    }
+  }
+
+  // ===== 6. xG REGRESYON SİNYALİ =====
+  if (totalXg > totalGoals + 1.2 && elapsed >= 35) {
+    si.push({
+      type: "xg_regression",
+      icon: "📉",
+      text: `xG: ${totalXg.toFixed(1)} → Gerçek gol: ${totalGoals} (fark: +${(totalXg - totalGoals).toFixed(1)})`,
+      bettingAngle: `İstatistiksel düzeltme bekleniyor. Bu xG farkıyla gol gelmemesi istatistiksel anomali → Over güçlü sinyal`,
+      bias: "over",
+      strength: totalXg - totalGoals >= 2 ? 5 : 4,
+    });
+  }
+  if (totalGoals > totalXg + 1.0 && totalGoals >= 3) {
+    si.push({
+      type: "xg_regression",
+      icon: "📈",
+      text: `${totalGoals} gol ama xG sadece ${totalXg.toFixed(1)} — goller pozisyonun üstünde`,
+      bettingAngle: `Düşük kalite pozisyonlardan gol çıkıyor. Bu sürdürülebilir değil → Under sonraki hat için iyi, mevcut tempo yanıltıcı`,
+      bias: "neutral",
+      strength: 3,
+    });
+  }
+
+  // ===== 7. FAUL ESKALASYONu & KART BASKISI =====
+  if (totalFouls >= 20 && elapsed > 0) {
+    const foulRate = totalFouls / elapsed;
+    si.push({
+      type: "foul_escalation",
+      icon: "⚠️",
+      text: `${totalFouls} faul (${foulRate.toFixed(1)}/dk) — gergin maç`,
+      bettingAngle: `Faul yoğunluğu çok yüksek. Kart bahisleri ve penaltı riski artıyor → Kart Üst / Penaltı Var`,
+      bias: "neutral",
+      strength: foulRate > 0.5 ? 4 : 3,
+    });
+  }
+  if (homeYellow + awayYellow >= 5) {
+    si.push({
+      type: "foul_escalation",
+      icon: "🟨",
+      text: `${homeYellow + awayYellow} sarı kart — hakem sert yönetiyor`,
+      bettingAngle: `Kart sınırı çoktan aşıldı. Bir sonraki sert müdahalede kırmızı gelebilir → Kart Üst bahisleri değerli`,
+      bias: "neutral",
+      strength: homeYellow + awayYellow >= 7 ? 5 : 3,
+    });
+  }
+
+  // ===== 8. OYUNCU DEĞİŞİKLİĞİ ANALİZİ =====
+  if (events) {
+    const subs = events.filter((e) => e.type === "subst");
+    const recentSubs = subs.filter((s) => elapsed - s.time.elapsed <= 15);
+    if (recentSubs.length >= 2) {
+      const teamSubs = new Map<string, number>();
+      for (const s of recentSubs) {
+        teamSubs.set(s.team.name, (teamSubs.get(s.team.name) || 0) + 1);
+      }
+      for (const [team, count] of teamSubs) {
+        if (count >= 2) {
+          const isTrailing = (team === homeName && homeGoals < awayGoals) || (team === awayName && awayGoals < homeGoals);
+          const isDraw = homeGoals === awayGoals;
+          si.push({
+            type: "sub_impact",
+            icon: "🔄",
+            text: `${team} son ${Math.min(15, elapsed - (recentSubs[recentSubs.length - 1]?.time.elapsed || elapsed))}dk'da ${count} değişiklik`,
+            bettingAngle: isTrailing
+              ? `Geriden gelen ${team} hücum hamlesi yapıyor → ${team} gol beklentisi artar, Over/BTTS`
+              : isDraw
+              ? `Beraberliği bozmak için taktik hamle → maç açılabilir, Over`
+              : `Önde olan ${team} zaman kazanıyor olabilir → mevcut skor korunur`,
+            bias: isTrailing ? "over" : isDraw ? "over" : "neutral",
+            strength: isTrailing ? 4 : 2,
+          });
+        }
+      }
+    }
+  }
+
+  // ===== 9. GOLSÜZ BASKI PERİYODU =====
+  if (totalGoals === 0 && elapsed >= 40 && totalSoG >= 6) {
+    si.push({
+      type: "goalless_pressure",
+      icon: "💫",
+      text: `${elapsed}' boyunca ${totalSoG} isabetli şut ama 0 gol`,
+      bettingAngle: `Uzun süredir golsüz giden baskılı maç. Psikolojik baskı artıyor → geç gol patlaması beklenir (Over 0.5 / 2.Yarı Gol Var)`,
+      bias: "over",
+      strength: elapsed >= 60 ? 5 : 3,
+    });
+  }
+
+  // ===== 10. KORNER HAKİMİYETİ =====
+  if (totalCorners >= 8 && elapsed <= 70) {
+    const projected = Math.round((totalCorners / Math.max(1, elapsed)) * 90);
+    if (projected >= 12) {
+      si.push({
+        type: "corner_dominance",
+        icon: "🚩",
+        text: `${totalCorners} korner (${elapsed}'de) — projeksiyon: ${projected}`,
+        bettingAngle: `Korner temposu yüksek. Set piece'ler hem korner üstü hem de gol riski yaratıyor → Korner Üst ${projected >= 14 ? "11.5" : "9.5"}`,
+        bias: "over",
+        strength: projected >= 14 ? 4 : 3,
+      });
+    }
+  }
+  // Tek taraflı korner
+  if (homeCorners >= 7 && awayCorners <= 2) {
+    si.push({
+      type: "corner_dominance",
+      icon: "🚩",
+      text: `${homeName} ${homeCorners} korner, ${awayName} sadece ${awayCorners}`,
+      bettingAngle: `Tek taraflı set piece baskısı. ${homeName} korner bahisleri + gol beklentisi → ${homeName} Gol / Korner Üst`,
+      bias: "home",
+      strength: 3,
+    });
+  } else if (awayCorners >= 7 && homeCorners <= 2) {
+    si.push({
+      type: "corner_dominance",
+      icon: "🚩",
+      text: `${awayName} ${awayCorners} korner, ${homeName} sadece ${homeCorners}`,
+      bettingAngle: `Tek taraflı set piece baskısı. ${awayName} korner bahisleri + gol beklentisi → ${awayName} Gol / Korner Üst`,
+      bias: "away",
+      strength: 3,
+    });
+  }
+
+  // ===== 11. ŞUT HACMİ =====
+  if (totalShots >= 25 && elapsed >= 30) {
+    const shotRate = totalShots / elapsed;
+    si.push({
+      type: "shot_volume",
+      icon: "🔫",
+      text: `Toplam ${totalShots} şut (${totalSoG} isabetli) — dk başına ${shotRate.toFixed(1)}`,
+      bettingAngle: `Çok yoğun pozisyon. ${totalGoals <= 1 ? "Golün gelmemesi şaşırtıcı → Over baskısı" : "Tempo yüksek, devamı gelir → Over"}`,
+      bias: "over",
+      strength: totalShots >= 30 ? 5 : 3,
+    });
+  }
+
+  // ===== 12. YARI DEĞİŞİMİ =====
+  if (match.fixture.status.short !== "HT" && elapsed > 50) {
+    const htHome = match.score.halftime.home ?? 0;
+    const htAway = match.score.halftime.away ?? 0;
+    const htGoals = htHome + htAway;
+    const secondHalfGoals = totalGoals - htGoals;
+
+    if (htGoals === 0 && secondHalfGoals >= 2) {
+      si.push({
+        type: "half_shift",
+        icon: "🔀",
+        text: `İY 0-0 → 2.yarıda ${secondHalfGoals} gol! Maç açıldı`,
+        bettingAngle: `Devre arası taktik değişiklikler etkili olmuş. Savunmalar gevşedi → devamı gelir, Over`,
+        bias: "over",
+        strength: 4,
+      });
+    }
+    if (htGoals >= 2 && secondHalfGoals === 0 && elapsed >= 65) {
+      si.push({
+        type: "half_shift",
+        icon: "🔀",
+        text: `İY ${htGoals} gol ama 2.yarıda henüz gol yok`,
+        bettingAngle: `Hocalar devre arasında defansif hamle yapmış. Tempo düştü → Under sonraki hat`,
+        bias: "under",
+        strength: elapsed >= 75 ? 4 : 2,
+      });
+    }
+  }
+
+  // Strength'e göre sırala (en güçlü sinyal ilk)
+  return si.sort((a, b) => b.strength - a.strength).slice(0, 6);
 }
 
 // =============================================
@@ -689,6 +1200,9 @@ function generateLiveAnalysis(
   const matchPhase: "early" | "mid" | "late" | "final" | "ht" =
     isHT ? "ht" : elapsed <= 30 ? "early" : elapsed <= 60 ? "mid" : elapsed <= 80 ? "late" : "final";
 
+  // === AKILLI İÇGÖRÜLER ===
+  const smartInsights = generateSmartInsights(match, stats, events, enrichedMomentum, momentum, danger);
+
   return {
     momentum,
     danger,
@@ -697,6 +1211,7 @@ function generateLiveAnalysis(
       return (levelOrder[a.level] - levelOrder[b.level]) || (b.valueScore - a.valueScore) || (b.confidence - a.confidence);
     }),
     insights: [],
+    smartInsights,
     matchTemperature,
     nextGoalTeam,
     scorePressure,

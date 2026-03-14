@@ -137,6 +137,14 @@ export const useAppStore = create<AppState>()(
         darkMode: state.darkMode,
         filters: state.filters,
       }),
+      merge: (persisted, current) => {
+        const p = persisted as Partial<AppState>;
+        return {
+          ...current,
+          ...p,
+          filters: { ...DEFAULT_FILTERS, ...(p.filters ?? {}) },
+        };
+      },
     }
   )
 );

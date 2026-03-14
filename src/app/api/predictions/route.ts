@@ -5,7 +5,7 @@ import { getSimProbability, simulateMatch } from "@/lib/prediction/simulator";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
 import type { FixtureResponse } from "@/types/api-football";
-import type { MatchAnalysis } from "@/types";
+import type { MatchAnalysis, MatchInsights, MatchOdds } from "@/types";
 
 export const maxDuration = 60; // Vercel timeout 60s
 
@@ -87,20 +87,22 @@ export async function GET(req: NextRequest) {
         dbFixtureMap.set(fixtureId, preds);
       }
 
-      // Fixture'ı olan DB maçları için paralel analiz çalıştır (istatistik verisi için)
-      // NOT: Sadece NS (başlamamış) maçlar için sim çalıştır — timeout riski azaltmak için max 10
+      // Fixture'ı olan DB maçları için paralel analiz çalıştır — SADECE analysis_data olmayan eski kayıtlar için
+      // analysis_data olan kayıtlar zaten zengin veri içeriyor, API call gereksiz
       const dbAnalysisResults = new Map<number, Awaited<ReturnType<typeof analyzeMatch>>>();
-      const nsDbFixtures = dbFixturesForAnalysis
-        .filter((f) => f.fixture.status.short === "NS")
-        .sort((a, b) => {
-          const aPri = getLeagueById(a.league.id)?.priority ?? 99;
-          const bPri = getLeagueById(b.league.id)?.priority ?? 99;
-          return aPri - bPri;
-        })
-        .slice(0, 10);
+      const fixturesNeedingAnalysis = dbFixturesForAnalysis.filter((f) => {
+        if (f.fixture.status.short !== "NS") return false;
+        const preds = fixtureGrouped.get(f.fixture.id);
+        const hasStoredData = preds?.[0]?.analysis_data != null;
+        return !hasStoredData; // Sadece analysis_data OLMAYAN maçlar
+      }).sort((a, b) => {
+        const aPri = getLeagueById(a.league.id)?.priority ?? 99;
+        const bPri = getLeagueById(b.league.id)?.priority ?? 99;
+        return aPri - bPri;
+      }).slice(0, 5); // Max 5 — timeout riski azaltmak için
 
-      if (nsDbFixtures.length > 0) {
-        const analysisPromises = nsDbFixtures.map(async (fixture) => {
+      if (fixturesNeedingAnalysis.length > 0) {
+        const analysisPromises = fixturesNeedingAnalysis.map(async (fixture) => {
           try {
             const result = await analyzeMatch(fixture);
             dbAnalysisResults.set(fixture.fixture.id, result);
@@ -121,12 +123,29 @@ export async function GET(req: NextRequest) {
         const sortedPreds = preds.sort((a, b) => b.confidence - a.confidence);
         const firstPred = sortedPreds[0];
 
-        // Canlı analiz sonucu varsa onu kullan, yoksa lightweight sim üret
+        // Canlı analiz sonucu varsa onu kullan
         const liveAnalysis = dbAnalysisResults.get(fixtureId);
 
-        // Canlı analiz yoksa: DB verisinden stub MatchAnalysis oluşturup simulateMatch çalıştır
-        // Bu pure CPU — API call yok, milisaniyede tamamlanır
+        // Öncelik: 1) Canlı analiz 2) DB'deki analysis_data 3) Lightweight stub
         let analysis: MatchAnalysis | undefined = liveAnalysis?.analysis;
+        let insights = liveAnalysis?.insights;
+        let odds = liveAnalysis?.odds;
+
+        // DB'de saklı analysis_data varsa onu kullan
+        const storedData = firstPred.analysis_data as { analysis?: MatchAnalysis; insights?: MatchInsights; odds?: MatchOdds } | null;
+        if (!analysis && storedData?.analysis) {
+          analysis = storedData.analysis;
+          insights = storedData.insights;
+          // Odds: realMarkets Array → Set dönüşümü
+          if (storedData.odds) {
+            odds = {
+              ...storedData.odds,
+              realMarkets: new Set(storedData.odds.realMarkets as unknown as string[]),
+            };
+          }
+        }
+
+        // Son çare: Lightweight stub + simulation
         if (!analysis) {
           const leagueId = fixture?.league.id ?? 0;
           const stubAnalysis: MatchAnalysis = {
@@ -141,13 +160,9 @@ export async function GET(req: NextRequest) {
             homeAdvantage: 1.0,
             injuryImpact: { home: 0, away: 0 },
           };
-          // Lightweight simulation — sadece base parametrelerle
           try {
-            const sim = simulateMatch(stubAnalysis, undefined, leagueId);
-            stubAnalysis.simulation = sim;
-          } catch {
-            // Sim başarısız olursa sessizce devam et
-          }
+            stubAnalysis.simulation = simulateMatch(stubAnalysis, undefined, leagueId);
+          } catch { /* ignore */ }
           analysis = stubAnalysis;
         }
 
@@ -173,8 +188,8 @@ export async function GET(req: NextRequest) {
             };
           }),
           analysis,
-          insights: liveAnalysis?.insights,
-          odds: liveAnalysis?.odds,
+          insights,
+          odds,
           isLive: fixture ? fixture.fixture.status.short !== "NS" && fixture.fixture.status.short !== "FT" : false,
         };
       }).filter(Boolean);
@@ -230,18 +245,31 @@ export async function GET(req: NextRequest) {
         const fallbackPredictions = Array.from(latestGrouped.entries()).map(([fixtureId, preds]) => {
           const sortedPreds = preds!.sort((a, b) => b.confidence - a.confidence);
           const firstPred = sortedPreds[0];
-          const stubAnalysis: MatchAnalysis = {
-            summary: firstPred.analysis_summary || "",
-            homeAttack: 50, homeDefense: 50,
-            awayAttack: 50, awayDefense: 50,
-            homeForm: 50, awayForm: 50,
-            h2hAdvantage: "neutral" as const,
-            homeAdvantage: 1.0,
-            injuryImpact: { home: 0, away: 0 },
-          };
-          try {
-            stubAnalysis.simulation = simulateMatch(stubAnalysis);
-          } catch { /* ignore */ }
+
+          // DB'de saklı analysis_data varsa onu kullan
+          const storedData = firstPred.analysis_data as { analysis?: MatchAnalysis; insights?: MatchInsights; odds?: MatchOdds } | null;
+          let analysis: MatchAnalysis;
+          let insights: MatchInsights | undefined;
+
+          if (storedData?.analysis) {
+            analysis = storedData.analysis;
+            insights = storedData.insights;
+          } else {
+            analysis = {
+              summary: firstPred.analysis_summary || "",
+              homeAttack: 50, homeDefense: 50,
+              awayAttack: 50, awayDefense: 50,
+              homeForm: 50, awayForm: 50,
+              h2hAdvantage: "neutral" as const,
+              homeAdvantage: 1.0,
+              injuryImpact: { home: 0, away: 0 },
+            };
+            try {
+              analysis.simulation = simulateMatch(analysis);
+            } catch { /* ignore */ }
+          }
+
+          const sim = analysis.simulation;
 
           return {
             fixtureId,
@@ -251,7 +279,7 @@ export async function GET(req: NextRequest) {
             awayTeam: { id: 0, name: firstPred.away_team, logo: "", winner: null },
             kickoff: firstPred.kickoff,
             picks: sortedPreds.map((p) => {
-              const simProb = stubAnalysis.simulation ? getSimProbability(stubAnalysis.simulation, p.pick) : undefined;
+              const simProb = sim ? getSimProbability(sim, p.pick) : undefined;
               return {
                 type: p.pick,
                 confidence: p.confidence,
@@ -262,7 +290,8 @@ export async function GET(req: NextRequest) {
                 simProbability: simProb,
               };
             }),
-            analysis: stubAnalysis,
+            analysis,
+            insights,
             odds: undefined,
             isLive: false,
           };

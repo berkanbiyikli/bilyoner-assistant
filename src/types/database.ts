@@ -53,6 +53,7 @@ type PredictionRow = {
   is_value_bet: boolean;
   result: "won" | "lost" | "void" | "pending";
   analysis_summary: string;
+  analysis_data: Record<string, unknown> | null;
   created_at: string;
 }
 

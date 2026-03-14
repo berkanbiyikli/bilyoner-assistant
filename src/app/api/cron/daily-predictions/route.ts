@@ -98,6 +98,18 @@ export async function GET(req: NextRequest) {
         .eq("fixture_id", pred.fixtureId)
         .eq("pick", "no_pick");
 
+      // Analiz verisini JSON olarak hazırla (tüm sekmeler için)
+      // realMarkets Set → Array dönüşümü (JSON serialize edilemez)
+      const oddsForJson = pred.odds ? {
+        ...pred.odds,
+        realMarkets: pred.odds.realMarkets ? Array.from(pred.odds.realMarkets) : [],
+      } : undefined;
+      const analysisData = {
+        analysis: pred.analysis,
+        insights: pred.insights,
+        odds: oddsForJson,
+      };
+
       for (const pick of pred.picks) {
         const key = `${pred.fixtureId}_${pick.type}`;
         if (existingPickKeys.has(key)) continue;
@@ -114,6 +126,7 @@ export async function GET(req: NextRequest) {
           expected_value: pick.expectedValue,
           is_value_bet: pick.isValueBet,
           analysis_summary: pick.reasoning || pred.analysis.summary,
+          analysis_data: analysisData,
         });
 
         if (!error) savedCount++;

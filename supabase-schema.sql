@@ -45,6 +45,7 @@
     is_value_bet BOOLEAN NOT NULL DEFAULT FALSE,
     result TEXT NOT NULL DEFAULT 'pending' CHECK (result IN ('won', 'lost', 'void', 'pending')),
     analysis_summary TEXT NOT NULL DEFAULT '',
+    analysis_data JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 

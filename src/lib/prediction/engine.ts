@@ -1100,7 +1100,7 @@ function generatePicks(
 
     // Sim ve heuristic çok farklıysa → güveni düşür (belirsizlik)
     const divergence = Math.abs(heuristicConf - simConf);
-    const penalty = divergence > 20 ? Math.min(8, (divergence - 20) * 0.3) : 0;
+    const penalty = divergence > 15 ? Math.min(12, (divergence - 15) * 0.4) : 0;
 
     // Veri kalitesi cezası — düşük kaliteli veri = düşük güven
     const qPenalty = qualityPenalty;
@@ -1245,113 +1245,135 @@ function generatePicks(
     }
   }
 
-  // --- İY/MS (Half Time / Full Time) ---
-  if (odds.htft && Object.keys(odds.htft).length > 0) {
-    // İY/MS olasılıkları hesapla: Basit Poisson yarı-maç modeli
-    // İlk yarı xG ~ toplam xG * 0.42 (ampirik olarak ilk yarıda gollerin ~%42'si atılır)
-    const htFactor = 0.42;
-    const homeLambdaHT = (analysis.homeXg ?? (analysis.homeAttack / 100) * 1.5) * htFactor;
-    const awayLambdaHT = (analysis.awayXg ?? (analysis.awayAttack / 100) * 1.5) * htFactor;
-    const homeLambdaFT = analysis.homeXg ?? (analysis.homeAttack / 100) * 1.5;
-    const awayLambdaFT = analysis.awayXg ?? (analysis.awayAttack / 100) * 1.5;
-
-    // Poisson olasılık fonksiyonu
-    const poisson = (k: number, lambda: number): number => {
-      return (Math.pow(lambda, k) * Math.exp(-lambda)) / factorial(k);
-    };
-    const factorial = (n: number): number => {
-      if (n <= 1) return 1;
-      let result = 1;
-      for (let i = 2; i <= n; i++) result *= i;
-      return result;
-    };
-
-    // İY 1X2 olasılıkları (Poisson, max 6 gol)
-    let htHomeWin = 0, htDraw = 0, htAwayWin = 0;
-    for (let h = 0; h <= 6; h++) {
-      for (let a = 0; a <= 6; a++) {
-        const p = poisson(h, homeLambdaHT) * poisson(a, awayLambdaHT);
-        if (h > a) htHomeWin += p;
-        else if (h === a) htDraw += p;
-        else htAwayWin += p;
-      }
-    }
-
-    // MS 1X2 olasılıkları — heuristik + sim hybrid
-    const ftHomeWin = homeProbability;
-    const ftDraw = drawProbability;
-    const ftAwayWin = awayProbability;
-
-    // İY/MS kombinasyon olasılıkları (bağımsız değil — koşullu düzeltme)
-    // P(İY=X, MS=Y) ≈ P(İY=X) * P(MS=Y|İY=X)
-    // Koşullu düzeltme: İY'de önde olan MS'de de önde olma eğiliminde
-    const htftProbs: Record<string, number> = {};
-
-    // Koşullu olasılık düzeltme çarpanları
-    // İY'de önde olan takımın MS'de de kazanma olasılığı artmalı
-    const conditionalFactor = 1.35; // Öndeki takım avantajı
-    const reverseFactor = 0.45;     // Geri dönüş zorluğu
-    const holdDrawFactor = 0.80;    // Beraberliği koruma
-
-    // 1/1: İY ev - MS ev (en doğal)
-    htftProbs["1/1"] = htHomeWin * ftHomeWin * conditionalFactor;
-    // 1/X: İY ev - MS beraberlik (gol farkı kapatılır)
-    htftProbs["1/X"] = htHomeWin * ftDraw * holdDrawFactor;
-    // 1/2: İY ev - MS deplasman (comeBack — nadir)
-    htftProbs["1/2"] = htHomeWin * ftAwayWin * reverseFactor;
-    // X/1: İY beraberlik - MS ev
-    htftProbs["X/1"] = htDraw * ftHomeWin * 0.95;
-    // X/X: İY beraberlik - MS beraberlik
-    htftProbs["X/X"] = htDraw * ftDraw * conditionalFactor;
-    // X/2: İY beraberlik - MS deplasman
-    htftProbs["X/2"] = htDraw * ftAwayWin * 0.95;
-    // 2/1: İY deplasman - MS ev (comeback — nadir)
-    htftProbs["2/1"] = htAwayWin * ftHomeWin * reverseFactor;
-    // 2/X: İY deplasman - MS beraberlik
-    htftProbs["2/X"] = htAwayWin * ftDraw * holdDrawFactor;
-    // 2/2: İY deplasman - MS deplasman
-    htftProbs["2/2"] = htAwayWin * ftAwayWin * conditionalFactor;
-
-    // Normalize et (toplam = 1 olmalı)
-    const totalProb = Object.values(htftProbs).reduce((s, v) => s + v, 0);
-    for (const key of Object.keys(htftProbs)) {
-      htftProbs[key] = htftProbs[key] / totalProb;
-    }
-
-    // En iyi İY/MS seçeneklerini değerlendir
-    const htftEntries = Object.entries(htftProbs)
+  // --- İY/MS (Half Time / Full Time) --- SİMÜLASYON BAZLI
+  if (odds.htft && Object.keys(odds.htft).length > 0 && sim?.simHtFtProbs) {
+    // Simülasyondan gelen İY/MS olasılıklarını kullan (10K iterasyon)
+    const htftEntries = Object.entries(sim.simHtFtProbs)
       .filter(([key]) => odds.htft![key] && odds.htft![key] > 1.0)
-      .map(([key, prob]) => ({
+      .map(([key, simProb]) => ({
         key,
-        prob,
+        prob: simProb / 100, // simProb % cinsinden gelir
         odds: odds.htft![key],
         implied: 1 / odds.htft![key],
-        ev: prob * odds.htft![key] - 1,
+        ev: (simProb / 100) * odds.htft![key] - 1,
       }))
-      .filter((e) => e.prob > 0.08) // En az %8 olasılık — çok düşük prob'ları elele
+      .filter((e) => e.prob > 0.06) // En az %6 olasılık
       .sort((a, b) => b.ev - a.ev);
 
-    // En iyi 2 İY/MS pick'i üret (aynı maçtan max 2)
+    // En iyi 2 İY/MS pick'i üret
     let htftCount = 0;
     for (const entry of htftEntries) {
       if (htftCount >= 2) break;
       const type = entry.key as PickType;
-      let conf = calculateConfidence(entry.prob, entry.implied, entry.prob > 0.20);
+      let conf = calculateConfidence(entry.prob, entry.implied, entry.prob > 0.18);
       conf = hybridConfidence(conf, type);
 
-      if (conf >= 50 && entry.ev > -0.05) {
+      if (conf >= 48 && entry.ev > -0.08) {
         const htLabel = entry.key.split("/")[0] === "1" ? "Ev" : entry.key.split("/")[0] === "X" ? "Beraberlik" : "Deplasman";
         const ftLabel = entry.key.split("/")[1] === "1" ? "Ev" : entry.key.split("/")[1] === "X" ? "Beraberlik" : "Deplasman";
         picks.push({
           type,
           confidence: conf,
           odds: entry.odds,
-          reasoning: `İY ${htLabel} → MS ${ftLabel} — olasılık %${(entry.prob * 100).toFixed(1)}`,
+          reasoning: `İY ${htLabel} → MS ${ftLabel} — sim. %${(entry.prob * 100).toFixed(1)}`,
           expectedValue: Math.round(entry.ev * 100) / 100,
           isValueBet: entry.ev > 0.05,
-          simProbability: undefined,
+          simProbability: entry.prob * 100,
         });
         htftCount++;
+      }
+    }
+  }
+
+  // --- Double Chance (1X, X2, 12) --- SİMÜLASYON BAZLI
+  if (sim) {
+    // Double Chance oranları: 1X2 oranlarından türet
+    // 1X oranı ≈ 1 / (P(1) + P(X))
+    const dc1xOdds = 1 / (impliedHome + impliedDraw);
+    const dcX2Odds = 1 / (impliedAway + impliedDraw);
+    const dc12Odds = 1 / (impliedHome + impliedAway);
+
+    // 1X: Ev sahibi kazanır veya berabere
+    if (sim.simHomeOrDrawProb > 60 && dc1xOdds > 1.05) {
+      const prob1x = sim.simHomeOrDrawProb / 100;
+      addPick("1X", prob1x, impliedHome + impliedDraw, dc1xOdds,
+        analysis.h2hAdvantage === "home" || analysis.homeForm > 60, 55);
+    }
+
+    // X2: Deplasman kazanır veya berabere
+    if (sim.simAwayOrDrawProb > 60 && dcX2Odds > 1.05) {
+      const probX2 = sim.simAwayOrDrawProb / 100;
+      addPick("X2", probX2, impliedAway + impliedDraw, dcX2Odds,
+        analysis.h2hAdvantage === "away" || analysis.awayForm > 60, 55);
+    }
+
+    // 12: Berabere bitmez
+    if (sim.simHomeOrAwayProb > 72 && dc12Odds > 1.05) {
+      const prob12 = sim.simHomeOrAwayProb / 100;
+      addPick("12", prob12, impliedHome + impliedAway, dc12Odds,
+        xgTotal > 2.8, 55);
+    }
+  }
+
+  // --- Combo Picks --- SİMÜLASYON BAZLI
+  if (sim) {
+    // 1 & Ü1.5: Ev sahibi kazanır ve 2+ gol
+    if (sim.simHomeAndOver15Prob > 30 && odds.home > 1.0 && odds.over15 > 1.0) {
+      const comboOdds = odds.home * (1 / (sim.simOver15Prob / 100)) * (sim.simHomeAndOver15Prob / 100); // Yaklaşık
+      const realComboOdds = Math.max(odds.home * 1.05, comboOdds); // En az %5 prim
+      const prob = sim.simHomeAndOver15Prob / 100;
+      addPick("1 & Over 1.5", prob, 1 / realComboOdds, realComboOdds,
+        homeProbability > 0.50 && xgTotal > 2.3, 50);
+    }
+
+    // 2 & Ü1.5: Deplasman kazanır ve 2+ gol
+    if (sim.simAwayAndOver15Prob > 25 && odds.away > 1.0 && odds.over15 > 1.0) {
+      const realComboOdds = odds.away * 1.08;
+      const prob = sim.simAwayAndOver15Prob / 100;
+      addPick("2 & Over 1.5", prob, 1 / realComboOdds, realComboOdds,
+        awayProbability > 0.45 && xgTotal > 2.3, 50);
+    }
+  }
+
+  // --- Correct Score (CS) --- SİMÜLASYON BAZLI
+  if (sim && sim.allScorelines.length > 0 && odds.exactScoreOdds) {
+    const csEntries = sim.allScorelines
+      .filter((s) => {
+        const scoreOdds = odds.exactScoreOdds![s.score];
+        return scoreOdds && scoreOdds > 3.0 && s.probability >= 6.0; // Min %6 olasılık, min 3.0 oran
+      })
+      .map((s) => {
+        const scoreOdds = odds.exactScoreOdds![s.score];
+        const prob = s.probability / 100;
+        return {
+          score: s.score,
+          prob,
+          odds: scoreOdds,
+          ev: prob * scoreOdds - 1,
+        };
+      })
+      .filter((e) => e.ev > -0.10) // Kabul edilebilir EV
+      .sort((a, b) => b.ev - a.ev);
+
+    // En iyi 2 skor tahmini
+    let csCount = 0;
+    for (const entry of csEntries) {
+      if (csCount >= 2) break;
+      const type = `CS ${entry.score}` as PickType;
+      let conf = calculateConfidence(entry.prob, 1 / entry.odds, entry.prob > 0.10);
+      conf = hybridConfidence(conf, type);
+
+      if (conf >= 45) {
+        picks.push({
+          type,
+          confidence: conf,
+          odds: entry.odds,
+          reasoning: `En olası skor ${entry.score} — sim. %${(entry.prob * 100).toFixed(1)}`,
+          expectedValue: Math.round(entry.ev * 100) / 100,
+          isValueBet: entry.ev > 0.05,
+          simProbability: entry.prob * 100,
+        });
+        csCount++;
       }
     }
   }
@@ -1534,6 +1556,13 @@ function calculateConfidence(modelProb: number, impliedProb: number, extraSignal
     // Pozitif edge: log scale ile artan bonus (max 18)
     const edgeBonus = Math.min(18, Math.log1p(edge * 8) * 10);
     confidence += edgeBonus;
+
+    // Kelly-inspired ek bonus: edge / odds → oransal artış (max 5)
+    // Yüksek olasılıklı maçlarda edge daha değerli
+    if (impliedProb > 0) {
+      const kellySignal = Math.min(5, (edge / impliedProb) * 8);
+      confidence += kellySignal;
+    }
   } else {
     // Negatif edge: kare kök scale ile ceza (daha sert düşüş)
     const edgePenalty = Math.min(15, Math.sqrt(Math.abs(edge)) * 12);
@@ -1542,9 +1571,15 @@ function calculateConfidence(modelProb: number, impliedProb: number, extraSignal
 
   if (extraSignal) confidence += 4;
 
+  // xG veri mevcutsa küçük güven bonusu (daha güvenilir data)
+  // modelProb xG tabanlıysa genelde 0.3-0.7 arasında - heuristic fallback 0.15-0.90
+  if (modelProb > 0.25 && modelProb < 0.75 && edge > 0) {
+    confidence += 2; // Makul aralıktaki tahminlere küçük ödül
+  }
+
   // Over-confidence freni: %80+ confidence'larda damping
   if (confidence > 80) {
-    confidence = 80 + (confidence - 80) * 0.5;
+    confidence = 80 + (confidence - 80) * 0.45; // Daha sert damping (0.5 → 0.45)
   }
 
   return Math.round(Math.max(10, Math.min(92, confidence)));

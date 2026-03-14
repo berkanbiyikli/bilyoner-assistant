@@ -79,6 +79,18 @@ export interface MonteCarloResult {
   simHtBttsProb: number;     // İlk yarı KG Var %
   simHtHomeGoalProb: number; // İlk yarı ev sahibi gol atar %
   simHtAwayGoalProb: number; // İlk yarı deplasman gol atar %
+  // Double Chance
+  simHomeOrDrawProb: number;  // 1X %
+  simAwayOrDrawProb: number;  // X2 %
+  simHomeOrAwayProb: number;  // 12 %
+  // Combo picks
+  simHomeAndOver15Prob: number;  // 1 & Ü1.5 %
+  simAwayAndOver15Prob: number;  // 2 & Ü1.5 %
+  simHomeAndBttsProb: number;    // 1 & KG Var %
+  simAwayAndBttsProb: number;    // 2 & KG Var %
+  simDrawAndBttsProb: number;    // X & KG Var %
+  // İY/MS simülasyon bazlı
+  simHtFtProbs: Record<string, number>; // { "1/1": 25.3, "X/1": 12.1, ... }
   topScorelines: { score: string; probability: number }[]; // En olası 5 skor
   allScorelines: { score: string; probability: number }[]; // Tüm skorlar (>0.5%)
   htScorelines?: { score: string; probability: number }[]; // İlk yarı skorları

@@ -99,6 +99,121 @@ function poissonRandom(lambda: number): number {
 }
 
 /**
+ * Negative Binomial dağılımından rastgele sayı üretimi
+ * Futbolda Poisson'un öngördüğünden daha yüksek varyans var (overdispersion).
+ * NB(r, p): mean = lambda, variance = lambda + lambda²/r
+ * r parametresi ne kadar küçükse overdispersion o kadar yüksek.
+ * r → ∞ olduğunda Poisson'a yakınsar.
+ *
+ * Algoritma: Gamma-Poisson mixture
+ *   1) Gamma(r, r/lambda) → rate
+ *   2) Poisson(rate) → gol sayısı
+ *
+ * @param lambda Beklenen gol (mean)
+ * @param r Overdispersion parametresi (küçük = daha fazla varyans). Futbol için 4-8 arası ideal.
+ */
+function negativeBinomialRandom(lambda: number, r: number = 6): number {
+  if (lambda <= 0) return 0;
+
+  // Gamma(r, lambda/r) üretimi — Marsaglia & Tsang yöntemi
+  const scale = lambda / r;
+  const gammaValue = gammaRandom(r, scale);
+  
+  // Gamma sonucundan Poisson çekimi
+  return poissonRandom(gammaValue);
+}
+
+/**
+ * Gamma dağılımından rastgele sayı üretimi (Marsaglia & Tsang, 2000)
+ * Shape = alpha (r), Scale = beta (lambda/r)
+ */
+function gammaRandom(alpha: number, scale: number): number {
+  if (alpha < 1) {
+    // alpha < 1 için: Gamma(alpha) = Gamma(alpha+1) * U^(1/alpha)
+    return gammaRandom(alpha + 1, scale) * Math.pow(Math.random(), 1 / alpha);
+  }
+
+  const d = alpha - 1 / 3;
+  const c = 1 / Math.sqrt(9 * d);
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    let x: number, v: number;
+    do {
+      x = Math.sqrt(-2 * Math.log(Math.random())) * Math.cos(2 * Math.PI * Math.random());
+      v = 1 + c * x;
+    } while (v <= 0);
+
+    v = v * v * v;
+    const u = Math.random();
+
+    if (u < 1 - 0.0331 * (x * x) * (x * x)) {
+      return d * v * scale;
+    }
+    if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) {
+      return d * v * scale;
+    }
+  }
+}
+
+/**
+ * Liga bazlı overdispersion parametresi
+ * Bazı ligler doğası gereği daha öngörülmez (düşük r = yüksek varyans)
+ * Araştırma: Bundesliga ve Eredivisie gol profili daha "patlak", Serie A daha öngörülebilir
+ */
+const LEAGUE_OVERDISPERSION: Record<number, number> = {
+  78:  4.5,  // Bundesliga — yüksek gollü, sürprizli
+  88:  4.5,  // Eredivisie — benzer profil
+  203: 5.0,  // Süper Lig — taraftar etkisiyle volatil
+  39:  6.0,  // Premier League — dengeli ama fiziksel
+  140: 6.5,  // La Liga — daha taktiksel, öngörülebilir
+  135: 7.0,  // Serie A — defansif, düşük varyans
+  61:  5.5,  // Ligue 1 — PSG etkisi
+  94:  5.5,  // Primeira Liga
+  2:   5.0,  // Champions League — knockout volatilitesi
+  3:   5.0,  // Europa League
+  848: 4.5,  // Conference League — kalite farkları yüksek
+};
+
+const DEFAULT_OVERDISPERSION = 6.0;
+
+function getOverdispersion(leagueId?: number): number {
+  if (!leagueId) return DEFAULT_OVERDISPERSION;
+  return LEAGUE_OVERDISPERSION[leagueId] ?? DEFAULT_OVERDISPERSION;
+}
+
+/**
+ * Liga bazlı ortalama gol oranı (takım başına, maç başına)
+ * xG yoksa fallback lambda hesabında kullanılır: attack/100 * leagueAvgGoals
+ * Kaynak: 2023-24 sezonu ampirik verileri
+ */
+const LEAGUE_AVG_GOALS_PER_TEAM: Record<number, number> = {
+  78:  1.65, // Bundesliga — yüksek tempolu
+  88:  1.60, // Eredivisie — açık futbol
+  203: 1.40, // Süper Lig — defansif eğilimli
+  39:  1.45, // Premier League — fiziksel, dengeli
+  140: 1.30, // La Liga — taktiksel, düşük gollü
+  135: 1.25, // Serie A — defansif gelenek
+  61:  1.40, // Ligue 1
+  94:  1.35, // Primeira Liga
+  2:   1.35, // Champions League
+  3:   1.40, // Europa League
+  848: 1.45, // Conference League — kalite farkı
+  179: 1.50, // Scottish Premiership
+  144: 1.35, // Belgian Pro League
+  218: 1.30, // MLS (düşük defans kalitesi ama temposu da düşük)
+  253: 1.50, // Argentine Primera División
+  71:  1.55, // Brazilian Serie A
+};
+
+const DEFAULT_AVG_GOALS = 1.40;
+
+function getLeagueAvgGoals(leagueId?: number): number {
+  if (!leagueId) return DEFAULT_AVG_GOALS;
+  return LEAGUE_AVG_GOALS_PER_TEAM[leagueId] ?? DEFAULT_AVG_GOALS;
+}
+
+/**
  * Maçı 10.000 kez simüle et ve olasılık dağılımlarını döndür
  *
  * Lambda hesabı (v2 — Dixon-Coles hybrid):
@@ -119,8 +234,9 @@ export function simulateMatch(
   awayFormAnalysis?: FormAnalysis
 ): MonteCarloResult {
   // --- Lambda hesaplama ---
-  const baseHomeLambda = analysis.homeXg ?? (analysis.homeAttack / 100) * 1.5;
-  const baseAwayLambda = analysis.awayXg ?? (analysis.awayAttack / 100) * 1.5;
+  const leagueAvg = getLeagueAvgGoals(leagueId);
+  const baseHomeLambda = analysis.homeXg ?? (analysis.homeAttack / 100) * leagueAvg;
+  const baseAwayLambda = analysis.awayXg ?? (analysis.awayAttack / 100) * leagueAvg;
 
   // Savunma etkisi: Rakip savunma güçlüyse lambda düşer
   // 50 = nötr. 70+ = güçlü savunma → lambda'yı %25'e kadar düşür
@@ -194,6 +310,9 @@ export function simulateMatch(
   const homeLambdaHT = homeLambda * htFactorHome;
   const awayLambdaHT = awayLambda * htFactorAway;
 
+  // --- Overdispersion parametresi (Negative Binomial) ---
+  const overdispersionR = getOverdispersion(leagueId);
+
   // --- Simülasyon ---
   let homeWins = 0;
   let draws = 0;
@@ -203,6 +322,18 @@ export function simulateMatch(
   let over35 = 0;
   let bttsYes = 0;
 
+  // Double Chance
+  let homeOrDraw = 0;
+  let awayOrDraw = 0;
+  let homeOrAway = 0;
+
+  // Combo picks
+  let homeAndOver15 = 0;
+  let awayAndOver15 = 0;
+  let homeAndBtts = 0;
+  let awayAndBtts = 0;
+  let drawAndBtts = 0;
+
   // İlk yarı sayaçları
   let htOver05 = 0;
   let htOver15 = 0;
@@ -210,43 +341,61 @@ export function simulateMatch(
   let htHomeGoal = 0;
   let htAwayGoal = 0;
 
+  // İY/MS sayaçları
+  const htftMap = new Map<string, number>();
+
   const scoreMap = new Map<string, number>();
   const htScoreMap = new Map<string, number>();
 
   for (let i = 0; i < SIM_RUNS; i++) {
-    // Maç sonu (full time) simülasyonu — Dixon-Coles düzeltmeli
-    let homeGoals = poissonRandom(homeLambda);
-    let awayGoals = poissonRandom(awayLambda);
+    // --- Maç sonu (full time) simülasyonu ---
+    // Negative Binomial: Poisson'dan daha yüksek varyans (overdispersion)
+    // Gerçek futbol verisine daha iyi uyum sağlar
+    let homeGoals = negativeBinomialRandom(homeLambda, overdispersionR);
+    let awayGoals = negativeBinomialRandom(awayLambda, overdispersionR);
 
     // Dixon-Coles düşük skor düzeltmesi (rejection sampling)
-    // Düşük skorlarda (0-0, 1-0, 0-1, 1-1) tau ile olasılığı ayarla
     if (homeGoals <= 1 && awayGoals <= 1) {
       const tau = dixonColesTau(homeGoals, awayGoals, homeLambda, awayLambda, rho);
-      // tau < 1 → bu skor daha az olası, reddet ve yeniden çek
-      // tau > 1 → bu skor daha olası, kabul et
       if (tau < 1 && Math.random() > tau) {
-        // Rejection: yeniden Poisson çek (korelasyonu kısmen uygula)
-        homeGoals = poissonRandom(homeLambda);
-        awayGoals = poissonRandom(awayLambda);
+        homeGoals = negativeBinomialRandom(homeLambda, overdispersionR);
+        awayGoals = negativeBinomialRandom(awayLambda, overdispersionR);
       }
     }
 
     const totalGoals = homeGoals + awayGoals;
+    const isBtts = homeGoals > 0 && awayGoals > 0;
 
-    // İlk yarı simülasyonu (ayrı Poisson çekimi)
-    const homeGoalsHT = poissonRandom(homeLambdaHT);
-    const awayGoalsHT = poissonRandom(awayLambdaHT);
+    // İlk yarı simülasyonu (Negative Binomial)
+    const homeGoalsHT = negativeBinomialRandom(homeLambdaHT, overdispersionR);
+    const awayGoalsHT = negativeBinomialRandom(awayLambdaHT, overdispersionR);
     const totalGoalsHT = homeGoalsHT + awayGoalsHT;
 
-    // Sonuç sayaçları (full time)
-    if (homeGoals > awayGoals) homeWins++;
-    else if (homeGoals === awayGoals) draws++;
+    // --- Sonuç sayaçları (full time) ---
+    const isHomeWin = homeGoals > awayGoals;
+    const isDraw = homeGoals === awayGoals;
+    const isAwayWin = homeGoals < awayGoals;
+
+    if (isHomeWin) homeWins++;
+    else if (isDraw) draws++;
     else awayWins++;
 
     if (totalGoals > 1.5) over15++;
     if (totalGoals > 2.5) over25++;
     if (totalGoals > 3.5) over35++;
-    if (homeGoals > 0 && awayGoals > 0) bttsYes++;
+    if (isBtts) bttsYes++;
+
+    // Double Chance
+    if (isHomeWin || isDraw) homeOrDraw++;
+    if (isAwayWin || isDraw) awayOrDraw++;
+    if (isHomeWin || isAwayWin) homeOrAway++;
+
+    // Combo picks
+    if (isHomeWin && totalGoals > 1.5) homeAndOver15++;
+    if (isAwayWin && totalGoals > 1.5) awayAndOver15++;
+    if (isHomeWin && isBtts) homeAndBtts++;
+    if (isAwayWin && isBtts) awayAndBtts++;
+    if (isDraw && isBtts) drawAndBtts++;
 
     // İlk yarı sayaçları
     if (totalGoalsHT > 0.5) htOver05++;
@@ -254,6 +403,12 @@ export function simulateMatch(
     if (homeGoalsHT > 0 && awayGoalsHT > 0) htBttsYes++;
     if (homeGoalsHT > 0) htHomeGoal++;
     if (awayGoalsHT > 0) htAwayGoal++;
+
+    // İY/MS: İlk yarı sonucunu belirle ve MS ile eşleştir
+    const htResult = homeGoalsHT > awayGoalsHT ? "1" : homeGoalsHT === awayGoalsHT ? "X" : "2";
+    const ftResult = isHomeWin ? "1" : isDraw ? "X" : "2";
+    const htftKey = `${htResult}/${ftResult}`;
+    htftMap.set(htftKey, (htftMap.get(htftKey) || 0) + 1);
 
     // Skor haritaları
     const scoreKey = `${homeGoals}-${awayGoals}`;
@@ -303,6 +458,12 @@ export function simulateMatch(
       probability: toPercent(count),
     }));
 
+  // İY/MS olasılıkları
+  const htFtProbs: Record<string, number> = {};
+  for (const [key, count] of htftMap.entries()) {
+    htFtProbs[key] = toPercent(count);
+  }
+
   return {
     simHomeWinProb: hybridPercent(homeWins, dcAnalytic.homeWin),
     simDrawProb: hybridPercent(draws, dcAnalytic.draw),
@@ -316,6 +477,18 @@ export function simulateMatch(
     simHtBttsProb: toPercent(htBttsYes),
     simHtHomeGoalProb: toPercent(htHomeGoal),
     simHtAwayGoalProb: toPercent(htAwayGoal),
+    // Double Chance
+    simHomeOrDrawProb: toPercent(homeOrDraw),
+    simAwayOrDrawProb: toPercent(awayOrDraw),
+    simHomeOrAwayProb: toPercent(homeOrAway),
+    // Combo picks
+    simHomeAndOver15Prob: toPercent(homeAndOver15),
+    simAwayAndOver15Prob: toPercent(awayAndOver15),
+    simHomeAndBttsProb: toPercent(homeAndBtts),
+    simAwayAndBttsProb: toPercent(awayAndBtts),
+    simDrawAndBttsProb: toPercent(drawAndBtts),
+    // İY/MS
+    simHtFtProbs: htFtProbs,
     topScorelines,
     allScorelines,
     htScorelines,
@@ -338,6 +511,13 @@ export function getSimProbability(
       return sim.simDrawProb;
     case "2":
       return sim.simAwayWinProb;
+    // Double Chance
+    case "1X":
+      return sim.simHomeOrDrawProb;
+    case "X2":
+      return sim.simAwayOrDrawProb;
+    case "12":
+      return sim.simHomeOrAwayProb;
     case "Over 1.5":
       return sim.simOver15Prob;
     case "Over 2.5":
@@ -362,14 +542,23 @@ export function getSimProbability(
       return sim.simHtOver05Prob;
     case "HT Under 0.5":
       return sim.simHtOver05Prob != null ? 100 - sim.simHtOver05Prob : undefined;
+    // Combo picks
+    case "1 & Over 1.5":
+      return sim.simHomeAndOver15Prob;
+    case "2 & Over 1.5":
+      return sim.simAwayAndOver15Prob;
     default: {
+      // İY/MS desteği: "1/1", "X/2", etc.
+      if (pickType.includes("/") && pickType.length <= 3) {
+        return sim.simHtFtProbs?.[pickType];
+      }
       // Exact Score desteği: "CS 2-1" → allScorelines'tan oku
       if (pickType.startsWith("CS ")) {
         const score = pickType.slice(3); // "2-1"
         const found = sim.allScorelines?.find((s) => s.score === score);
         return found ? found.probability : undefined;
       }
-      return undefined; // Korner/Kart gibi pazarlar için simülasyon yok
+      return undefined;
     }
   }
 }

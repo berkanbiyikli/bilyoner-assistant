@@ -20,6 +20,10 @@ export const LEAGUES: LeagueConfig[] = [
 
   // Top 5 Avrupa Ligi
   { id: 39, name: "Premier League", country: "England", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", priority: 1, volatility: "low" },
+  { id: 40, name: "Championship", country: "England", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", priority: 3, volatility: "high" },
+  { id: 41, name: "League One", country: "England", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", priority: 4, volatility: "high" },
+  { id: 42, name: "League Two", country: "England", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", priority: 4, volatility: "high" },
+  { id: 43, name: "National League", country: "England", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", priority: 5, volatility: "high" },
   { id: 140, name: "La Liga", country: "Spain", flag: "🇪🇸", priority: 1, volatility: "low" },
   { id: 141, name: "La Liga 2", country: "Spain", flag: "🇪🇸", priority: 3, volatility: "high" },
   { id: 135, name: "Serie A", country: "Italy", flag: "🇮🇹", priority: 1, volatility: "low" },

@@ -74,6 +74,13 @@ export function runSafetyChecks(prediction: MatchPrediction): SafetyResult {
     warnings.push(minOdds.caution);
   }
 
+  // ===== Aşama 5: Cross-Market Çelişki Kontrolü =====
+  const crossMarket = checkCrossMarketConflicts(prediction);
+  if (crossMarket.length > 0) {
+    riskLevel = "caution";
+    warnings.push(...crossMarket);
+  }
+
   return { pass: true, riskLevel, warnings };
 }
 
@@ -250,6 +257,62 @@ function checkMinOdds(prediction: MatchPrediction): {
   }
 
   return { pass: true };
+}
+
+// ---- Aşama 5: Cross-Market Çelişki Kontrolü ----
+function checkCrossMarketConflicts(prediction: MatchPrediction): string[] {
+  const warnings: string[] = [];
+  const picks = prediction.picks;
+  if (picks.length < 2) return warnings;
+
+  const findPick = (type: string) => picks.find(p => p.type === type);
+
+  // 1. BTTS No + BTTS Yes çelişkisi
+  const bttsNo = findPick("BTTS No");
+  const bttsYes = findPick("BTTS Yes");
+  if (bttsNo && bttsYes) {
+    warnings.push(`BTTS No (%${bttsNo.confidence}) ve BTTS Yes (%${bttsYes.confidence}) aynı anda mevcut — çelişki`);
+  }
+
+  // 2. Over/Under aynı eşik çelişkisi
+  for (const threshold of ["1.5", "2.5", "3.5"]) {
+    const over = findPick(`Over ${threshold}`);
+    const under = findPick(`Under ${threshold}`);
+    if (over && under) {
+      warnings.push(`Over ${threshold} (%${over.confidence}) ve Under ${threshold} (%${under.confidence}) aynı anda — çelişki`);
+    }
+  }
+
+  // 3. BTTS No yüksek + HT BTTS Yes çelişkisi
+  if (bttsNo && bttsNo.confidence >= 80) {
+    const bttsYesHT = findPick("HT BTTS Yes");
+    if (bttsYesHT && bttsYesHT.confidence >= 50) {
+      warnings.push(`BTTS No (%${bttsNo.confidence}) çok güçlü ama HT BTTS Yes (%${bttsYesHT.confidence}) da mevcut`);
+    }
+  }
+
+  // 4. Under 1.5 yüksek + Over 2.5/3.5 çelişkisi
+  const under15 = findPick("Under 1.5");
+  if (under15 && under15.confidence >= 60) {
+    const over25 = findPick("Over 2.5");
+    const over35 = findPick("Over 3.5");
+    if (over25) warnings.push(`Under 1.5 (%${under15.confidence}) ile Over 2.5 (%${over25.confidence}) çelişiyor`);
+    if (over35) warnings.push(`Under 1.5 (%${under15.confidence}) ile Over 3.5 (%${over35.confidence}) çelişiyor`);
+  }
+
+  // 5. 1X2 + zıt DC çelişkisi
+  const homePick = findPick("1");
+  const awayPick = findPick("2");
+  const x2Pick = findPick("X2");
+  const dc1xPick = findPick("1X");
+  if (homePick && homePick.confidence >= 65 && x2Pick && x2Pick.confidence >= 65) {
+    warnings.push(`Ev galibiyeti (%${homePick.confidence}) ile X2 (%${x2Pick.confidence}) çelişiyor`);
+  }
+  if (awayPick && awayPick.confidence >= 65 && dc1xPick && dc1xPick.confidence >= 65) {
+    warnings.push(`Dep galibiyeti (%${awayPick.confidence}) ile 1X (%${dc1xPick.confidence}) çelişiyor`);
+  }
+
+  return warnings;
 }
 
 /**

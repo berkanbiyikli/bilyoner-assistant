@@ -410,76 +410,64 @@ export function simulateMatch(
   const htScoreMap = new Map<string, number>();
 
   for (let i = 0; i < SIM_RUNS; i++) {
-    // --- Maç sonu (full time) simülasyonu ---
-    // Negative Binomial: Poisson'dan daha yüksek varyans (overdispersion)
-    // Gerçek futbol verisine daha iyi uyum sağlar
-    let homeGoals = negativeBinomialRandom(homeLambda, overdispersionR);
-    let awayGoals = negativeBinomialRandom(awayLambda, overdispersionR);
+    // --- İlk yarı simülasyonu ---
+    let homeGoalsHT = negativeBinomialRandom(homeLambdaHT, overdispersionR);
+    let awayGoalsHT = negativeBinomialRandom(awayLambdaHT, overdispersionR);
 
-    // Dixon-Coles düşük skor düzeltmesi (rejection sampling)
-    if (homeGoals <= 1 && awayGoals <= 1) {
-      const tau = dixonColesTau(homeGoals, awayGoals, homeLambda, awayLambda, rho);
+    // Dixon-Coles düşük skor düzeltmesi — İY için
+    if (homeGoalsHT <= 1 && awayGoalsHT <= 1) {
+      const tau = dixonColesTau(homeGoalsHT, awayGoalsHT, homeLambdaHT, awayLambdaHT, rho);
       if (tau < 1 && Math.random() > tau) {
-        homeGoals = negativeBinomialRandom(homeLambda, overdispersionR);
-        awayGoals = negativeBinomialRandom(awayLambda, overdispersionR);
+        homeGoalsHT = negativeBinomialRandom(homeLambdaHT, overdispersionR);
+        awayGoalsHT = negativeBinomialRandom(awayLambdaHT, overdispersionR);
       }
     }
 
-    const totalGoals = homeGoals + awayGoals;
-    const isBtts = homeGoals > 0 && awayGoals > 0;
-
-    // İlk yarı simülasyonu (Negative Binomial)
-    const homeGoalsHT = negativeBinomialRandom(homeLambdaHT, overdispersionR);
-    const awayGoalsHT = negativeBinomialRandom(awayLambdaHT, overdispersionR);
-
-    // === KORELASYONLU İY/MS ===
+    // === KORELASYONLU 2. YARI ===
     // İlk yarı sonucuna göre 2. yarı lambda'larını ayarla
     // Önde olan takım temposunu düşürür, gerideki risk alır
     const htDiff = homeGoalsHT - awayGoalsHT;
-    let homeLambda2H = homeLambda * (1 - htFactorHome); // Kalan 2. yarı lambda'sı
+    let homeLambda2H = homeLambda * (1 - htFactorHome);
     let awayLambda2H = awayLambda * (1 - htFactorAway);
 
     if (htDiff >= 2) {
-      // Ev sahibi 2+ gol önde → tempo düşer, rakip agresifleşir
       homeLambda2H *= 0.80;
       awayLambda2H *= 1.18;
     } else if (htDiff === 1) {
-      // Ev sahibi 1 gol önde → hafif defansif, rakip biraz daha agresif
       homeLambda2H *= 0.92;
       awayLambda2H *= 1.10;
     } else if (htDiff === 0) {
-      // Berabere → iki taraf da daha agresif (özellikle 0-0 ise)
       const zeroDraw = homeGoalsHT === 0 && awayGoalsHT === 0;
       const aggressionBoost = zeroDraw ? 1.12 : 1.05;
       homeLambda2H *= aggressionBoost;
       awayLambda2H *= aggressionBoost;
     } else if (htDiff === -1) {
-      // Deplasman 1 gol önde → ev sahibi agresifleşir
       homeLambda2H *= 1.10;
       awayLambda2H *= 0.92;
     } else {
-      // Deplasman 2+ gol önde → ev sahibi çok agresif, deplasman rahatlar
       homeLambda2H *= 1.18;
       awayLambda2H *= 0.80;
     }
 
-    // 2. yarı golleri (korelasyonlu)
+    // 2. yarı golleri
     const homeGoals2H = negativeBinomialRandom(homeLambda2H, overdispersionR);
     const awayGoals2H = negativeBinomialRandom(awayLambda2H, overdispersionR);
 
-    // Toplam skorlar: İY + 2Y
-    const homeGoalsCorr = homeGoalsHT + homeGoals2H;
-    const awayGoalsCorr = awayGoalsHT + awayGoals2H;
+    // === TEK TUTARLI SKOR: İY + 2Y (tüm marketler bu skordan türer) ===
+    const homeGoals = homeGoalsHT + homeGoals2H;
+    const awayGoals = awayGoalsHT + awayGoals2H;
+    const totalGoals = homeGoals + awayGoals;
+    const isBtts = homeGoals > 0 && awayGoals > 0;
 
-    // İY/MS: Korelasyonlu skorlardan sonuç belirle
+    // İY/MS
     const htResult = homeGoalsHT > awayGoalsHT ? "1" : homeGoalsHT === awayGoalsHT ? "X" : "2";
-    const ftResultCorr = homeGoalsCorr > awayGoalsCorr ? "1" : homeGoalsCorr === awayGoalsCorr ? "X" : "2";
-    const htftKey = `${htResult}/${ftResultCorr}`;
+    const ftResult = homeGoals > awayGoals ? "1" : homeGoals === awayGoals ? "X" : "2";
+    const htftKey = `${htResult}/${ftResult}`;
     htftMap.set(htftKey, (htftMap.get(htftKey) || 0) + 1);
 
     const totalGoalsHT = homeGoalsHT + awayGoalsHT;
 
-    // --- Sonuç sayaçları (full time) ---
+    // --- Sonuç sayaçları (full time — korelasyonlu) ---
     const isHomeWin = homeGoals > awayGoals;
     const isDraw = homeGoals === awayGoals;
     const isAwayWin = homeGoals < awayGoals;
@@ -512,9 +500,7 @@ export function simulateMatch(
     if (homeGoalsHT > 0) htHomeGoal++;
     if (awayGoalsHT > 0) htAwayGoal++;
 
-    // İY/MS zaten yukarıda korelasyonlu olarak hesaplandı (htftMap)
-
-    // Skor haritaları
+    // Skor haritası (korelasyonlu skorla tutarlı)
     const scoreKey = `${homeGoals}-${awayGoals}`;
     scoreMap.set(scoreKey, (scoreMap.get(scoreKey) || 0) + 1);
 
@@ -535,13 +521,13 @@ export function simulateMatch(
     return Math.round((mcPercent * 0.70 + dcValue * 0.30) * 10) / 10;
   };
 
-  // En olası 5 skor
+  // En olası 5 skor (tek skor satırı max %30 — gerçekçi üst sınır)
   const topScorelines = Array.from(scoreMap.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([score, count]) => ({
       score,
-      probability: toPercent(count),
+      probability: Math.min(30, toPercent(count)),
     }));
 
   // Tüm skorlar (>%0.5 olasılık) — Crazy Pick modülü için
@@ -550,7 +536,7 @@ export function simulateMatch(
     .sort((a, b) => b[1] - a[1])
     .map(([score, count]) => ({
       score,
-      probability: toPercent(count),
+      probability: Math.min(30, toPercent(count)),
     }));
 
   // İlk yarı en olası skorlar

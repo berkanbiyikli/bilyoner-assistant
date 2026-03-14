@@ -1363,11 +1363,23 @@ function generatePicks(
       .filter((e) => e.prob > 0.08) // Min %8 olasılık (9-yönlü market)
       .sort((a, b) => b.ev - a.ev);
 
-    // En iyi 2 İY/MS pick'i üret
+    // En iyi 2 İY/MS pick'i üret — çelişen FT sonuçlarını filtrele
     let htftCount = 0;
+    let firstHtftFtResult: string | null = null;
     for (const entry of htftEntries) {
       if (htftCount >= 2) break;
       const type = entry.key as PickType;
+      const ftResult = entry.key.split("/")[1]; // "1", "X", veya "2"
+
+      // Çelişki filtresi: İlk pick ile aynı FT sonucuna sahip olmayan
+      // ama zıt yöne işaret eden pick'i reddet (örn. 1/1 ve 2/2)
+      if (firstHtftFtResult && ftResult !== firstHtftFtResult) {
+        // Zıt yön kontrolü: 1↔2 çelişir, X ile birlikte olabilir
+        const isContradiction =
+          (firstHtftFtResult === "1" && ftResult === "2") ||
+          (firstHtftFtResult === "2" && ftResult === "1");
+        if (isContradiction) continue;
+      }
 
       // İY/MS özel confidence hesabı:
       // 9 kombinasyon var, uniform dağılımda her biri %11.
@@ -1409,36 +1421,38 @@ function generatePicks(
           isValueBet: entry.ev > 0.05,
           simProbability: entry.rawProb * 100,
         });
+        if (!firstHtftFtResult) firstHtftFtResult = ftResult;
         htftCount++;
       }
     }
   }
 
-  // --- Double Chance (1X, X2, 12) --- SİMÜLASYON BAZLI
-  if (sim) {
-    // Double Chance oranları: 1X2 oranlarından türet
-    // 1X oranı ≈ 1 / (P(1) + P(X))
+  // --- Double Chance (1X, X2, 12) --- BLENDED 1X2'DEN TÜRET (tutarlılık)
+  // DC olasılıkları BLENDED 1X2'den türetilmeli — aksi halde X2 + "1" > 100% olabilir
+  {
+    const prob1x = homeProbability + drawProbability;
+    const probX2 = awayProbability + drawProbability;
+    const prob12 = homeProbability + awayProbability;
+
+    // DC oranları: pazar oranlarından türet
     const dc1xOdds = 1 / (impliedHome + impliedDraw);
     const dcX2Odds = 1 / (impliedAway + impliedDraw);
     const dc12Odds = 1 / (impliedHome + impliedAway);
 
     // 1X: Ev sahibi kazanır veya berabere
-    if (sim.simHomeOrDrawProb > 60 && dc1xOdds > 1.05) {
-      const prob1x = sim.simHomeOrDrawProb / 100;
+    if (prob1x > 0.60 && dc1xOdds > 1.05) {
       addPick("1X", prob1x, impliedHome + impliedDraw, dc1xOdds,
         analysis.h2hAdvantage === "home" || analysis.homeForm > 60, 55);
     }
 
     // X2: Deplasman kazanır veya berabere
-    if (sim.simAwayOrDrawProb > 60 && dcX2Odds > 1.05) {
-      const probX2 = sim.simAwayOrDrawProb / 100;
+    if (probX2 > 0.60 && dcX2Odds > 1.05) {
       addPick("X2", probX2, impliedAway + impliedDraw, dcX2Odds,
         analysis.h2hAdvantage === "away" || analysis.awayForm > 60, 55);
     }
 
     // 12: Berabere bitmez
-    if (sim.simHomeOrAwayProb > 72 && dc12Odds > 1.05) {
-      const prob12 = sim.simHomeOrAwayProb / 100;
+    if (prob12 > 0.72 && dc12Odds > 1.05) {
       addPick("12", prob12, impliedHome + impliedAway, dc12Odds,
         xgTotal > 2.8, 55);
     }
@@ -1514,6 +1528,58 @@ function generatePicks(
   // --- Kart 3.5 Üst/Alt DEVRE DIŞI ---
   // Kart verileri de sentetik — gerçek istatistik olmadan pick üretilmiyor.
   // Hakem profili yalnızca insight olarak kullanılıyor.
+
+  // === CROSS-MARKET TUTARLILIK KONTROLÜ ===
+  // 1. CS olasılık şişmesi: Tek bir skor satırı max %30 olabilir
+  for (const pick of picks) {
+    if (pick.type.startsWith("CS ") && pick.simProbability && pick.simProbability > 30) {
+      const cappedProb = 30;
+      const ratio = cappedProb / pick.simProbability;
+      pick.simProbability = cappedProb;
+      pick.expectedValue = Math.round(((cappedProb / 100) * pick.odds - 1) * 100) / 100;
+      pick.isValueBet = pick.expectedValue > 0.05;
+      pick.confidence = Math.min(pick.confidence, Math.round(pick.confidence * ratio));
+      pick.reasoning = pick.reasoning.replace(/sim\. %[\d.]+/, `sim. %${cappedProb.toFixed(1)}`);
+    }
+  }
+
+  // 2. BTTS No yüksek → İY/MS'de her iki takımın gol atmasını gerektiren senaryolara ceza
+  const bttsNoPick = picks.find(p => p.type === "BTTS No");
+  if (bttsNoPick && bttsNoPick.confidence >= 75) {
+    for (const pick of picks) {
+      // 1/1 (ev dominasyonu) ve 2/2 (deplasman dominasyonu): Tek takım gol atıyor, uyumlu.
+      // AMA combo pick'ler (X & BTTS gibi) veya her iki takımın gol atmasını gerektiren pick'ler çelişir.
+      // HT/FT pick'lerinde: X/X (0-0 olasılığı yoksa), 1/2, 2/1 gibi comeback senaryoları
+      // genellikle iki takımın da gol atmasını gerektirir.
+      if (pick.type === "HT BTTS Yes") {
+        pick.confidence = Math.max(10, pick.confidence - 15);
+      }
+    }
+  }
+
+  // 3. DC tutarlılık: 1X + 2 > 100% veya X2 + 1 > 100% olmamalı
+  const dcPicks = picks.filter(p => ["1X", "X2", "12"].includes(p.type));
+  const resultPicks = picks.filter(p => ["1", "X", "2"].includes(p.type));
+  for (const dc of dcPicks) {
+    // DC pick'in zıddı olan sonuç pick'i bul
+    const opposing = dc.type === "1X" ? resultPicks.find(p => p.type === "2")
+      : dc.type === "X2" ? resultPicks.find(p => p.type === "1")
+      : dc.type === "12" ? resultPicks.find(p => p.type === "X")
+      : null;
+    if (opposing) {
+      // DC prob + zıt sonuç olasılığı 100%'ü geçmemeli
+      const dcImpliedProb = dc.expectedValue !== undefined ? (dc.expectedValue + 1) / dc.odds : dc.confidence / 100;
+      const oppImpliedProb = opposing.expectedValue !== undefined ? (opposing.expectedValue + 1) / opposing.odds : opposing.confidence / 100;
+      if (dcImpliedProb + oppImpliedProb > 1.05) { // %5 tolerance
+        // Fazlalığı düşük confidence olan pick'ten kes
+        if (dc.confidence > opposing.confidence) {
+          opposing.confidence = Math.max(10, opposing.confidence - 5);
+        } else {
+          dc.confidence = Math.max(10, dc.confidence - 5);
+        }
+      }
+    }
+  }
 
   return picks;
 }

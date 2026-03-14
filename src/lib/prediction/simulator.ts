@@ -431,6 +431,52 @@ export function simulateMatch(
     // İlk yarı simülasyonu (Negative Binomial)
     const homeGoalsHT = negativeBinomialRandom(homeLambdaHT, overdispersionR);
     const awayGoalsHT = negativeBinomialRandom(awayLambdaHT, overdispersionR);
+
+    // === KORELASYONLU İY/MS ===
+    // İlk yarı sonucuna göre 2. yarı lambda'larını ayarla
+    // Önde olan takım temposunu düşürür, gerideki risk alır
+    const htDiff = homeGoalsHT - awayGoalsHT;
+    let homeLambda2H = homeLambda * (1 - htFactorHome); // Kalan 2. yarı lambda'sı
+    let awayLambda2H = awayLambda * (1 - htFactorAway);
+
+    if (htDiff >= 2) {
+      // Ev sahibi 2+ gol önde → tempo düşer, rakip agresifleşir
+      homeLambda2H *= 0.80;
+      awayLambda2H *= 1.18;
+    } else if (htDiff === 1) {
+      // Ev sahibi 1 gol önde → hafif defansif, rakip biraz daha agresif
+      homeLambda2H *= 0.92;
+      awayLambda2H *= 1.10;
+    } else if (htDiff === 0) {
+      // Berabere → iki taraf da daha agresif (özellikle 0-0 ise)
+      const zeroDraw = homeGoalsHT === 0 && awayGoalsHT === 0;
+      const aggressionBoost = zeroDraw ? 1.12 : 1.05;
+      homeLambda2H *= aggressionBoost;
+      awayLambda2H *= aggressionBoost;
+    } else if (htDiff === -1) {
+      // Deplasman 1 gol önde → ev sahibi agresifleşir
+      homeLambda2H *= 1.10;
+      awayLambda2H *= 0.92;
+    } else {
+      // Deplasman 2+ gol önde → ev sahibi çok agresif, deplasman rahatlar
+      homeLambda2H *= 1.18;
+      awayLambda2H *= 0.80;
+    }
+
+    // 2. yarı golleri (korelasyonlu)
+    const homeGoals2H = negativeBinomialRandom(homeLambda2H, overdispersionR);
+    const awayGoals2H = negativeBinomialRandom(awayLambda2H, overdispersionR);
+
+    // Toplam skorlar: İY + 2Y
+    const homeGoalsCorr = homeGoalsHT + homeGoals2H;
+    const awayGoalsCorr = awayGoalsHT + awayGoals2H;
+
+    // İY/MS: Korelasyonlu skorlardan sonuç belirle
+    const htResult = homeGoalsHT > awayGoalsHT ? "1" : homeGoalsHT === awayGoalsHT ? "X" : "2";
+    const ftResultCorr = homeGoalsCorr > awayGoalsCorr ? "1" : homeGoalsCorr === awayGoalsCorr ? "X" : "2";
+    const htftKey = `${htResult}/${ftResultCorr}`;
+    htftMap.set(htftKey, (htftMap.get(htftKey) || 0) + 1);
+
     const totalGoalsHT = homeGoalsHT + awayGoalsHT;
 
     // --- Sonuç sayaçları (full time) ---
@@ -466,11 +512,7 @@ export function simulateMatch(
     if (homeGoalsHT > 0) htHomeGoal++;
     if (awayGoalsHT > 0) htAwayGoal++;
 
-    // İY/MS: İlk yarı sonucunu belirle ve MS ile eşleştir
-    const htResult = homeGoalsHT > awayGoalsHT ? "1" : homeGoalsHT === awayGoalsHT ? "X" : "2";
-    const ftResult = isHomeWin ? "1" : isDraw ? "X" : "2";
-    const htftKey = `${htResult}/${ftResult}`;
-    htftMap.set(htftKey, (htftMap.get(htftKey) || 0) + 1);
+    // İY/MS zaten yukarıda korelasyonlu olarak hesaplandı (htftMap)
 
     // Skor haritaları
     const scoreKey = `${homeGoals}-${awayGoals}`;

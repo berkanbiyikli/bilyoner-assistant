@@ -105,6 +105,9 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
 
   const matchOdds = extractOdds(odds);
 
+  // === H2H Oran Bazlı İY/MS Pattern ===
+  analysis.h2hOddsHtFt = analyzeH2HHtFtPattern(h2h, matchOdds, homeId);
+
   // === Veri Kalitesi Hesaplama ===
   const dataQuality = calculateDataQuality(
     prediction, h2h, odds, injuries, refereeProfile, matchOdds,
@@ -462,6 +465,68 @@ function calculateInjuryImpact(keyMissing: KeyMissingPlayer[]): { home: number; 
   return {
     home: Math.min(20, homeImpact),
     away: Math.min(20, awayImpact),
+  };
+}
+
+// ============================================
+// H2H Oran Bazlı İY/MS Pattern Analizi
+// Geçmiş maçlardaki oran profillerinden İY/MS dağılımı çıkarır
+// ============================================
+
+function analyzeH2HHtFtPattern(
+  h2h: H2HResponse[],
+  currentOdds: MatchOdds | undefined,
+  homeTeamId: number
+): MatchAnalysis["h2hOddsHtFt"] {
+  // En az 3 H2H maç gerekli
+  if (h2h.length < 3) return undefined;
+
+  // Biten maçlardan İY/MS sonuçlarını çıkar
+  const htftResults: string[] = [];
+  for (const match of h2h) {
+    if (match.fixture.status.short !== "FT") continue;
+    const ht = match.score?.halftime;
+    const ft = match.score?.fulltime;
+    if (ht?.home == null || ht?.away == null || ft?.home == null || ft?.away == null) continue;
+
+    // Perspektifi normalize et: currentMatch'in ev sahibi = "home" olarak al
+    const isCurrentHome = match.teams.home.id === homeTeamId;
+    const htHome = isCurrentHome ? ht.home : ht.away;
+    const htAway = isCurrentHome ? ht.away : ht.home;
+    const ftHome = isCurrentHome ? ft.home : ft.away;
+    const ftAway = isCurrentHome ? ft.away : ft.home;
+
+    const htResult = htHome > htAway ? "1" : htHome === htAway ? "X" : "2";
+    const ftResult = ftHome > ftAway ? "1" : ftHome === ftAway ? "X" : "2";
+    htftResults.push(`${htResult}/${ftResult}`);
+  }
+
+  if (htftResults.length < 3) return undefined;
+
+  // İY/MS dağılımını hesapla
+  const distribution: Record<string, number> = {};
+  for (const result of htftResults) {
+    distribution[result] = (distribution[result] || 0) + 1;
+  }
+  // Yüzdeye çevir
+  for (const key of Object.keys(distribution)) {
+    distribution[key] = Math.round((distribution[key] / htftResults.length) * 100);
+  }
+
+  // Geri dönüş oranı: İY'de önde olup MS'de kaybeden senaryolar
+  const comebackResults = ["1/2", "2/1", "1/X", "2/X"];
+  const comebackCount = htftResults.filter(r => comebackResults.includes(r)).length;
+  const comebackRate = Math.round((comebackCount / htftResults.length) * 100);
+
+  // En baskın pattern
+  const sortedPatterns = Object.entries(distribution).sort((a, b) => b[1] - a[1]);
+  const dominantPattern = sortedPatterns[0]?.[0];
+
+  return {
+    sampleSize: htftResults.length,
+    distribution,
+    comebackRate,
+    dominantPattern,
   };
 }
 
@@ -1245,19 +1310,57 @@ function generatePicks(
     }
   }
 
-  // --- İY/MS (Half Time / Full Time) --- SİMÜLASYON BAZLI
-  if (odds.htft && Object.keys(odds.htft).length > 0 && sim?.simHtFtProbs) {
-    // Simülasyondan gelen İY/MS olasılıklarını kullan (10K iterasyon)
+  // --- İY/MS (Half Time / Full Time) --- KORELASYONLU SİMÜLASYON + ORAN PROFİLİ
+  if (sim?.simHtFtProbs) {
+    const h2hPattern = analysis.h2hOddsHtFt;
+
+    // İY/MS oranları: gerçek htft varsa kullan, yoksa sim'den türet
+    const htftOdds: Record<string, number> = {};
+    if (odds.htft && Object.keys(odds.htft).length > 0) {
+      Object.assign(htftOdds, odds.htft);
+    } else {
+      // Sim olasılıklarından oran türet (%7 margin)
+      for (const [key, simProb] of Object.entries(sim.simHtFtProbs)) {
+        if (simProb > 3) { // Min %3 olasılık
+          htftOdds[key] = Math.round((107 / simProb) * 100) / 100;
+        }
+      }
+    }
+
     const htftEntries = Object.entries(sim.simHtFtProbs)
-      .filter(([key]) => odds.htft![key] && odds.htft![key] > 1.0)
-      .map(([key, simProb]) => ({
-        key,
-        prob: simProb / 100, // simProb % cinsinden gelir
-        odds: odds.htft![key],
-        implied: 1 / odds.htft![key],
-        ev: (simProb / 100) * odds.htft![key] - 1,
-      }))
-      .filter((e) => e.prob > 0.06) // En az %6 olasılık
+      .filter(([key]) => htftOdds[key] && htftOdds[key] > 1.0)
+      .map(([key, simProb]) => {
+        const entryOdds = htftOdds[key];
+        const prob = simProb / 100;
+        const implied = 1 / entryOdds;
+
+        // H2H oran profilinden bonus/ceza
+        let h2hBonus = 0;
+        if (h2hPattern && h2hPattern.sampleSize >= 3) {
+          const h2hProb = (h2hPattern.distribution[key] || 0) / 100;
+          // H2H'de bu pattern sık görülüyorsa → bonus
+          if (h2hProb > 0.20) h2hBonus = 0.06; // %20+ → güçlü sinyal
+          else if (h2hProb > 0.12) h2hBonus = 0.03; // %12+ → orta sinyal
+
+          // Comeback senaryoları (1/2, 2/1) için özel bonus
+          const isComebackScenario = key === "1/2" || key === "2/1";
+          if (isComebackScenario && h2hPattern.comebackRate > 25) {
+            h2hBonus += 0.05; // Geçmişte çok geri dönüş varsa güçlü sinyal
+          }
+        }
+
+        const adjustedProb = Math.min(0.95, prob + h2hBonus);
+        return {
+          key,
+          prob: adjustedProb,
+          rawProb: prob,
+          odds: entryOdds,
+          implied,
+          ev: adjustedProb * entryOdds - 1,
+          h2hBonus,
+        };
+      })
+      .filter((e) => e.prob > 0.10) // Min %10 olasılık (eskiden %6 idi)
       .sort((a, b) => b.ev - a.ev);
 
     // En iyi 2 İY/MS pick'i üret
@@ -1265,20 +1368,35 @@ function generatePicks(
     for (const entry of htftEntries) {
       if (htftCount >= 2) break;
       const type = entry.key as PickType;
-      let conf = calculateConfidence(entry.prob, entry.implied, entry.prob > 0.18);
+      let conf = calculateConfidence(entry.prob, entry.implied, entry.prob > 0.20);
       conf = hybridConfidence(conf, type);
 
-      if (conf >= 48 && entry.ev > -0.08) {
+      // H2H bonus varsa confidence'a da ekle
+      if (entry.h2hBonus > 0) {
+        conf = Math.min(92, conf + Math.round(entry.h2hBonus * 50));
+      }
+
+      if (conf >= 55 && entry.ev > 0.0) { // Min %55 güven, pozitif EV zorunlu
         const htLabel = entry.key.split("/")[0] === "1" ? "Ev" : entry.key.split("/")[0] === "X" ? "Beraberlik" : "Deplasman";
         const ftLabel = entry.key.split("/")[1] === "1" ? "Ev" : entry.key.split("/")[1] === "X" ? "Beraberlik" : "Deplasman";
+
+        // Comeback pick'leri özel etiketle
+        const isComebackScenario = entry.key === "1/2" || entry.key === "2/1";
+        let reasoning = `İY ${htLabel} → MS ${ftLabel} — sim. %${(entry.rawProb * 100).toFixed(1)}`;
+        if (isComebackScenario && entry.h2hBonus > 0) {
+          reasoning += ` | H2H geri dönüş sinyali (%${analysis.h2hOddsHtFt?.comebackRate ?? 0})`;
+        } else if (entry.h2hBonus > 0) {
+          reasoning += ` | H2H destekli`;
+        }
+
         picks.push({
           type,
           confidence: conf,
           odds: entry.odds,
-          reasoning: `İY ${htLabel} → MS ${ftLabel} — sim. %${(entry.prob * 100).toFixed(1)}`,
+          reasoning,
           expectedValue: Math.round(entry.ev * 100) / 100,
           isValueBet: entry.ev > 0.05,
-          simProbability: entry.prob * 100,
+          simProbability: entry.rawProb * 100,
         });
         htftCount++;
       }

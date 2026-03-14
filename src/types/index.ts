@@ -137,6 +137,13 @@ export interface MatchAnalysis {
   refereeProfile?: RefereeProfile;
   // Veri kalitesi
   dataQuality?: DataQualityScore;
+  // H2H oran bazlı İY/MS pattern
+  h2hOddsHtFt?: {
+    sampleSize: number;                      // Benzer oranlı maç sayısı
+    distribution: Record<string, number>;    // İY/MS dağılımı (% cinsinden)
+    comebackRate: number;                    // Geri dönüş oranı (1/2 + 2/1 toplamı %)
+    dominantPattern?: string;                // En sık görülen İY/MS (ör. "1/1")
+  };
 }
 
 export interface GoalTimingData {

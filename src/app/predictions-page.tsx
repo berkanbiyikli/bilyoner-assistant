@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { LeagueFilter } from "@/components/league-filter";
 import { PreferenceFilter } from "@/components/preference-filter";
 import { CouponSidebar } from "@/components/coupon-sidebar";
@@ -152,6 +152,8 @@ export function PredictionsPage() {
 
   const [apiMessage, setApiMessage] = useState<string | null>(null);
 
+  const redirectRef = useRef(false);
+
   const fetchPredictions = async () => {
     setLoading(true);
     setApiMessage(null);
@@ -162,6 +164,11 @@ export function PredictionsPage() {
       const res = await fetch(url);
       const data = await res.json();
       setPredictions(data.predictions || []);
+      if (data.source === "redirect" && data.redirectDates) {
+        // Tarih seçiciyi güncelle ama tekrar fetch tetikleme
+        redirectRef.current = true;
+        setSelectedDates(data.redirectDates);
+      }
       if (data.source === "fallback" && data.message) setApiMessage(data.message);
     } catch (error) {
       console.error("Tahminler yüklenemedi:", error);
@@ -182,7 +189,10 @@ export function PredictionsPage() {
     finally { setCrazyLoading(false); }
   };
 
-  useEffect(() => { fetchPredictions(); }, [selectedDates]);
+  useEffect(() => {
+    if (redirectRef.current) { redirectRef.current = false; return; }
+    fetchPredictions();
+  }, [selectedDates]);
   useEffect(() => {
     if (activeTab === "crazy-picks" && crazyPicks.length === 0 && !crazyLoading && !crazyError) fetchCrazyPicks();
   }, [activeTab]);

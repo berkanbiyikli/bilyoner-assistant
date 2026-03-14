@@ -264,19 +264,32 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Eğer hiç tahmin yoksa ve API limiti dolmuşsa, en son tahminleri göster
+    // Eğer hiç tahmin yoksa, en yakın gelecek tahminleri göster
     if (allPredictions.length === 0) {
+      const now = new Date().toISOString();
       const { data: latestPreds } = await supabase
         .from("predictions")
         .select("*")
         .neq("pick", "no_pick")
-        .order("kickoff", { ascending: false })
+        .gte("kickoff", now)
+        .order("kickoff", { ascending: true })
         .limit(100);
 
-      if (latestPreds && latestPreds.length > 0) {
-        // Son tahminleri grupla
-        const latestGrouped = new Map<number, typeof latestPreds>();
-        for (const p of latestPreds) {
+      // Gelecekte yoksa geçmişe bak
+      const finalPreds = (latestPreds && latestPreds.length > 0) ? latestPreds : (await supabase
+        .from("predictions")
+        .select("*")
+        .neq("pick", "no_pick")
+        .order("kickoff", { ascending: false })
+        .limit(100)).data;
+
+      if (finalPreds && finalPreds.length > 0) {
+        // Tahminlerin ait olduğu tarihleri bul
+        const predDates = [...new Set(finalPreds.map(p => p.kickoff.split("T")[0]))].sort();
+
+        // Tahminleri grupla
+        const latestGrouped = new Map<number, typeof finalPreds>();
+        for (const p of finalPreds) {
           const group = latestGrouped.get(p.fixture_id) || [];
           group.push(p);
           latestGrouped.set(p.fixture_id, group);
@@ -345,9 +358,10 @@ export async function GET(req: NextRequest) {
         });
 
         return NextResponse.json({
-          dates,
-          source: "fallback",
-          message: "Seçilen tarih için tahmin bulunamadı. Son tahminler gösteriliyor.",
+          dates: predDates,
+          source: "redirect",
+          redirectDates: predDates,
+          message: `${dates.join(", ")} tarihinde maç bulunamadı. ${predDates.join(", ")} tahminleri gösteriliyor.`,
           total: 0,
           fromDb: 0,
           fromLive: 0,

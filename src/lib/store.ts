@@ -20,6 +20,11 @@ export type MarketFilter =
 
 // İY/MS alt filtresi
 export type HtFtSubFilter = "all" | "straight" | "comeback" | "draw_path" | string;
+export type KickoffRange = "all" | "morning" | "afternoon" | "evening" | "night";
+export type TeamFormFilter = "all" | "strong_home" | "strong_away" | "balanced";
+export type RefereeTendency = "all" | "strict" | "moderate" | "lenient";
+export type XgFilter = "all" | "overperform" | "underperform";
+export type CornerCardFilter = "all" | "high_corners" | "high_cards";
 
 export interface PreferenceFilters {
   market: MarketFilter;
@@ -34,6 +39,14 @@ export interface PreferenceFilters {
   htftSubFilter: HtFtSubFilter; // İY/MS alt filtresi
   htftSelectedCombos: string[]; // Seçili İY/MS kombinasyonları (boş = hepsi)
   showOnlyH2HSupported: boolean; // Sadece H2H destekli İY/MS
+  // Maç seviyesi filtreler
+  kickoffRange: KickoffRange;        // Maç saati aralığı
+  minDataQuality: number;            // Minimum veri kalitesi (0-100)
+  teamFormFilter: TeamFormFilter;    // Takım formu filtresi
+  lateGoalFilter: boolean;           // Geç gol eğilimi yüksek maçlar
+  refereeTendency: RefereeTendency;  // Hakem profili
+  xgFilter: XgFilter;                // xG verimlilik filtresi
+  cornerCardFilter: CornerCardFilter; // Korner/Kart filtresi
 }
 
 const DEFAULT_FILTERS: PreferenceFilters = {
@@ -48,6 +61,13 @@ const DEFAULT_FILTERS: PreferenceFilters = {
   htftSubFilter: "all",
   htftSelectedCombos: [],
   showOnlyH2HSupported: false,
+  kickoffRange: "all",
+  minDataQuality: 0,
+  teamFormFilter: "all",
+  lateGoalFilter: false,
+  refereeTendency: "all",
+  xgFilter: "all",
+  cornerCardFilter: "all",
 };
 
 interface AppState {

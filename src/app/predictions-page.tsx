@@ -268,17 +268,32 @@ export function PredictionsPage() {
     }, 0);
   }, [leagueFiltered]);
 
-  // Quick filter: KG Var, Ü2.5, İY KG Var
+  // Quick filter: KG Var, Ü2.5, İY KG Var, Geri Dönüş, 1/2, 2/1
   const quickFiltered = useMemo(() => {
     if (quickFilters.size === 0) return filteredPredictions;
-    return filteredPredictions.filter(p => {
-      const pickTypes = p.picks.map(pk => pk.type);
-      if (quickFilters.has("btts") && !pickTypes.includes("BTTS Yes")) return false;
-      if (quickFilters.has("over25") && !pickTypes.includes("Over 2.5")) return false;
-      if (quickFilters.has("ht_btts") && !pickTypes.includes("HT BTTS Yes")) return false;
-      if (quickFilters.has("htft") && !pickTypes.some(t => MARKET_PICK_MAP.htft.includes(t))) return false;
-      return true;
-    });
+    // İY/MS combo quick filters need pick-level filtering too
+    const htftQuickCombos: string[] = [];
+    if (quickFilters.has("comeback")) htftQuickCombos.push("1/2", "2/1");
+    if (quickFilters.has("htft_12")) htftQuickCombos.push("1/2");
+    if (quickFilters.has("htft_21")) htftQuickCombos.push("2/1");
+    const uniqueCombos = [...new Set(htftQuickCombos)];
+
+    return filteredPredictions
+      .map(p => {
+        const pickTypes = p.picks.map(pk => pk.type);
+        if (quickFilters.has("btts") && !pickTypes.includes("BTTS Yes")) return null;
+        if (quickFilters.has("over25") && !pickTypes.includes("Over 2.5")) return null;
+        if (quickFilters.has("ht_btts") && !pickTypes.includes("HT BTTS Yes")) return null;
+        if (quickFilters.has("htft") && !pickTypes.some(t => MARKET_PICK_MAP.htft.includes(t))) return null;
+        // Geri dönüş / 1/2 / 2/1 quick filters: filter picks
+        if (uniqueCombos.length > 0) {
+          const filtered = p.picks.filter(pk => uniqueCombos.includes(pk.type));
+          if (filtered.length === 0) return null;
+          return { ...p, picks: filtered };
+        }
+        return p;
+      })
+      .filter(Boolean) as typeof filteredPredictions;
   }, [filteredPredictions, quickFilters]);
 
   // Filter: sadece başlamamış maçları göster
@@ -461,6 +476,9 @@ export function PredictionsPage() {
                 { key: "over25", label: "2.5 Üst", icon: "📊" },
                 { key: "ht_btts", label: "İY KG Var", icon: "🥇" },
                 { key: "htft", label: "İY/MS", icon: "⏱️" },
+                { key: "comeback", label: "Geri Dönüş", icon: "🔄" },
+                { key: "htft_12", label: "1/2", icon: "🟠" },
+                { key: "htft_21", label: "2/1", icon: "🟣" },
               ].map(f => {
                 const active = quickFilters.has(f.key);
                 const count = filteredPredictions.filter(p => {
@@ -469,6 +487,9 @@ export function PredictionsPage() {
                   if (f.key === "over25") return types.includes("Over 2.5");
                   if (f.key === "ht_btts") return types.includes("HT BTTS Yes");
                   if (f.key === "htft") return types.some(t => MARKET_PICK_MAP.htft.includes(t));
+                  if (f.key === "comeback") return types.includes("1/2") || types.includes("2/1");
+                  if (f.key === "htft_12") return types.includes("1/2");
+                  if (f.key === "htft_21") return types.includes("2/1");
                   return false;
                 }).length;
                 return (

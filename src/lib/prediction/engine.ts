@@ -1736,6 +1736,16 @@ async function generatePicks(
     }
   }
 
+  // === 6. GLOBAL EV SAĞDUYU LİMİTİ ===
+  // CS ve İY/MS pick'leri addPick'i bypass ediyor — hepsine EV cap uygula
+  // Max %50 EV: Bunun üstü gerçekçi değil, modelin aşırı güvenini gösterir
+  for (const pick of picks) {
+    if (pick.expectedValue > 0.50) {
+      pick.expectedValue = 0.50;
+      pick.isValueBet = true;
+    }
+  }
+
   return picks;
 }
 

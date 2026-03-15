@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminSupabase } from "@/lib/supabase/admin";
+import { createAdminSupabase, fetchAllRows } from "@/lib/supabase/admin";
 import { getFixtureById, getFixtureStatistics, getFixtureEvents } from "@/lib/api-football";
 import {
   sendTweet,
@@ -14,6 +14,9 @@ import {
 import { generateOutcomeTweet } from "@/lib/bot/prompts";
 import { createValidationRecord, saveValidationRecord, calculateValidationStats, formatValidationTweet } from "@/lib/prediction/validator";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   try {
     const authHeader = req.headers.get("authorization");
@@ -21,15 +24,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const startTime = Date.now();
+    const TIME_BUDGET_MS = 55_000; // 55 saniye — 5 sn güvenlik payı
     const supabase = createAdminSupabase();
 
-    // Bekleyen tahminleri çek
-    const { data: pending } = await supabase
-      .from("predictions")
-      .select("*")
-      .eq("result", "pending")
-      .neq("pick", "no_pick")
-      .lte("kickoff", new Date().toISOString());
+    // Tüm bekleyen tahminleri sayfalayarak çek (1000 satır limiti aşılır)
+    const pending = await fetchAllRows<{
+      id: string; fixture_id: number; home_team: string; away_team: string;
+      league: string; kickoff: string; pick: string; odds: number;
+      confidence: number; expected_value: number; is_value_bet: boolean;
+      result: string; analysis_summary: string; created_at: string;
+    }>(supabase, "predictions", {
+      select: "*",
+      order: { column: "kickoff", ascending: true }, // En eski önce
+      filters: [
+        { method: "eq", args: ["result", "pending"] },
+        { method: "neq", args: ["pick", "no_pick"] },
+        { method: "lte", args: ["kickoff", new Date().toISOString()] },
+      ],
+    });
 
     if (!pending || pending.length === 0) {
       return NextResponse.json({ success: true, settled: 0, message: "No pending predictions" });
@@ -41,11 +54,20 @@ export async function GET(req: NextRequest) {
 
     // Benzersiz fixture ID'leri
     const fixtureIds = [...new Set(pending.map((p) => p.fixture_id))];
+    // Fixture cache — aynı fixture'ı iki kez çekmemek için
+    const fixtureCache = new Map<number, Awaited<ReturnType<typeof getFixtureById>>>();
 
     for (const fixtureId of fixtureIds) {
+      // Zaman bütçesi kontrolü
+      if (Date.now() - startTime > TIME_BUDGET_MS - 10_000) {
+        console.log(`[SETTLE] Time budget reached after ${fixtureIds.indexOf(fixtureId) + 1}/${fixtureIds.length} fixtures`);
+        break;
+      }
+
       try {
         const fixture = await getFixtureById(fixtureId);
         if (!fixture) continue;
+        fixtureCache.set(fixtureId, fixture);
 
         const status = fixture.fixture.status.short;
         // Sadece biten maçları işle (FT=Full Time, AET=After Extra Time, PEN=Penalties)
@@ -295,16 +317,22 @@ export async function GET(req: NextRequest) {
           settled++;
         }
 
-        // Rate limit
-        await new Promise((r) => setTimeout(r, 500));
+        // Rate limit — kısa tut
+        await new Promise((r) => setTimeout(r, 200));
       } catch (err) {
         console.error(`[SETTLE] Fixture ${fixtureId} error:`, err);
+      }
+
+      // Zaman bütçesi kontrolü — tweet'lere zaman kalsın
+      if (Date.now() - startTime > TIME_BUDGET_MS - 10_000) {
+        console.log(`[SETTLE] Time budget reached after ${fixtureIds.indexOf(fixtureId) + 1}/${fixtureIds.length} fixtures`);
+        break;
       }
     }
 
     // Sonuç tweet'i (günde 1 kez) — duplicate check
     let outcomeReplies = 0;
-    if (settled > 0) {
+    if (settled > 0 && (Date.now() - startTime) < TIME_BUDGET_MS) {
       // Bugün zaten result tweet atılmış mı?
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
@@ -345,6 +373,9 @@ export async function GET(req: NextRequest) {
       );
 
       for (const fixtureId of fixtureIds) {
+        // Zaman bütçesi kontrolü
+        if (Date.now() - startTime > TIME_BUDGET_MS) break;
+
         // Bu fixture'a zaten outcome reply atılmışsa atla
         if (alreadyRepliedFixtures.has(fixtureId)) {
           console.log(`[SETTLE] Outcome reply already sent for fixture ${fixtureId} — skipping`);
@@ -356,7 +387,7 @@ export async function GET(req: NextRequest) {
           if (!chain) continue;
 
           const fixturePreds = pending!.filter((p) => p.fixture_id === fixtureId);
-          const fixture = await getFixtureById(fixtureId);
+          const fixture = fixtureCache.get(fixtureId) || await getFixtureById(fixtureId);
           if (!fixture) continue;
 
           const status = fixture.fixture.status.short;
@@ -450,7 +481,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    console.log(`[CRON] Settle: ${settled} settled (${won}W/${lost}L), ${outcomeReplies} thread replies`);
+    console.log(`[CRON] Settle: ${settled} settled (${won}W/${lost}L), ${outcomeReplies} thread replies, ${pending.length} total pending, ${Math.round((Date.now() - startTime) / 1000)}s elapsed`);
 
     return NextResponse.json({
       success: true,
@@ -458,6 +489,9 @@ export async function GET(req: NextRequest) {
       won,
       lost,
       outcomeReplies,
+      totalPending: pending.length,
+      fixturesProcessed: fixtureIds.length,
+      elapsedMs: Date.now() - startTime,
     });
   } catch (error) {
     console.error("Settle bets cron error:", error);

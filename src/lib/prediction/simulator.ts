@@ -554,13 +554,21 @@ export function simulateMatch(
     htFtProbs[key] = toPercent(count);
   }
 
+  const rawOver15 = hybridPercent(over15, dcAnalytic.over15);
+  const rawOver25 = hybridPercent(over25, dcAnalytic.over25);
+  const rawOver35 = hybridPercent(over35, dcAnalytic.over35);
+
+  // Mantıksal tutarlılık: Over 1.5 >= Over 2.5 >= Over 3.5
+  const safeOver25 = Math.min(rawOver25, rawOver15);
+  const safeOver35 = Math.min(rawOver35, safeOver25);
+
   return {
     simHomeWinProb: hybridPercent(homeWins, dcAnalytic.homeWin),
     simDrawProb: hybridPercent(draws, dcAnalytic.draw),
     simAwayWinProb: hybridPercent(awayWins, dcAnalytic.awayWin),
-    simOver15Prob: hybridPercent(over15, dcAnalytic.over15),
-    simOver25Prob: hybridPercent(over25, dcAnalytic.over25),
-    simOver35Prob: hybridPercent(over35, dcAnalytic.over35),
+    simOver15Prob: rawOver15,
+    simOver25Prob: safeOver25,
+    simOver35Prob: safeOver35,
     simBttsProb: hybridPercent(bttsYes, dcAnalytic.bttsYes),
     simHtOver05Prob: toPercent(htOver05),
     simHtOver15Prob: toPercent(htOver15),

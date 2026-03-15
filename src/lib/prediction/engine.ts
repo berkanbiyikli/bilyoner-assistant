@@ -1233,7 +1233,11 @@ async function generatePicks(
     conf = hybridConfidence(conf, type);
     conf = applyH2HFilter(conf, type);
 
-    const ev = modelProb * oddsValue - 1;
+    // EV hesabı: blended confidence'ı olasılık olarak kullan (daha gerçekçi)
+    // Eski: modelProb * odds - 1 (sim şişikse EV de şişik çıkıyordu)
+    // Yeni: (conf/100) * odds - 1 (blended, damped, calibrated olasılık)
+    const blendedProb = conf / 100;
+    const ev = blendedProb * oddsValue - 1;
     const simProb = sim ? getSimProbability(sim, type) : undefined;
 
     if (conf >= minConf) {
@@ -1283,18 +1287,28 @@ async function generatePicks(
   }
 
   // --- Üst/Alt 1.5 ve 3.5 (sim-driven) ---
+  // MANTIKSAL KISITLAMALAR:
+  // Over 1.5 ⊃ Over 2.5 ⊃ Over 3.5 → olasılık azalmalı
+  // Under 1.5 ⊂ Under 2.5 ⊂ Under 3.5 → olasılık artmalı
   if (sim) {
+    // Sim tutarlılık düzeltmesi: Over 3.5 > Over 2.5 olamaz
+    const safeOver35Prob = Math.min(sim.simOver35Prob, sim.simOver25Prob - 5);
+    const safeUnder15Prob = Math.min(100 - sim.simOver15Prob, 100 - sim.simOver25Prob - 5);
+
     if (sim.simOver15Prob > 82) {
       addPick("Over 1.5", sim.simOver15Prob / 100, 1 / odds.over15, odds.over15, xgTotal > 2.5, 62);
     }
-    if ((100 - sim.simOver15Prob) > 45) {
-      addPick("Under 1.5", (100 - sim.simOver15Prob) / 100, 1 / odds.under15, odds.under15, xgTotal < 1.5, 58);
+    if (safeUnder15Prob > 45) {
+      addPick("Under 1.5", safeUnder15Prob / 100, 1 / odds.under15, odds.under15, xgTotal < 1.5, 58);
     }
-    if (sim.simOver35Prob > 50 && xgTotal > 3.0) {
-      addPick("Over 3.5", sim.simOver35Prob / 100, 1 / odds.over35, odds.over35, xgTotal > 3.5, 58);
+    // Over 3.5 SADECE Over 2.5 de güçlüyse üret
+    if (safeOver35Prob > 50 && sim.simOver25Prob > 60 && xgTotal > 3.0) {
+      addPick("Over 3.5", safeOver35Prob / 100, 1 / odds.over35, odds.over35, xgTotal > 3.5, 58);
     }
-    if ((100 - sim.simOver35Prob) > 65) {
-      addPick("Under 3.5", (100 - sim.simOver35Prob) / 100, 1 / odds.under35, odds.under35, xgTotal < 2.5, 52);
+    // Under 3.5: olasılık en az Under 2.5'tan yüksek olmalı (zaten öyle ama sim hatası olabilir)
+    const safeUnder35Prob = Math.max(100 - sim.simOver35Prob, 100 - sim.simOver25Prob);
+    if (safeUnder35Prob > 65) {
+      addPick("Under 3.5", safeUnder35Prob / 100, 1 / odds.under35, odds.under35, xgTotal < 2.5, 52);
     }
   }
 

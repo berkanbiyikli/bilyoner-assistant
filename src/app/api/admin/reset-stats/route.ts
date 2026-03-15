@@ -138,7 +138,14 @@ export async function POST(request: Request) {
       predictions: predAfter ?? 0,
     };
 
-    // === 5. Cache temizle ===
+    // === 5. ML Model sıfırla (sentetik veriyle eğitilmiş modeli temizle) ===
+    const { error: mlError } = await supabase
+      .from("ml_models")
+      .delete()
+      .eq("id", "current");
+    details.ml_model_reset = mlError ? `Hata: ${mlError.message}` : "ML modeli sıfırlandı";
+
+    // === 6. Cache temizle ===
     clearCache();
 
     const totalBefore = (valBefore ?? 0) + (predBefore ?? 0);

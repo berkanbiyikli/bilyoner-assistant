@@ -267,17 +267,21 @@
   DECLARE
     val_count INTEGER;
     pred_count INTEGER;
+    ml_count INTEGER;
   BEGIN
     SELECT COUNT(*) INTO val_count FROM validation_records;
     SELECT COUNT(*) INTO pred_count FROM predictions;
+    SELECT COUNT(*) INTO ml_count FROM ml_models;
 
     DELETE FROM validation_records;
     DELETE FROM predictions;
+    DELETE FROM ml_models;
 
     RETURN json_build_object(
       'validation_deleted', val_count,
       'predictions_deleted', pred_count,
-      'total', val_count + pred_count
+      'ml_models_deleted', ml_count,
+      'total', val_count + pred_count + ml_count
     );
   END;
   $$;

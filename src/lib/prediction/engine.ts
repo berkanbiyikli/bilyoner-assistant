@@ -38,15 +38,15 @@ import { analyzeForm, type FormAnalysis } from "@/lib/prediction/form-analyzer";
 import { calculateEloFromMatches, eloToWinProbabilities, calculateH2HElo } from "@/lib/prediction/elo";
 import { isMLModelAvailable, getMLProbability, buildFeatureVector, type MLFeatureVector } from "@/lib/prediction/ml-model";
 
-const CACHE_TTL = 30 * 60; // 30 dakika
+const CACHE_TTL = 10 * 60; // 10 dakika (veri tazeliği için kısa)
 
 export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPrediction> {
   const fixtureId = fixture.fixture.id;
   const homeId = fixture.teams.home.id;
   const awayId = fixture.teams.away.id;
 
-  // Cache kontrol (v4: comparison + form fix)
-  const cacheKey = `prediction-v4-${fixtureId}`;
+  // Cache kontrol (v5: gerçek veri kaynağı geçişi)
+  const cacheKey = `prediction-v5-${fixtureId}`;
   const cached = getCached<MatchPrediction>(cacheKey);
   if (cached) return cached;
 
@@ -799,10 +799,10 @@ function calculateDataQuality(
 
   // Güven cezası: kalite düştükçe artan ceza
   let confidencePenalty = 0;
-  if (overall < 25) confidencePenalty = 15; // Çok düşük kalite → ağır ceza
-  else if (overall < 40) confidencePenalty = 10;
-  else if (overall < 55) confidencePenalty = 6;
-  else if (overall < 70) confidencePenalty = 3;
+  if (overall < 40) confidencePenalty = 15;      // Çok düşük kalite → pick kapısında zaten engellenir
+  else if (overall < 50) confidencePenalty = 10;  // Düşük kalite → ağır ceza
+  else if (overall < 60) confidencePenalty = 6;   // Orta-alt
+  else if (overall < 70) confidencePenalty = 3;   // Kabul edilebilir ama ideal değil
 
   // Log warnings
   if (warnings.length > 0) {
@@ -1135,9 +1135,9 @@ async function generatePicks(
   const picks: Pick[] = [];
   if (!odds) return picks;
 
-  // === VERİ KALİTESİ KAPISI: Çok düşük kaliteli veriyle pick üretme ===
-  if (dataQuality && dataQuality.overall < 25) {
-    console.warn(`[QUALITY-GATE] Pick üretimi iptal — veri kalitesi çok düşük: ${dataQuality.overall}/100`);
+  // === VERİ KALİTESİ KAPISI: Düşük kaliteli veriyle pick üretme ===
+  if (dataQuality && dataQuality.overall < 40) {
+    console.warn(`[QUALITY-GATE] Pick üretimi iptal — veri kalitesi düşük: ${dataQuality.overall}/100`);
     return picks;
   }
 

@@ -1290,11 +1290,13 @@ async function generatePicks(
     conf = hybridConfidence(conf, type);
     conf = applyH2HFilter(conf, type);
 
-    // EV hesabı: blended confidence'ı olasılık olarak kullan (daha gerçekçi)
-    // Eski: modelProb * odds - 1 (sim şişikse EV de şişik çıkıyordu)
-    // Yeni: (conf/100) * odds - 1 (blended, damped, calibrated olasılık)
-    const blendedProb = conf / 100;
-    const ev = blendedProb * oddsValue - 1;
+    // EV hesabı: blended olasılık vs piyasa implied olasılığı
+    // conf/100 değil, modelProb ve impliedProb'un ortalamasını kullan (daha gerçekçi)
+    // conf doğrudan olasılık değil — güven seviyesidir
+    const effectiveProb = Math.min(0.92, (modelProb * 0.6 + (conf / 100) * 0.4));
+    const ev = effectiveProb * oddsValue - 1;
+    // EV sağduyu limiti: %50'den fazla EV gerçekçi değil
+    const cappedEv = Math.min(0.50, ev);
     const simProb = sim ? getSimProbability(sim, type) : undefined;
 
     if (conf >= minConf) {
@@ -1303,8 +1305,8 @@ async function generatePicks(
         confidence: conf,
         odds: oddsValue,
         reasoning: getPickReasoning(type, conf, prediction, analysis),
-        expectedValue: Math.round(ev * 100) / 100,
-        isValueBet: ev > 0.05,
+        expectedValue: Math.round(cappedEv * 100) / 100,
+        isValueBet: cappedEv > 0.05,
         simProbability: simProb,
       });
     }
@@ -1324,23 +1326,28 @@ async function generatePicks(
   const xgBonus = xgTotal > 2.6 ? 0.05 : 0;
 
   // Sim varsa sim'i kullan, yoksa heuristic
-  if (sim && sim.simOver25Prob > 48) {
-    // Sim diyor ki %48+ olasılıkla 2.5 üstü gol olacak
-    const overProb = sim.simOver25Prob / 100;
-    addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0 || xgTotal > 3.0, 48);
-  } else if (goalIndicator > 5 || (goalIndicator > 0 && h2hGoalAvg > 2.5) || xgTotal > 2.8) {
-    // Heuristic fallback — daha gevşek eşik
-    const overProb = Math.min(0.72, (avgAttack / 100) * 0.6 + (h2hGoalAvg > 2.5 ? 0.12 : 0) + xgBonus + (xgTotal > 2.8 ? 0.08 : 0));
-    addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0, 48);
-  }
-
-  if (sim && (100 - sim.simOver25Prob) > 48) {
-    // Sim %48+ alt 2.5
-    const underProb = (100 - sim.simOver25Prob) / 100;
-    addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8 || xgTotal < 1.8, 48);
-  } else if (goalIndicator < -5 || (goalIndicator < 0 && h2hGoalAvg < 2.2) || xgTotal < 1.8) {
-    const underProb = Math.min(0.72, (avgDefense / 100) * 0.6 + (h2hGoalAvg < 2.0 ? 0.12 : 0) + (xgTotal < 1.8 ? 0.08 : 0));
-    addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8, 48);
+  // ÖNEMLİ: Over/Under 2.5 KARŞILIKLI ÖZEL — aynı maçta her ikisi de üretilemez!
+  // Sim %48-52 arasındaysa belirsiz → hiçbirini üretme (en az %5 fark gerekli)
+  if (sim) {
+    const isOverStronger = sim.simOver25Prob >= 50;
+    const gap = Math.abs(sim.simOver25Prob - 50);
+    if (isOverStronger && sim.simOver25Prob > 53) {
+      const overProb = sim.simOver25Prob / 100;
+      addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0 || xgTotal > 3.0, 48);
+    } else if (!isOverStronger && sim.simOver25Prob < 47) {
+      const underProb = (100 - sim.simOver25Prob) / 100;
+      addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8 || xgTotal < 1.8, 48);
+    }
+    // %47-53 arası: belirsiz alan, pick üretme
+  } else {
+    // Sim yok → heuristic fallback (tek yönlü)
+    if (goalIndicator > 5 || (goalIndicator > 0 && h2hGoalAvg > 2.5) || xgTotal > 2.8) {
+      const overProb = Math.min(0.72, (avgAttack / 100) * 0.6 + (h2hGoalAvg > 2.5 ? 0.12 : 0) + xgBonus + (xgTotal > 2.8 ? 0.08 : 0));
+      addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0, 48);
+    } else if (goalIndicator < -5 || (goalIndicator < 0 && h2hGoalAvg < 2.2) || xgTotal < 1.8) {
+      const underProb = Math.min(0.72, (avgDefense / 100) * 0.6 + (h2hGoalAvg < 2.0 ? 0.12 : 0) + (xgTotal < 1.8 ? 0.08 : 0));
+      addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8, 48);
+    }
   }
 
   // --- Üst/Alt 1.5 ve 3.5 (sim-driven) ---
@@ -1352,39 +1359,39 @@ async function generatePicks(
     const safeOver35Prob = Math.min(sim.simOver35Prob, sim.simOver25Prob - 5);
     const safeUnder15Prob = Math.min(100 - sim.simOver15Prob, 100 - sim.simOver25Prob - 5);
 
-    if (sim.simOver15Prob > 82) {
-      addPick("Over 1.5", sim.simOver15Prob / 100, 1 / odds.over15, odds.over15, xgTotal > 2.5, 62);
-    }
-    if (safeUnder15Prob > 45) {
+    // Over/Under 1.5 de karşılıklı özel
+    if (sim.simOver15Prob > 85) {
+      addPick("Over 1.5", sim.simOver15Prob / 100, 1 / odds.over15, odds.over15, xgTotal > 2.5, 65);
+    } else if (safeUnder15Prob > 50 && sim.simOver15Prob < 45) {
       addPick("Under 1.5", safeUnder15Prob / 100, 1 / odds.under15, odds.under15, xgTotal < 1.5, 58);
     }
-    // Over 3.5 SADECE Over 2.5 de güçlüyse üret
-    if (safeOver35Prob > 50 && sim.simOver25Prob > 60 && xgTotal > 3.0) {
-      addPick("Over 3.5", safeOver35Prob / 100, 1 / odds.over35, odds.over35, xgTotal > 3.5, 58);
+    // Over 3.5 SADECE Over 2.5 de güçlüyse ve xG yüksekse üret
+    if (safeOver35Prob > 55 && sim.simOver25Prob > 65 && xgTotal > 3.2) {
+      addPick("Over 3.5", safeOver35Prob / 100, 1 / odds.over35, odds.over35, xgTotal > 3.5, 60);
     }
-    // Under 3.5: olasılık en az Under 2.5'tan yüksek olmalı (zaten öyle ama sim hatası olabilir)
+    // Under 3.5: Çok yaygın olduğu için daha sıkı eşik + oran alt limiti
+    // Under 3.5 her maçta yüksek olasılıklı → sadece değer varsa üret
     const safeUnder35Prob = Math.max(100 - sim.simOver35Prob, 100 - sim.simOver25Prob);
-    if (safeUnder35Prob > 65) {
-      addPick("Under 3.5", safeUnder35Prob / 100, 1 / odds.under35, odds.under35, xgTotal < 2.5, 52);
+    if (safeUnder35Prob > 78 && odds.under35 >= 1.25) {
+      addPick("Under 3.5", safeUnder35Prob / 100, 1 / odds.under35, odds.under35, xgTotal < 2.5, 60);
     }
   }
 
-  // --- KG Var --- (SIM-DRIVEN + xG-based)
-  if (sim && sim.simBttsProb > 42) {
-    // Sim %42+ KG
-    const bttsProb = sim.simBttsProb / 100;
-    addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, xgTotal > 2.5, 48);
+  // --- KG Var/Yok --- KARŞILIKLI ÖZEL (aynı maçta ikisi de olamaz)
+  if (sim) {
+    const isBttsStronger = sim.simBttsProb >= 50;
+    if (isBttsStronger && sim.simBttsProb > 53) {
+      const bttsProb = sim.simBttsProb / 100;
+      addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, xgTotal > 2.5, 50);
+    } else if (!isBttsStronger && sim.simBttsProb < 47) {
+      const bttsNoProb = (100 - sim.simBttsProb) / 100;
+      const weakAttack = analysis.homeAttack < 45 || analysis.awayAttack < 45;
+      addPick("BTTS No", bttsNoProb, 1 / odds.bttsNo, odds.bttsNo, weakAttack, 50);
+    }
+    // %47-53 arası: belirsiz → pick üretme
   } else if (analysis.homeAttack > 55 && analysis.awayAttack > 50 && xgTotal > 2.2) {
-    // Heuristic fallback — daha geniş koşul
     const bttsProb = Math.min(0.72, ((analysis.homeAttack + analysis.awayAttack) / 200) * 0.80 + (xgTotal > 2.6 ? 0.05 : 0));
-    addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, false, 48);
-  }
-
-  // --- KG Yok ---
-  if (sim && (100 - sim.simBttsProb) > 50) {
-    const bttsNoProb = (100 - sim.simBttsProb) / 100;
-    const weakAttack = analysis.homeAttack < 45 || analysis.awayAttack < 45;
-    addPick("BTTS No", bttsNoProb, 1 / odds.bttsNo, odds.bttsNo, weakAttack, 50);
+    addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, false, 50);
   }
 
   // --- İY KG Var (HT BTTS Yes) ---
@@ -1674,23 +1681,58 @@ async function generatePicks(
   const dcPicks = picks.filter(p => ["1X", "X2", "12"].includes(p.type));
   const resultPicks = picks.filter(p => ["1", "X", "2"].includes(p.type));
   for (const dc of dcPicks) {
-    // DC pick'in zıddı olan sonuç pick'i bul
     const opposing = dc.type === "1X" ? resultPicks.find(p => p.type === "2")
       : dc.type === "X2" ? resultPicks.find(p => p.type === "1")
       : dc.type === "12" ? resultPicks.find(p => p.type === "X")
       : null;
     if (opposing) {
-      // DC prob + zıt sonuç olasılığı 100%'ü geçmemeli
       const dcImpliedProb = dc.expectedValue !== undefined ? (dc.expectedValue + 1) / dc.odds : dc.confidence / 100;
       const oppImpliedProb = opposing.expectedValue !== undefined ? (opposing.expectedValue + 1) / opposing.odds : opposing.confidence / 100;
-      if (dcImpliedProb + oppImpliedProb > 1.05) { // %5 tolerance
-        // Fazlalığı düşük confidence olan pick'ten kes
+      if (dcImpliedProb + oppImpliedProb > 1.05) {
         if (dc.confidence > opposing.confidence) {
           opposing.confidence = Math.max(10, opposing.confidence - 5);
         } else {
           dc.confidence = Math.max(10, dc.confidence - 5);
         }
       }
+    }
+  }
+
+  // === 5. KAPSAMLI ÇELİŞKİ FİLTRESİ ===
+  // Aynı maçta mantıksal olarak imkansız pick kombinasyonlarını temizle
+  const contradictionPairs: [string, string][] = [
+    ["Over 2.5", "Under 2.5"],
+    ["Over 1.5", "Under 1.5"],
+    ["Over 3.5", "Under 3.5"],
+    ["BTTS Yes", "BTTS No"],
+    ["Over 3.5", "Under 2.5"],  // 3.5+ gol ve 2.5- gol imkansız
+    ["Over 2.5", "Under 1.5"],  // 2.5+ gol ve 1.5- gol imkansız
+  ];
+  for (const [a, b] of contradictionPairs) {
+    const pickA = picks.find(p => p.type === a);
+    const pickB = picks.find(p => p.type === b);
+    if (pickA && pickB) {
+      // Düşük confidence olanı sil
+      if (pickA.confidence >= pickB.confidence) {
+        const idx = picks.indexOf(pickB);
+        if (idx >= 0) picks.splice(idx, 1);
+      } else {
+        const idx = picks.indexOf(pickA);
+        if (idx >= 0) picks.splice(idx, 1);
+      }
+    }
+  }
+
+  // 1 (Home Win) + 2 (Away Win) aynı anda olamaz
+  const homeWin = picks.find(p => p.type === "1");
+  const awayWin = picks.find(p => p.type === "2");
+  if (homeWin && awayWin) {
+    if (homeWin.confidence >= awayWin.confidence) {
+      const idx = picks.indexOf(awayWin);
+      if (idx >= 0) picks.splice(idx, 1);
+    } else {
+      const idx = picks.indexOf(homeWin);
+      if (idx >= 0) picks.splice(idx, 1);
     }
   }
 

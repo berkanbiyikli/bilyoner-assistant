@@ -30,6 +30,7 @@ export const LEAGUES: LeagueConfig[] = [
   // İspanya
   { id: 140, name: "La Liga", country: "Spain", flag: "🇪🇸", priority: 1, volatility: "low" },
   { id: 141, name: "La Liga 2", country: "Spain", flag: "🇪🇸", priority: 3, volatility: "high" },
+  { id: 435, name: "Primera RFEF", country: "Spain", flag: "🇪🇸", priority: 5, volatility: "high" },
 
   // İtalya
   { id: 135, name: "Serie A", country: "Italy", flag: "🇮🇹", priority: 1, volatility: "low" },
@@ -62,6 +63,7 @@ export const LEAGUES: LeagueConfig[] = [
 
   // Belçika
   { id: 144, name: "Jupiler Pro League", country: "Belgium", flag: "🇧🇪", priority: 3, volatility: "medium" },
+  { id: 145, name: "Challenger Pro League", country: "Belgium", flag: "🇧🇪", priority: 4, volatility: "high" },
 
   // İskoçya
   { id: 179, name: "Premiership", country: "Scotland", flag: "🏴󠁧󠁢󠁳󠁣󠁴󠁿", priority: 3, volatility: "medium" },
@@ -76,6 +78,13 @@ export const LEAGUES: LeagueConfig[] = [
   { id: 120, name: "1st Division", country: "Denmark", flag: "🇩🇰", priority: 4, volatility: "high" },
   { id: 244, name: "Veikkausliiga", country: "Finland", flag: "🇫🇮", priority: 4, volatility: "high" },
   { id: 164, name: "Úrvalsdeild", country: "Iceland", flag: "🇮🇸", priority: 4, volatility: "high" },
+  { id: 357, name: "Premier Division", country: "Ireland", flag: "🇮🇪", priority: 4, volatility: "high" },
+  { id: 327, name: "Meistriliiga", country: "Estonia", flag: "🇪🇪", priority: 5, volatility: "high" },
+  { id: 356, name: "Virsliga", country: "Latvia", flag: "🇱🇻", priority: 5, volatility: "high" },
+  { id: 354, name: "A Lyga", country: "Lithuania", flag: "🇱🇹", priority: 5, volatility: "high" },
+  { id: 352, name: "Premiership", country: "Northern Ireland", flag: "🇬🇧", priority: 5, volatility: "high" },
+  { id: 350, name: "Cymru Premier", country: "Wales", flag: "🏴󠁧󠁢󠁷󠁬󠁳󠁿", priority: 5, volatility: "high" },
+  { id: 347, name: "Faroe Islands Premier League", country: "Faroe Islands", flag: "🇫🇴", priority: 5, volatility: "high" },
 
   // Doğu Avrupa
   { id: 106, name: "Ekstraklasa", country: "Poland", flag: "🇵🇱", priority: 3, volatility: "medium" },
@@ -93,6 +102,12 @@ export const LEAGUES: LeagueConfig[] = [
   { id: 210, name: "HNL", country: "Croatia", flag: "🇭🇷", priority: 3, volatility: "high" },
   { id: 286, name: "Super Liga", country: "Serbia", flag: "🇷🇸", priority: 3, volatility: "high" },
   { id: 197, name: "Super League 1", country: "Greece", flag: "🇬🇷", priority: 3, volatility: "medium" },
+  { id: 390, name: "Erovnuli Liga", country: "Georgia", flag: "🇬🇪", priority: 5, volatility: "high" },
+  { id: 395, name: "Premier Liga", country: "Kazakhstan", flag: "🇰🇿", priority: 5, volatility: "high" },
+  { id: 396, name: "Premyer Liqa", country: "Azerbaijan", flag: "🇦🇿", priority: 5, volatility: "high" },
+  { id: 369, name: "Super Liga", country: "Moldova", flag: "🇲🇩", priority: 5, volatility: "high" },
+  { id: 117, name: "Premiership", country: "Belarus", flag: "🇧🇾", priority: 5, volatility: "high" },
+  { id: 331, name: "Malta Premier League", country: "Malta", flag: "🇲🇹", priority: 5, volatility: "high" },
 
   // Rusya
   { id: 235, name: "Premier Liga", country: "Russia", flag: "🇷🇺", priority: 3, volatility: "medium" },
@@ -113,15 +128,22 @@ export const LEAGUES: LeagueConfig[] = [
   { id: 71, name: "Brasileirão Serie A", country: "Brazil", flag: "🇧🇷", priority: 2, volatility: "high" },
   { id: 72, name: "Brasileirão Serie B", country: "Brazil", flag: "🇧🇷", priority: 3, volatility: "high" },
   { id: 128, name: "Liga Profesional", country: "Argentina", flag: "🇦🇷", priority: 2, volatility: "high" },
+  { id: 131, name: "Primera Nacional", country: "Argentina", flag: "🇦🇷", priority: 4, volatility: "high" },
   { id: 239, name: "Primera A", country: "Colombia", flag: "🇨🇴", priority: 3, volatility: "high" },
   { id: 265, name: "Primera División", country: "Chile", flag: "🇨🇱", priority: 3, volatility: "high" },
   { id: 268, name: "Primera División", country: "Uruguay", flag: "🇺🇾", priority: 3, volatility: "high" },
   { id: 281, name: "Liga 1", country: "Peru", flag: "🇵🇪", priority: 4, volatility: "high" },
   { id: 242, name: "Serie A", country: "Ecuador", flag: "🇪🇨", priority: 4, volatility: "high" },
   { id: 157, name: "División de Honor", country: "Paraguay", flag: "🇵🇾", priority: 4, volatility: "high" },
+  { id: 299, name: "Primera División", country: "Venezuela", flag: "🇻🇪", priority: 4, volatility: "high" },
+  { id: 240, name: "Primera División", country: "Costa Rica", flag: "🇨🇷", priority: 5, volatility: "high" },
+  { id: 338, name: "Liga Nacional", country: "Guatemala", flag: "🇬🇹", priority: 5, volatility: "high" },
+  { id: 340, name: "Liga Nacional", country: "Honduras", flag: "🇭🇳", priority: 5, volatility: "high" },
+  { id: 336, name: "Primera División", country: "El Salvador", flag: "🇸🇻", priority: 5, volatility: "high" },
 
   // Kuzey & Orta Amerika
   { id: 253, name: "MLS", country: "USA", flag: "🇺🇸", priority: 3, volatility: "high" },
+  { id: 254, name: "USL Championship", country: "USA", flag: "🇺🇸", priority: 5, volatility: "high" },
   { id: 262, name: "Liga MX", country: "Mexico", flag: "🇲🇽", priority: 3, volatility: "high" },
 
   // Asya
@@ -129,20 +151,37 @@ export const LEAGUES: LeagueConfig[] = [
   { id: 99, name: "J2 League", country: "Japan", flag: "🇯🇵", priority: 4, volatility: "high" },
   { id: 292, name: "K League 1", country: "South Korea", flag: "🇰🇷", priority: 3, volatility: "medium" },
   { id: 169, name: "Super League", country: "China", flag: "🇨🇳", priority: 4, volatility: "high" },
+  { id: 170, name: "League One", country: "China", flag: "🇨🇳", priority: 5, volatility: "high" },
   { id: 323, name: "Super League", country: "India", flag: "🇮🇳", priority: 4, volatility: "high" },
+  { id: 296, name: "Thai League 1", country: "Thailand", flag: "🇹🇭", priority: 5, volatility: "high" },
+  { id: 297, name: "V.League 1", country: "Vietnam", flag: "🇻🇳", priority: 5, volatility: "high" },
+  { id: 295, name: "Liga 1", country: "Indonesia", flag: "🇮🇩", priority: 5, volatility: "high" },
+  { id: 301, name: "Super League", country: "Malaysia", flag: "🇲🇾", priority: 5, volatility: "high" },
+  { id: 303, name: "S.League", country: "Singapore", flag: "🇸🇬", priority: 5, volatility: "high" },
 
   // Orta Doğu
   { id: 307, name: "Saudi Pro League", country: "Saudi Arabia", flag: "🇸🇦", priority: 3, volatility: "medium" },
   { id: 305, name: "Stars League", country: "Qatar", flag: "🇶🇦", priority: 4, volatility: "high" },
   { id: 302, name: "Pro League", country: "UAE", flag: "🇦🇪", priority: 4, volatility: "high" },
+  { id: 308, name: "Professional League", country: "Kuwait", flag: "🇰🇼", priority: 5, volatility: "high" },
+  { id: 306, name: "Pro League", country: "Oman", flag: "🇴🇲", priority: 5, volatility: "high" },
+  { id: 309, name: "Pro League", country: "Jordan", flag: "🇯🇴", priority: 5, volatility: "high" },
 
   // Okyanusya
   { id: 188, name: "A-League", country: "Australia", flag: "🇦🇺", priority: 3, volatility: "high" },
 
   // Afrika
   { id: 200, name: "Botola Pro", country: "Morocco", flag: "🇲🇦", priority: 4, volatility: "high" },
+  { id: 201, name: "Botola 2", country: "Morocco", flag: "🇲🇦", priority: 5, volatility: "high" },
   { id: 202, name: "Ligue Professionnelle 1", country: "Tunisia", flag: "🇹🇳", priority: 4, volatility: "high" },
   { id: 233, name: "Premier League", country: "Egypt", flag: "🇪🇬", priority: 4, volatility: "high" },
+  { id: 288, name: "Premier Soccer League", country: "South Africa", flag: "🇿🇦", priority: 4, volatility: "high" },
+  { id: 359, name: "NPFL", country: "Nigeria", flag: "🇳🇬", priority: 5, volatility: "high" },
+  { id: 377, name: "Premier League", country: "Kenya", flag: "🇰🇪", priority: 5, volatility: "high" },
+  { id: 378, name: "Premier League", country: "Tanzania", flag: "🇹🇿", priority: 5, volatility: "high" },
+  { id: 379, name: "Premier League", country: "Ethiopia", flag: "🇪🇹", priority: 5, volatility: "high" },
+  { id: 17, name: "CAF Champions League", country: "World", flag: "🌍", priority: 3, volatility: "high" },
+  { id: 20, name: "CAF Confederation Cup", country: "World", flag: "🌍", priority: 4, volatility: "high" },
 
   // Avrupa Kupaları
   { id: 2, name: "Champions League", country: "World", flag: "🌍", priority: 1, volatility: "low" },

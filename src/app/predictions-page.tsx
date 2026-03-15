@@ -10,7 +10,7 @@ import {
   Trophy, Calendar, RefreshCw, Dices, Flame, TrendingUp, Zap,
   AlertTriangle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Target, Shield, Swords, BarChart3, Plus, Check, Sparkles,
-  Star, ArrowUpRight, Filter, X,
+  Star, ArrowUpRight, Filter, X, Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
@@ -317,21 +317,31 @@ export function PredictionsPage() {
     }
   }), [upcomingPredictions, filters.sortBy]);
 
-  // Group by league (same league matches together, sorted by kickoff inside)
-  const leagueGroups = useMemo(() => {
-    const groups = new Map<string, { leagueId: number; matches: MatchPrediction[] }>();
+  // Group by time slot → then by league within each slot
+  const timeSlotGroups = useMemo(() => {
+    // 1. Group matches into time slots (HH:mm)
+    const slotMap = new Map<string, MatchPrediction[]>();
     for (const p of sortedPredictions) {
-      const leagueKey = `${p.league.id}|||${p.league.country} - ${p.league.name}`;
-      if (!groups.has(leagueKey)) groups.set(leagueKey, { leagueId: p.league.id, matches: [] });
-      groups.get(leagueKey)!.matches.push(p);
+      const time = new Date(p.kickoff).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+      if (!slotMap.has(time)) slotMap.set(time, []);
+      slotMap.get(time)!.push(p);
     }
-    // Sort groups: by earliest kickoff in each group
-    const sorted = Array.from(groups.entries()).sort(([, a], [, b]) => {
-      const aTime = Math.min(...a.matches.map(m => new Date(m.kickoff).getTime()));
-      const bTime = Math.min(...b.matches.map(m => new Date(m.kickoff).getTime()));
-      return aTime - bTime;
+    // 2. Sort slots chronologically
+    const sortedSlots = Array.from(slotMap.entries()).sort(([a], [b]) => a.localeCompare(b));
+    // 3. Within each slot, group by league
+    return sortedSlots.map(([time, matches]) => {
+      const leagueMap = new Map<string, { leagueId: number; matches: MatchPrediction[] }>();
+      for (const m of matches) {
+        const key = `${m.league.id}|||${m.league.country} - ${m.league.name}`;
+        if (!leagueMap.has(key)) leagueMap.set(key, { leagueId: m.league.id, matches: [] });
+        leagueMap.get(key)!.matches.push(m);
+      }
+      return {
+        time,
+        matchCount: matches.length,
+        leagues: Array.from(leagueMap.entries()),
+      };
     });
-    return new Map(sorted);
   }, [sortedPredictions]);
 
   // Summary stats
@@ -640,46 +650,63 @@ export function PredictionsPage() {
                 ))}
               </div>
             ) : sortedPredictions.length > 0 ? (
-              <div className="space-y-3">
-                {Array.from(leagueGroups.entries()).map(([groupKey, { matches }]) => {
-                  const [, leagueName] = groupKey.split("|||");
-                  const leagueFlag = matches[0]?.league?.flag;
-                  const leagueLogo = (matches[0]?.league as unknown as Record<string, unknown>)?.logo as string | undefined;
-
-                  return (
-                    <div key={groupKey} className="rounded-xl border border-zinc-800 overflow-hidden">
-                      {/* League Header */}
-                      <div className="flex items-center gap-2.5 bg-zinc-900 px-4 py-2 border-b border-zinc-800/50">
-                        {leagueLogo ? (
-                          <Image src={leagueLogo} alt="" width={16} height={16} className="w-4 h-4 object-contain" />
-                        ) : leagueFlag ? (
-                          <Image src={leagueFlag} alt="" width={16} height={12} className="rounded-sm" />
-                        ) : (
-                          <Trophy className="h-3.5 w-3.5 text-zinc-600" />
-                        )}
-                        <span className="text-xs font-semibold text-zinc-300">{leagueName}</span>
-                        <span className="text-[10px] text-zinc-600">{matches.length} maç</span>
+              <div className="space-y-5">
+                {timeSlotGroups.map(({ time, matchCount, leagues }) => (
+                  <div key={time}>
+                    {/* Time Slot Header */}
+                    <div className="flex items-center gap-2 mb-2 sticky top-0 z-10 bg-zinc-950/95 backdrop-blur-sm py-1.5 -mx-1 px-1">
+                      <div className="flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg px-2.5 py-1">
+                        <Clock className="h-3.5 w-3.5 text-indigo-400" />
+                        <span className="text-sm font-bold text-indigo-400">{time}</span>
                       </div>
-
-                      {/* Matches */}
-                      <div className="divide-y divide-zinc-800/40">
-                        {matches.map((p) => (
-                          <PredictionRow
-                            key={p.fixtureId}
-                            prediction={p}
-                            isFinished={false}
-                            isExpanded={expandedMatch === p.fixtureId}
-                            onToggle={() => setExpandedMatch(expandedMatch === p.fixtureId ? null : p.fixtureId)}
-                            isInCoupon={isInCoupon}
-                            onAddToCoupon={(pick) => handleAddToCoupon(p, pick)}
-                            activeDetailTab={getDetailTab(p.fixtureId)}
-                            onSetDetailTab={(tab) => setDTab(p.fixtureId, tab)}
-                          />
-                        ))}
-                      </div>
+                      <div className="h-px flex-1 bg-zinc-800" />
+                      <span className="text-[10px] text-zinc-600">{matchCount} maç</span>
                     </div>
-                  );
-                })}
+
+                    {/* Leagues within this time slot */}
+                    <div className="space-y-2">
+                      {leagues.map(([groupKey, { matches }]) => {
+                        const [, leagueName] = groupKey.split("|||");
+                        const leagueFlag = matches[0]?.league?.flag;
+                        const leagueLogo = (matches[0]?.league as unknown as Record<string, unknown>)?.logo as string | undefined;
+
+                        return (
+                          <div key={groupKey} className="rounded-xl border border-zinc-800 overflow-hidden">
+                            {/* League Header */}
+                            <div className="flex items-center gap-2.5 bg-zinc-900 px-4 py-2 border-b border-zinc-800/50">
+                              {leagueLogo ? (
+                                <Image src={leagueLogo} alt="" width={16} height={16} className="w-4 h-4 object-contain" />
+                              ) : leagueFlag ? (
+                                <Image src={leagueFlag} alt="" width={16} height={12} className="rounded-sm" />
+                              ) : (
+                                <Trophy className="h-3.5 w-3.5 text-zinc-600" />
+                              )}
+                              <span className="text-xs font-semibold text-zinc-300">{leagueName}</span>
+                              <span className="text-[10px] text-zinc-600">{matches.length} maç</span>
+                            </div>
+
+                            {/* Matches */}
+                            <div className="divide-y divide-zinc-800/40">
+                              {matches.map((p) => (
+                                <PredictionRow
+                                  key={p.fixtureId}
+                                  prediction={p}
+                                  isFinished={false}
+                                  isExpanded={expandedMatch === p.fixtureId}
+                                  onToggle={() => setExpandedMatch(expandedMatch === p.fixtureId ? null : p.fixtureId)}
+                                  isInCoupon={isInCoupon}
+                                  onAddToCoupon={(pick) => handleAddToCoupon(p, pick)}
+                                  activeDetailTab={getDetailTab(p.fixtureId)}
+                                  onSetDetailTab={(tab) => setDTab(p.fixtureId, tab)}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-16 text-center">

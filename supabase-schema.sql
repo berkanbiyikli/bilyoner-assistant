@@ -273,9 +273,9 @@
     SELECT COUNT(*) INTO pred_count FROM predictions;
     SELECT COUNT(*) INTO ml_count FROM ml_models;
 
-    DELETE FROM validation_records;
-    DELETE FROM predictions;
-    DELETE FROM ml_models;
+    DELETE FROM validation_records WHERE id IS NOT NULL;
+    DELETE FROM predictions WHERE id IS NOT NULL;
+    DELETE FROM ml_models WHERE id IS NOT NULL;
 
     RETURN json_build_object(
       'validation_deleted', val_count,

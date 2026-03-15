@@ -1225,8 +1225,9 @@ async function generatePicks(
     extraSignal: boolean,
     minConf: number = 45
   ) => {
-    // Gerçek oran yoksa pick üretme (fallback 0 demek API'de veri yok)
-    if (!oddsValue || oddsValue <= 1.0) return;
+    // Gerçek oran yoksa veya çok düşükse pick üretme
+    // 1.0 altı = veri yok, 1.15 altı = bahis oynamaya değmez
+    if (!oddsValue || oddsValue < 1.15) return;
 
     let conf = calculateConfidence(modelProb, impliedProb, extraSignal);
     conf = hybridConfidence(conf, type);
@@ -1402,20 +1403,23 @@ async function generatePicks(
       // İY/MS özel confidence hesabı:
       // 9 kombinasyon var, uniform dağılımda her biri %11.
       // %20+ çok güçlü, %15+ güçlü, %10+ orta sinyal.
-      // Confidence = prob'u [8-35] aralığından [48-90] aralığına ölçekle
-      const htftBaseConf = Math.min(90, Math.max(48, 48 + (entry.prob - 0.08) * 155));
+      // REALISTIC: prob'u [8-40%] → conf [40-72] arası ölçekle (max 75)
+      const htftBaseConf = Math.min(72, Math.max(40, 40 + (entry.prob - 0.08) * 100));
       let conf = Math.round(htftBaseConf);
 
-      // EV bonus: pozitif EV → ekstra güven
-      if (entry.ev > 0.10) conf = Math.min(92, conf + 3);
+      // EV bonus: pozitif EV → küçük ekstra güven
+      if (entry.ev > 0.10) conf = Math.min(75, conf + 2);
 
       // İY/MS için hybridConfidence KULLANMA — simProb %10-30 aralığı
       // normal pick'ler (%40-80) için tasarlanmış blend'i mahveder
 
-      // H2H bonus varsa confidence'a da ekle
+      // H2H bonus varsa confidence'a da ekle (küçük tut)
       if (entry.h2hBonus > 0) {
-        conf = Math.min(92, conf + Math.round(entry.h2hBonus * 50));
+        conf = Math.min(75, conf + Math.round(entry.h2hBonus * 25));
       }
+
+      // Veri kalitesi cezası İY/MS'e de uygulansın
+      conf = Math.max(10, conf - qualityPenalty);
 
       if (conf >= 50 && entry.ev > -0.05) { // Min %50 güven, hafif negatif EV OK
         const htLabel = entry.key.split("/")[0] === "1" ? "Ev" : entry.key.split("/")[0] === "X" ? "Beraberlik" : "Deplasman";
@@ -1575,7 +1579,27 @@ async function generatePicks(
     }
   }
 
-  // 3. DC tutarlılık: 1X + 2 > 100% veya X2 + 1 > 100% olmamalı
+  // 3. HT/FT vs 1X2 tutarlılık: HT/FT pick'in FT sonucu, en güçlü 1X2 pick ile çelişmemeli
+  const topResultPick = picks
+    .filter(p => ["1", "X", "2"].includes(p.type))
+    .sort((a, b) => b.confidence - a.confidence)[0];
+  if (topResultPick) {
+    for (const pick of picks) {
+      if (!pick.type.includes("/") || pick.type.startsWith("CS")) continue;
+      const ftPart = pick.type.split("/")[1]; // "1", "X", "2"
+      if (ftPart !== topResultPick.type) {
+        // FT sonucu en güçlü 1X2 pick ile çelişiyor → ağır ceza
+        const isOpposite = (topResultPick.type === "1" && ftPart === "2") || (topResultPick.type === "2" && ftPart === "1");
+        if (isOpposite) {
+          pick.confidence = Math.max(10, pick.confidence - 25); // Zıt yön → büyük ceza
+        } else {
+          pick.confidence = Math.max(10, pick.confidence - 10); // Farklı ama tam zıt değil
+        }
+      }
+    }
+  }
+
+  // 4. DC tutarlılık: 1X + 2 > 100% veya X2 + 1 > 100% olmamalı
   const dcPicks = picks.filter(p => ["1X", "X2", "12"].includes(p.type));
   const resultPicks = picks.filter(p => ["1", "X", "2"].includes(p.type));
   for (const dc of dcPicks) {

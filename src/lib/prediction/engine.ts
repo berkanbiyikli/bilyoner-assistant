@@ -1940,12 +1940,29 @@ function getPickReasoning(type: PickType, confidence: number, prediction: Predic
 function extractOdds(oddsData: OddsResponse | null): MatchOdds | undefined {
   if (!oddsData?.bookmakers?.length) return undefined;
 
-  const bookmaker = oddsData.bookmakers[0];
+  // Akıllı bahisçi seçimi: Bet ID 5 (maç geneli Over/Under) olan bahisçiyi tercih et
+  // William Hill gibi bazı bahisçiler bet ID 5'i sunmuyor → yanlış eşleşme riski
+  // Tercih sırası: Bet365 > Pinnacle > bet ID 5'i olan herhangi biri > ilk bahisçi
+  const preferredBookmakers = ["Bet365", "Pinnacle", "1xBet", "Marathonbet"];
+  let bookmaker = oddsData.bookmakers[0]; // fallback
+
+  // 1) Tercih edilen bahisçiyi bul
+  for (const name of preferredBookmakers) {
+    const found = oddsData.bookmakers.find((b) => b.name === name && b.bets.some((bet) => bet.id === 5));
+    if (found) { bookmaker = found; break; }
+  }
+  // 2) Tercih edilen yoksa bet ID 5'i olan herhangi birini bul
+  if (!bookmaker.bets.some((b) => b.id === 5)) {
+    const withBet5 = oddsData.bookmakers.find((b) => b.bets.some((bet) => bet.id === 5));
+    if (withBet5) bookmaker = withBet5;
+  }
+
   const matchWinner = bookmaker.bets.find((b) => b.id === 1);
+  // Bet ID 5 = Goals Over/Under (MAÇ GENELİ) — tüm Over/Under çizgileri (1.5, 2.5, 3.5) buradan
   const overUnder = bookmaker.bets.find((b) => b.id === 5);
   const btts = bookmaker.bets.find((b) => b.id === 8);
-  const overUnder15 = bookmaker.bets.find((b) => b.id === 6);
-  const overUnder35 = bookmaker.bets.find((b) => b.id === 26);
+  // ⚠️ Bet ID 6 = Goals Over/Under FIRST HALF (İLK YARI) — maç geneli DEĞİL
+  // ⚠️ Bet ID 26 = Goals Over/Under SECOND HALF (İKİNCİ YARI) — maç geneli DEĞİL
   const corners = bookmaker.bets.find((b) => b.name?.toLowerCase().includes("corner"));
   const cards = bookmaker.bets.find((b) => b.name?.toLowerCase().includes("card"));
 
@@ -1986,10 +2003,11 @@ function extractOdds(oddsData: OddsResponse | null): MatchOdds | undefined {
   const under25 = parseRealOdd(overUnder, "Under 2.5", "under25");
   const bttsYes = parseRealOdd(btts, "Yes", "bttsYes");
   const bttsNo = parseRealOdd(btts, "No", "bttsNo");
-  const over15 = parseRealOdd(overUnder15, "Over 1.5", "over15");
-  const under15 = parseRealOdd(overUnder15, "Under 1.5", "under15");
-  const over35 = parseRealOdd(overUnder35, "Over 3.5", "over35");
-  const under35 = parseRealOdd(overUnder35, "Under 3.5", "under35");
+  // Over/Under 1.5 ve 3.5 de bet ID 5'ten (maç geneli) — bet ID 6/26 İLK YARI/İKİNCİ YARI'dır!
+  const over15 = parseRealOdd(overUnder, "Over 1.5", "over15");
+  const under15 = parseRealOdd(overUnder, "Under 1.5", "under15");
+  const over35 = parseRealOdd(overUnder, "Over 3.5", "over35");
+  const under35 = parseRealOdd(overUnder, "Under 3.5", "under35");
 
   // 1X2 için en az home oranı gerçek olmalı — yoksa tüm odds güvenilmez
   if (!realMarkets.has("home")) {

@@ -1460,11 +1460,11 @@ async function generatePicks(
       .filter((e) => e.prob > 0.08) // Min %8 olasılık (9-yönlü market)
       .sort((a, b) => b.ev - a.ev);
 
-    // En iyi 2 İY/MS pick'i üret — çelişen FT sonuçlarını filtrele
+    // En iyi 1 İY/MS pick'i üret — kategori başına tek pick kuralı
     let htftCount = 0;
     let firstHtftFtResult: string | null = null;
     for (const entry of htftEntries) {
-      if (htftCount >= 2) break;
+      if (htftCount >= 1) break;
       const type = entry.key as PickType;
       const ftResult = entry.key.split("/")[1]; // "1", "X", veya "2"
 
@@ -1598,10 +1598,10 @@ async function generatePicks(
       .filter((e) => e.ev > -0.10) // Kabul edilebilir EV
       .sort((a, b) => b.ev - a.ev);
 
-    // En iyi 2 skor tahmini
+    // En iyi 1 skor tahmini — kategori başına tek pick
     let csCount = 0;
     for (const entry of csEntries) {
-      if (csCount >= 2) break;
+      if (csCount >= 1) break;
       const type = `CS ${entry.score}` as PickType;
       let conf = calculateConfidence(entry.prob, 1 / entry.odds, entry.prob > 0.10);
       conf = hybridConfidence(conf, type);
@@ -1743,6 +1743,36 @@ async function generatePicks(
     if (pick.expectedValue > 0.50) {
       pick.expectedValue = 0.50;
       pick.isValueBet = true;
+    }
+  }
+
+  // === 7. KATEGORİ BAZLI TEKİL FİLTRE ===
+  // Her bahis kategorisinden yalnızca EN YÜKSEK güvenli 1 pick kalır.
+  // Aynı maça hem X/1 hem 1/1, hem KG Var hem KG Yok, hem 1X hem X2 üretmeyi engeller.
+  const categoryMap: Record<string, string[]> = {
+    "1X2": ["1", "X", "2"],
+    "DC": ["1X", "X2", "12"],
+    "O/U 2.5": ["Over 2.5", "Under 2.5"],
+    "O/U 1.5": ["Over 1.5", "Under 1.5"],
+    "O/U 3.5": ["Over 3.5", "Under 3.5"],
+    "BTTS": ["BTTS Yes", "BTTS No"],
+    "HT_BTTS": ["HT BTTS Yes"],
+    "HTFT": ["1/1", "1/X", "1/2", "X/1", "X/X", "X/2", "2/1", "2/X", "2/2"],
+    "COMBO": ["1 & Over 1.5", "2 & Over 1.5"],
+  };
+  // CS pick'leri de tek kategoride: CS 0-0, CS 1-0, CS 1-1 vs. → en iyisi kalır
+  const csTypes = picks.filter(p => p.type.startsWith("CS ")).map(p => p.type);
+  if (csTypes.length > 0) categoryMap["CS"] = csTypes;
+
+  for (const [, types] of Object.entries(categoryMap)) {
+    const categoryPicks = picks.filter(p => types.includes(p.type));
+    if (categoryPicks.length <= 1) continue;
+    // En yüksek confidence'ı bul → diğerlerini sil
+    categoryPicks.sort((a, b) => b.confidence - a.confidence || b.expectedValue - a.expectedValue);
+    const best = categoryPicks[0];
+    for (let i = 1; i < categoryPicks.length; i++) {
+      const idx = picks.indexOf(categoryPicks[i]);
+      if (idx >= 0) picks.splice(idx, 1);
     }
   }
 

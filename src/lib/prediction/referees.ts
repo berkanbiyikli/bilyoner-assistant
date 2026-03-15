@@ -1,173 +1,87 @@
 // ============================================
-// Hakem Profilleri — Statik DB + Dinamik Öğrenme
-// Bilinen hakemlerin kart eğilim tablosu
-// Bilinmeyenler cache'e eklenir
+// Hakem Profilleri — Tamamen Gerçek Veri
+// Hardcoded hakem veritabanı KALDIRILDI.
+// Tüm hakem profilleri settle-bets sırasında gerçek
+// maç istatistiklerinden öğrenilir ve Supabase'e kaydedilir.
 // ============================================
 
 import type { RefereeProfile } from "@/types";
 import { getCached, setCache } from "@/lib/cache";
-
-/**
- * Hakem kart eğilim veritabanı
- * Kaynak: Genel istatistikler & gözlem verileri
- *
- * avgCardsPerMatch: Maç başına ortalama kart (sarı + kırmızı)
- * cardTendency: strict (>5), moderate (3.5-5), lenient (<3.5)
- */
-const REFEREE_DATABASE: Record<string, Omit<RefereeProfile, "name">> = {
-  // ---- Türkiye Süper Lig ----
-  "Halil Umut Meler": { avgCardsPerMatch: 5.2, cardTendency: "strict" },
-  "Cüneyt Çakır": { avgCardsPerMatch: 4.8, cardTendency: "moderate" },
-  "Ali Palabıyık": { avgCardsPerMatch: 5.5, cardTendency: "strict" },
-  "Atilla Karaoğlan": { avgCardsPerMatch: 5.8, cardTendency: "strict" },
-  "Arda Kardeşler": { avgCardsPerMatch: 4.6, cardTendency: "moderate" },
-  "Zorbay Küçük": { avgCardsPerMatch: 5.0, cardTendency: "strict" },
-  "Volkan Bayarslan": { avgCardsPerMatch: 4.3, cardTendency: "moderate" },
-  "Erkan Özdamar": { avgCardsPerMatch: 4.1, cardTendency: "moderate" },
-  "Abdulkadir Bitigen": { avgCardsPerMatch: 4.9, cardTendency: "moderate" },
-  "Mete Kalkavan": { avgCardsPerMatch: 5.1, cardTendency: "strict" },
-  "Yaşar Kemal Uğurlu": { avgCardsPerMatch: 4.4, cardTendency: "moderate" },
-  "Tugay Kaan Numanoğlu": { avgCardsPerMatch: 4.7, cardTendency: "moderate" },
-  "Kadir Sağlam": { avgCardsPerMatch: 4.5, cardTendency: "moderate" },
-  "Burak Şeker": { avgCardsPerMatch: 4.0, cardTendency: "moderate" },
-
-  // ---- Premier League ----
-  "Michael Oliver": { avgCardsPerMatch: 3.8, cardTendency: "moderate" },
-  "Anthony Taylor": { avgCardsPerMatch: 4.2, cardTendency: "moderate" },
-  "Craig Pawson": { avgCardsPerMatch: 3.5, cardTendency: "moderate" },
-  "Paul Tierney": { avgCardsPerMatch: 4.0, cardTendency: "moderate" },
-  "Simon Hooper": { avgCardsPerMatch: 3.9, cardTendency: "moderate" },
-  "Robert Jones": { avgCardsPerMatch: 3.6, cardTendency: "moderate" },
-  "Stuart Attwell": { avgCardsPerMatch: 3.4, cardTendency: "lenient" },
-  "Andy Madley": { avgCardsPerMatch: 3.3, cardTendency: "lenient" },
-  "David Coote": { avgCardsPerMatch: 3.7, cardTendency: "moderate" },
-  "Peter Bankes": { avgCardsPerMatch: 4.1, cardTendency: "moderate" },
-  "John Brooks": { avgCardsPerMatch: 3.2, cardTendency: "lenient" },
-  "Tim Robinson": { avgCardsPerMatch: 3.5, cardTendency: "moderate" },
-
-  // ---- La Liga ----
-  "Mateu Lahoz": { avgCardsPerMatch: 5.8, cardTendency: "strict" },
-  "Carlos del Cerro Grande": { avgCardsPerMatch: 5.3, cardTendency: "strict" },
-  "Jesús Gil Manzano": { avgCardsPerMatch: 5.1, cardTendency: "strict" },
-  "Juan Martínez Munuera": { avgCardsPerMatch: 4.7, cardTendency: "moderate" },
-  "Ricardo De Burgos Bengoetxea": { avgCardsPerMatch: 5.4, cardTendency: "strict" },
-  "José María Sánchez Martínez": { avgCardsPerMatch: 4.9, cardTendency: "moderate" },
-  "Alejandro Hernández Hernández": { avgCardsPerMatch: 5.6, cardTendency: "strict" },
-  "César Soto Grado": { avgCardsPerMatch: 4.5, cardTendency: "moderate" },
-
-  // ---- Serie A ----
-  "Daniele Orsato": { avgCardsPerMatch: 4.9, cardTendency: "moderate" },
-  "Marco Di Bello": { avgCardsPerMatch: 5.2, cardTendency: "strict" },
-  "Davide Massa": { avgCardsPerMatch: 4.8, cardTendency: "moderate" },
-  "Gianluca Manganiello": { avgCardsPerMatch: 5.0, cardTendency: "strict" },
-  "Marco Guida": { avgCardsPerMatch: 4.6, cardTendency: "moderate" },
-  "Luca Pairetto": { avgCardsPerMatch: 5.1, cardTendency: "strict" },
-  "Maurizio Mariani": { avgCardsPerMatch: 4.4, cardTendency: "moderate" },
-  "Simone Sozza": { avgCardsPerMatch: 4.7, cardTendency: "moderate" },
-
-  // ---- Bundesliga ----
-  "Felix Zwayer": { avgCardsPerMatch: 4.1, cardTendency: "moderate" },
-  "Daniel Siebert": { avgCardsPerMatch: 3.8, cardTendency: "moderate" },
-  "Deniz Aytekin": { avgCardsPerMatch: 3.5, cardTendency: "moderate" },
-  "Sascha Stegemann": { avgCardsPerMatch: 3.9, cardTendency: "moderate" },
-  "Frank Willenborg": { avgCardsPerMatch: 3.3, cardTendency: "lenient" },
-  "Tobias Stieler": { avgCardsPerMatch: 3.6, cardTendency: "moderate" },
-  "Robert Hartmann": { avgCardsPerMatch: 3.7, cardTendency: "moderate" },
-
-  // ---- Ligue 1 ----
-  "Clément Turpin": { avgCardsPerMatch: 4.3, cardTendency: "moderate" },
-  "François Letexier": { avgCardsPerMatch: 3.9, cardTendency: "moderate" },
-  "Benoît Bastien": { avgCardsPerMatch: 4.5, cardTendency: "moderate" },
-  "Jérémie Pignard": { avgCardsPerMatch: 4.2, cardTendency: "moderate" },
-  "Willy Delajod": { avgCardsPerMatch: 4.0, cardTendency: "moderate" },
-  "Pierre Music": { avgCardsPerMatch: 3.7, cardTendency: "moderate" },
-
-  // ---- UEFA (Champions League / Europa League) ----
-  "Slavko Vinčić": { avgCardsPerMatch: 4.0, cardTendency: "moderate" },
-  "Szymon Marciniak": { avgCardsPerMatch: 3.8, cardTendency: "moderate" },
-  "Danny Makkelie": { avgCardsPerMatch: 3.5, cardTendency: "moderate" },
-  "Artur Dias": { avgCardsPerMatch: 4.2, cardTendency: "moderate" },
-  "Istvan Kovacs": { avgCardsPerMatch: 4.6, cardTendency: "moderate" },
-  "Ovidiu Hategan": { avgCardsPerMatch: 4.4, cardTendency: "moderate" },
-  "Tobias Welz": { avgCardsPerMatch: 3.6, cardTendency: "moderate" },
-};
 
 // Dinamik öğrenilen hakem profilleri (runtime cache)
 const dynamicRefereeCache = new Map<string, Omit<RefereeProfile, "name">>();
 
 /**
  * Hakem adına göre profil getir
- * 1. Statik veritabanında tam eşleşme
- * 2. Statik veritabanında soyadı eşleşmesi
- * 3. Dinamik cache'te (daha önce öğrenilen)
- * Bulunamazsa undefined döner — filtre uygulanmaz
+ * 1. Runtime cache'te (bu oturumdaki)
+ * 2. Kalıcı cache'te (daha önce öğrenilen)
+ * 3. Supabase'ten (settle-bets tarafından öğrenilmiş)
+ * Bulunamazsa undefined döner — nötr etki uygulanır
  */
-export function getRefereeProfile(refereeName: string | null | undefined): RefereeProfile | undefined {
+export async function getRefereeProfile(refereeName: string | null | undefined): Promise<RefereeProfile | undefined> {
   if (!refereeName) return undefined;
 
   const name = refereeName.trim();
-
-  // 1. Statik DB — tam eşleşme
-  if (REFEREE_DATABASE[name]) {
-    const profile = REFEREE_DATABASE[name];
-    return { name, ...profile, tempoImpact: deriveTempoImpact(profile.avgCardsPerMatch) };
-  }
-
-  // 2. Statik DB — soyadı eşleşmesi
   const nameLower = name.toLowerCase();
-  for (const [dbName, profile] of Object.entries(REFEREE_DATABASE)) {
-    const dbLower = dbName.toLowerCase();
-    const dbLastName = dbLower.split(" ").pop() || "";
-    const inputLastName = nameLower.split(" ").pop() || "";
-    if (dbLastName.length > 2 && dbLastName === inputLastName) {
-      return { name: dbName, ...profile, tempoImpact: deriveTempoImpact(profile.avgCardsPerMatch) };
-    }
-  }
 
-  // 3. Dinamik cache — daha önce öğrenilen
+  // 1. Runtime cache — bu oturumdaki profil
   const cached = dynamicRefereeCache.get(nameLower);
   if (cached) {
     return { name, ...cached, tempoImpact: deriveTempoImpact(cached.avgCardsPerMatch) };
   }
 
-  // 4. Kalıcı cache kontrol (Supabase'den öğrenilmiş)
+  // 2. Kalıcı cache kontrol (learnRefereeProfile tarafından yazılan)
   const persistedProfile = getCached<Omit<RefereeProfile, "name">>(`referee:${nameLower}`);
   if (persistedProfile) {
     dynamicRefereeCache.set(nameLower, persistedProfile);
     return { name, ...persistedProfile, tempoImpact: deriveTempoImpact(persistedProfile.avgCardsPerMatch) };
   }
 
-  console.warn(`[REFEREE] Hakem bulunamadı: "${name}" — nötr profil kullanılacak`);
+  // 3. Supabase'ten kontrol — settle-bets tarafından öğrenilmiş veriler
+  try {
+    const { createAdminSupabase } = await import("@/lib/supabase/admin");
+    const supabase = createAdminSupabase();
+    const { data } = await supabase
+      .from("referee_profiles")
+      .select("avg_cards_per_match, card_tendency, matches_analyzed")
+      .eq("name_lower", nameLower)
+      .single();
+
+    if (data && data.matches_analyzed >= 3) {
+      const profile = {
+        avgCardsPerMatch: data.avg_cards_per_match,
+        cardTendency: data.card_tendency as "strict" | "moderate" | "lenient",
+      };
+      dynamicRefereeCache.set(nameLower, profile);
+      setCache(`referee:${nameLower}`, profile, 7 * 24 * 3600);
+      return { name, ...profile, tempoImpact: deriveTempoImpact(profile.avgCardsPerMatch) };
+    }
+  } catch {
+    // Supabase hatası — sessizce geç
+  }
+
+  // Profil yok → nötr etki (undefined döner, simulator'da çarpan = 1.0)
   return undefined;
 }
 
 /**
- * Hakem profilini dinamik olarak öğren ve cache'le.
- * Tamamlanan maçların istatistiklerinden çağrılır.
+ * Hakem profilini tamamlanmış maçtan öğren ve hem cache'e hem Supabase'e kaydet.
+ * settle-bets cron'u tarafından çağrılır.
+ *
  * @param refereeName Hakem adı
  * @param totalCards Maçtaki toplam kart sayısı (sarı + kırmızı)
  */
-export function learnRefereeProfile(refereeName: string, totalCards: number): void {
+export async function learnRefereeProfile(refereeName: string, totalCards: number): Promise<void> {
   if (!refereeName) return;
   const name = refereeName.trim();
   const nameLower = name.toLowerCase();
 
-  // Statik DB'deyse öğrenmeye gerek yok
-  if (REFEREE_DATABASE[name]) return;
-  
-  // Soyadı eşleşmesini de kontrol et
-  for (const dbName of Object.keys(REFEREE_DATABASE)) {
-    const dbLastName = dbName.toLowerCase().split(" ").pop() || "";
-    const inputLastName = nameLower.split(" ").pop() || "";
-    if (dbLastName.length > 2 && dbLastName === inputLastName) return;
-  }
-
   // Mevcut dinamik profil varsa güncelle (hareketli ortalama)
   const existing = dynamicRefereeCache.get(nameLower);
   let avgCards: number;
+  let matchCount = 1;
 
   if (existing) {
-    // Hareketli ortalama: %70 eski + %30 yeni
     avgCards = Math.round((existing.avgCardsPerMatch * 0.7 + totalCards * 0.3) * 10) / 10;
   } else {
     avgCards = totalCards;
@@ -175,22 +89,63 @@ export function learnRefereeProfile(refereeName: string, totalCards: number): vo
 
   const tendency: "strict" | "moderate" | "lenient" =
     avgCards >= 5.0 ? "strict" : avgCards <= 3.5 ? "lenient" : "moderate";
-  
+
   const profile = { avgCardsPerMatch: avgCards, cardTendency: tendency };
   dynamicRefereeCache.set(nameLower, profile);
-  
-  // 30 gün kalıcı cache
   setCache(`referee:${nameLower}`, profile, 30 * 24 * 3600);
-  
-  console.log(`[REFEREE] Yeni hakem profili öğrenildi: ${name} → ${avgCards} kart/maç (${tendency})`);
+
+  // Supabase'e persist et (upsert)
+  try {
+    const { createAdminSupabase } = await import("@/lib/supabase/admin");
+    const supabase = createAdminSupabase();
+
+    const { data: existingRow } = await supabase
+      .from("referee_profiles")
+      .select("avg_cards_per_match, matches_analyzed")
+      .eq("name_lower", nameLower)
+      .single();
+
+    if (existingRow) {
+      matchCount = existingRow.matches_analyzed + 1;
+      const weight = Math.min(0.95, existingRow.matches_analyzed / (existingRow.matches_analyzed + 1));
+      avgCards = Math.round((existingRow.avg_cards_per_match * weight + totalCards * (1 - weight)) * 10) / 10;
+      const updatedTendency: "strict" | "moderate" | "lenient" =
+        avgCards >= 5.0 ? "strict" : avgCards <= 3.5 ? "lenient" : "moderate";
+
+      await supabase
+        .from("referee_profiles")
+        .update({
+          avg_cards_per_match: avgCards,
+          card_tendency: updatedTendency,
+          matches_analyzed: matchCount,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("name_lower", nameLower);
+    } else {
+      await supabase
+        .from("referee_profiles")
+        .insert({
+          name: name,
+          name_lower: nameLower,
+          avg_cards_per_match: avgCards,
+          card_tendency: tendency,
+          matches_analyzed: 1,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+    }
+
+    console.log(`[REFEREE] Profil güncellendi: ${name} → ${avgCards} kart/maç (${tendency}), ${matchCount} maç`);
+  } catch (err) {
+    console.warn(`[REFEREE] Supabase kayıt hatası (${name}):`, err);
+  }
 }
 
 /**
  * Hakem kart ortalamasından tempo etkisini türet
- * Sık düdük çalan hakem → düşük tempo → xG düşüşü
  */
 function deriveTempoImpact(avgCards: number): "high-tempo" | "neutral" | "low-tempo" {
-  if (avgCards >= 5.0) return "low-tempo";   // Çok duru, oyun akışını bozuyor
-  if (avgCards <= 3.5) return "high-tempo";  // Akıcı oyun, az durma
+  if (avgCards >= 5.0) return "low-tempo";
+  if (avgCards <= 3.5) return "high-tempo";
   return "neutral";
 }

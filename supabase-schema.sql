@@ -233,6 +233,28 @@
   DROP POLICY IF EXISTS ml_models_update ON ml_models;
   CREATE POLICY ml_models_update ON ml_models FOR UPDATE USING (true);
 
+  -- Referee Profiles (Hakem profilleri — settle-bets tarafından öğrenilir)
+  CREATE TABLE IF NOT EXISTS referee_profiles (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_lower TEXT NOT NULL UNIQUE,
+    avg_cards_per_match NUMERIC(4,2) NOT NULL DEFAULT 4.0,
+    card_tendency TEXT NOT NULL DEFAULT 'moderate' CHECK (card_tendency IN ('strict', 'moderate', 'lenient')),
+    matches_analyzed INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_referee_name_lower ON referee_profiles(name_lower);
+
+  ALTER TABLE referee_profiles ENABLE ROW LEVEL SECURITY;
+  DROP POLICY IF EXISTS referee_profiles_select ON referee_profiles;
+  CREATE POLICY referee_profiles_select ON referee_profiles FOR SELECT USING (true);
+  DROP POLICY IF EXISTS referee_profiles_insert ON referee_profiles;
+  CREATE POLICY referee_profiles_insert ON referee_profiles FOR INSERT WITH CHECK (true);
+  DROP POLICY IF EXISTS referee_profiles_update ON referee_profiles;
+  CREATE POLICY referee_profiles_update ON referee_profiles FOR UPDATE USING (true);
+
   -- ============================================
   -- RPC: Reset All Stats (SECURITY DEFINER = bypass RLS)
   -- ============================================

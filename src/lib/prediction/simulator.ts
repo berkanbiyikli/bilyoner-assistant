@@ -6,6 +6,7 @@
 
 import type { MatchAnalysis, MatchOdds, MonteCarloResult, RefereeProfile } from "@/types";
 import type { MatchImportance } from "@/lib/prediction/importance";
+import type { LeagueRealStats } from "@/lib/prediction/league-stats";
 import { getCalibratedHomeAdvantage, getMarketCalibrationAdjustment } from "@/lib/prediction/optimizer";
 import { estimateRho, calculateAnalyticProbabilities, dixonColesTau } from "@/lib/prediction/dixon-coles";
 import type { FormAnalysis } from "@/lib/prediction/form-analyzer";
@@ -14,9 +15,8 @@ import { formToLambdaMultiplier } from "@/lib/prediction/form-analyzer";
 const SIM_RUNS = 10_000;
 
 /**
- * Liga bazlı ev sahibi avantaj çarpanları
- * Araştırma: Türkiye, İspanya, İtalya'da ev sahibi avantajı PL/Bundesliga'dan yüksek
- * Kaynak: Son 10 sezon ev-deplasman galibiyet oranları
+ * Liga bazlı ev sahibi avantaj çarpanları — YEDEK DEĞERLER
+ * Gerçek veri getLeagueRealStats'tan gelir, bu tablo sadece fallback.
  */
 const LEAGUE_HOME_ADVANTAGE: Record<number, number> = {
   // Türkiye — taraftar baskısı çok yüksek
@@ -157,9 +157,8 @@ function gammaRandom(alpha: number, scale: number): number {
 }
 
 /**
- * Liga bazlı overdispersion parametresi
- * Bazı ligler doğası gereği daha öngörülmez (düşük r = yüksek varyans)
- * Araştırma: Bundesliga ve Eredivisie gol profili daha "patlak", Serie A daha öngörülebilir
+ * Liga bazlı overdispersion parametresi — YEDEK DEĞERLER (araştırma bazlı)
+ * Gerçek veri getLeagueRealStats'tan gelir, bu tablo sadece fallback.
  */
 const LEAGUE_OVERDISPERSION: Record<number, number> = {
   // Top 5
@@ -208,9 +207,9 @@ function getOverdispersion(leagueId?: number): number {
 }
 
 /**
- * Liga bazlı ortalama gol oranı (takım başına, maç başına)
+ * Liga bazlı ortalama gol oranı (takım başına, maç başına) — YEDEK DEĞERLER
+ * Gerçek veri getLeagueRealStats'tan gelir, bu tablo sadece fallback.
  * xG yoksa fallback lambda hesabında kullanılır: attack/100 * leagueAvgGoals
- * Kaynak: 2023-24 sezonu ampirik verileri
  */
 const LEAGUE_AVG_GOALS_PER_TEAM: Record<number, number> = {
   // Top 5
@@ -293,10 +292,12 @@ export function simulateMatch(
   leagueId?: number,
   importance?: MatchImportance,
   homeFormAnalysis?: FormAnalysis,
-  awayFormAnalysis?: FormAnalysis
+  awayFormAnalysis?: FormAnalysis,
+  realStats?: LeagueRealStats
 ): MonteCarloResult {
   // --- Lambda hesaplama ---
-  const leagueAvg = getLeagueAvgGoals(leagueId);
+  // Öncelik: gerçek veri (standings'ten hesaplanmış) > hardcoded fallback
+  const leagueAvg = realStats?.avgGoalsPerTeam ?? getLeagueAvgGoals(leagueId);
   const baseHomeLambda = analysis.homeXg ?? (analysis.homeAttack / 100) * leagueAvg;
   const baseAwayLambda = analysis.awayXg ?? (analysis.awayAttack / 100) * leagueAvg;
 
@@ -373,7 +374,8 @@ export function simulateMatch(
   const awayLambdaHT = awayLambda * htFactorAway;
 
   // --- Overdispersion parametresi (Negative Binomial) ---
-  const overdispersionR = getOverdispersion(leagueId);
+  // Öncelik: gerçek veri > hardcoded fallback
+  const overdispersionR = realStats?.overdispersion ?? getOverdispersion(leagueId);
 
   // --- Simülasyon ---
   let homeWins = 0;

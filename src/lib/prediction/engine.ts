@@ -10,6 +10,7 @@ import type {
   H2HResponse,
   InjuryResponse,
   PredictionTeam,
+  TeamStatisticsResponse,
 } from "@/types/api-football";
 import type {
   MatchPrediction,
@@ -26,10 +27,11 @@ import type {
   KeyMissingPlayer,
   DataQualityScore,
 } from "@/types";
-import { getPrediction, getH2H, getOdds, getInjuries } from "@/lib/api-football";
+import { getPrediction, getH2H, getOdds, getInjuries, getTeamStatistics, getCurrentSeason } from "@/lib/api-football";
 import { getCached, setCache } from "@/lib/cache";
 import { simulateMatch, getSimProbability } from "@/lib/prediction/simulator";
 import { getRefereeProfile } from "@/lib/prediction/referees";
+import { getLeagueRealStats } from "@/lib/prediction/league-stats";
 import { calculateMatchImportance, type MatchImportance } from "@/lib/prediction/importance";
 import { getOptimalWeights, getCalibrationAdjustments } from "@/lib/prediction/validator";
 import { analyzeForm, type FormAnalysis } from "@/lib/prediction/form-analyzer";
@@ -49,7 +51,7 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   if (cached) return cached;
 
   // Paralel veri çekimi (tüm kaynaklardan)
-  const [prediction, h2h, odds, injuries, importance] = await Promise.all([
+  const [prediction, h2h, odds, injuries, importance, homeTeamStats, awayTeamStats, leagueRealStats] = await Promise.all([
     getPrediction(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Prediction API hatası — null`); return null; }),
     getH2H(homeId, awayId, 10).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: H2H API hatası — boş dizi`); return []; }),
     getOdds(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Odds API hatası — null`); return null; }),
@@ -61,20 +63,23 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
       awayContext: "Veri yok",
       motivationGap: 0,
     } as MatchImportance)),
+    getTeamStatistics(homeId, fixture.league.id, getCurrentSeason()).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home team stats hatası`); return null; }),
+    getTeamStatistics(awayId, fixture.league.id, getCurrentSeason()).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away team stats hatası`); return null; }),
+    getLeagueRealStats(fixture.league.id).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: League real stats hatası`); return null; }),
   ]);
 
   // Analizleri oluştur
   const keyMissingPlayers = analyzeInjuries(injuries, homeId, awayId);
   const injuryImpact = calculateInjuryImpact(keyMissingPlayers);
   const goalTiming = extractGoalTiming(prediction);
-  const xgData = extractXgData(prediction);
+  const xgData = extractXgData(prediction, homeTeamStats, awayTeamStats);
   const similarity = findSimilarMatch(prediction, h2h);
 
-  // Hakem profili (korner/kart analizinde de kullanılıyor, bu yüzden önce)
-  const refereeProfile = getRefereeProfile(fixture.fixture.referee);
+  // Hakem profili (async — Supabase'ten gerçek veri)
+  const refereeProfile = await getRefereeProfile(fixture.fixture.referee);
 
-  const cornerData = extractCornerData(prediction, h2h);
-  const cardData = extractCardData(prediction, h2h, refereeProfile);
+  const cornerData = extractCornerData(prediction, h2h, homeTeamStats, awayTeamStats);
+  const cardData = extractCardData(prediction, h2h, refereeProfile, homeTeamStats, awayTeamStats);
 
   // === YENİ: Form Decay Analizi ===
   const homeFormString = prediction?.teams?.home?.last_5?.form || prediction?.teams?.home?.league?.form?.slice(-5) || "";
@@ -117,7 +122,7 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
 
   // Monte Carlo simülasyon (analiz + odds hazır olduktan sonra)
   // Liga bazlı ev sahibi avantajı + motivasyon çarpanı + form decay → dinamik lambda
-  const simulation = simulateMatch(analysis, matchOdds, fixture.league.id, importance, homeFormAnalysis, awayFormAnalysis);
+  const simulation = simulateMatch(analysis, matchOdds, fixture.league.id, importance, homeFormAnalysis, awayFormAnalysis, leagueRealStats ?? undefined);
   analysis.simulation = simulation;
 
   // Self-calibrating ağırlıklar al (cache'li)
@@ -163,14 +168,56 @@ interface XgData {
   awayXgDelta: number;
 }
 
-function extractXgData(prediction: PredictionResponse | null): XgData {
+function extractXgData(
+  prediction: PredictionResponse | null,
+  homeTeamStats: TeamStatisticsResponse | null,
+  awayTeamStats: TeamStatisticsResponse | null
+): XgData {
   const defaults: XgData = {
     homeXg: 1.2, awayXg: 1.0,
     homeActualGoals: 1.2, awayActualGoals: 1.0,
     homeXgDelta: 0, awayXgDelta: 0,
   };
+
+  // === GERÇEK VERİ KAYNAĞI 1: /teams/statistics ===
+  // Season-level gol ortalamaları — en güvenilir kaynak
+  if (homeTeamStats?.goals?.for?.average && awayTeamStats?.goals?.for?.average) {
+    const homeGoalsForHome = parseFloat(homeTeamStats.goals.for.average.home) || 1.2;
+    const homeGoalsForAway = parseFloat(homeTeamStats.goals.for.average.away) || 1.0;
+    const awayGoalsForHome = parseFloat(awayTeamStats.goals.for.average.home) || 1.2;
+    const awayGoalsForAway = parseFloat(awayTeamStats.goals.for.average.away) || 1.0;
+
+    // Ev sahibi evde atıyor, deplasman deplasmanda atıyor
+    const homeXg = homeGoalsForHome;
+    const awayXg = awayGoalsForAway;
+
+    // Gerçek gol ortalamaları (toplam)
+    const homeActualGoals = parseFloat(homeTeamStats.goals.for.average.total) || homeXg;
+    const awayActualGoals = parseFloat(awayTeamStats.goals.for.average.total) || awayXg;
+
+    // Savunma zayıflığı düzeltmesi: Rakibin yediği gol ortalamasıyla blend
+    const homeGoalsAgainstAway = parseFloat(awayTeamStats.goals.against.average.away) || 1.2;
+    const awayGoalsAgainstHome = parseFloat(homeTeamStats.goals.against.average.home) || 0.8;
+
+    // xG = (takımın attığı ort.) * 0.6 + (rakibin yediği ort.) * 0.4
+    const adjustedHomeXg = homeXg * 0.6 + homeGoalsAgainstAway * 0.4;
+    const adjustedAwayXg = awayXg * 0.6 + awayGoalsAgainstHome * 0.4;
+
+    console.log(`[XG-REAL] Team stats xG: Home=${adjustedHomeXg.toFixed(2)}, Away=${adjustedAwayXg.toFixed(2)} (from /teams/statistics)`);
+
+    return {
+      homeXg: Math.round(adjustedHomeXg * 100) / 100,
+      awayXg: Math.round(adjustedAwayXg * 100) / 100,
+      homeActualGoals: Math.round(homeActualGoals * 100) / 100,
+      awayActualGoals: Math.round(awayActualGoals * 100) / 100,
+      homeXgDelta: Math.round((adjustedHomeXg - homeActualGoals) * 100) / 100,
+      awayXgDelta: Math.round((adjustedAwayXg - awayActualGoals) * 100) / 100,
+    };
+  }
+
+  // === FALLBACK: /predictions API verisinden xG proxy ===
   if (!prediction?.teams) {
-    console.warn("[FALLBACK] extractXgData: prediction.teams yok — varsayılan xG kullanılıyor (H: 1.2, A: 1.0)");
+    console.warn("[FALLBACK] extractXgData: Ne team stats ne prediction var — varsayılan xG (H: 1.2, A: 1.0)");
     return defaults;
   }
 
@@ -180,43 +227,16 @@ function extractXgData(prediction: PredictionResponse | null): XgData {
   const homeGoalsFor = parseFloat(homeTeam?.last_5?.goals?.for?.average || "1.2");
   const awayGoalsFor = parseFloat(awayTeam?.last_5?.goals?.for?.average || "1.0");
 
-  // Hücum gücünü önce last_5'ten, yoksa comparison'dan al
-  let homeAtt = parseStrength(homeTeam?.last_5?.att);
-  let awayAtt = parseStrength(awayTeam?.last_5?.att);
-
-  // Fallback: comparison.att alanı
-  if (homeAtt === 50 && awayAtt === 50 && prediction.comparison) {
-    const compAtt = prediction.comparison["att"] || prediction.comparison["Att"] || prediction.comparison["attack"];
-    if (compAtt) {
-      const cH = parseStrength(compAtt.home);
-      const cA = parseStrength(compAtt.away);
-      if (cH !== 50 || cA !== 50) {
-        homeAtt = cH;
-        awayAtt = cA;
-      }
-    }
-  }
-
-  // xG proxy: Dixon-Coles benzeri yaklaşım
-  // Gerçek xG yoksa: gol ortalaması × (hücum gücü / lig ortalaması) × savunma zayıflığı faktörü
-  // 50 = lig ortalaması referansı, 60+ hücum güçlü, 40- zayıf
-  const homeAttFactor = Math.max(0.5, homeAtt / 50);  // 1.0 = ortalama, 1.4 = güçlü
-  const awayAttFactor = Math.max(0.5, awayAtt / 50);
-  
-  // Savunma zayıflık faktörü (düşük savunma = daha fazla gol yenme)
-  const awayDefWeak = Math.max(0.7, (100 - awayAtt) / 50); // Rakip savunma zayıfsa bonus
-  const homeDefWeak = Math.max(0.7, (100 - homeAtt) / 50);
-
-  const homeXg = homeGoalsFor * homeAttFactor * 0.85 + homeGoalsFor * 0.15; // %85 model, %15 raw 
-  const awayXg = awayGoalsFor * awayAttFactor * 0.85 + awayGoalsFor * 0.15;
+  // Son 5 maç gol ortalaması — prediction API'den gerçek veri
+  console.log(`[XG-FALLBACK] Prediction API xG proxy: Home=${homeGoalsFor}, Away=${awayGoalsFor}`);
 
   return {
-    homeXg: Math.round(homeXg * 100) / 100,
-    awayXg: Math.round(awayXg * 100) / 100,
+    homeXg: homeGoalsFor,
+    awayXg: awayGoalsFor,
     homeActualGoals: homeGoalsFor,
     awayActualGoals: awayGoalsFor,
-    homeXgDelta: Math.round((homeXg - homeGoalsFor) * 100) / 100,
-    awayXgDelta: Math.round((awayXg - awayGoalsFor) * 100) / 100,
+    homeXgDelta: 0,
+    awayXgDelta: 0,
   };
 }
 
@@ -273,46 +293,53 @@ function extractGoalTiming(prediction: PredictionResponse | null): GoalTimingDat
 
 function extractCornerData(
   prediction: PredictionResponse | null,
-  h2hMatches?: H2HResponse[]
+  h2hMatches?: H2HResponse[],
+  homeTeamStats?: TeamStatisticsResponse | null,
+  awayTeamStats?: TeamStatisticsResponse | null
 ): CornerCardData {
-  if (!prediction?.teams) {
-    console.warn("[FALLBACK] extractCornerData: prediction.teams yok — varsayılan korner kullanılıyor");
+  // === GERÇEK VERİ: /teams/statistics'te korner verisi yoksa ===
+  // API-Football /teams/statistics korner ortalaması dönmüyor.
+  // Bu yüzden korner tahmini için H2H ve gol verisi kullanmak zorundayız.
+  // Korner pick'leri zaten devre dışı — bu veri sadece insight için.
+
+  if (!prediction?.teams && !homeTeamStats && !awayTeamStats) {
     return { homeAvg: 4.5, awayAvg: 4.0, totalAvg: 8.5, overProb: 50 };
   }
 
-  const homeAtt = parseStrength(prediction.teams.home?.last_5?.att);
-  const awayAtt = parseStrength(prediction.teams.away?.last_5?.att);
-  const homeDef = parseStrength(prediction.teams.home?.last_5?.def);
-  const awayDef = parseStrength(prediction.teams.away?.last_5?.def);
-
-  // H2H gol ortalamasından korner tahmini (gol ↔ korner korelasyonu ~0.6)
+  // H2H gol ortalamasından korner korelasyonu (%0.6 korelasyon)
   let h2hCornerEstimate = 0;
   if (h2hMatches && h2hMatches.length >= 2) {
     const totalGoals = h2hMatches.reduce((sum, m) => sum + (m.goals?.home ?? 0) + (m.goals?.away ?? 0), 0);
     const avgGoals = totalGoals / h2hMatches.length;
-    h2hCornerEstimate = 5.0 + avgGoals * 1.3; // Her gol ~1.3 ekstra korner ilişkisi
+    h2hCornerEstimate = 5.0 + avgGoals * 1.3;
   }
 
-  // Form gol ortalamasından korner tahmini
-  const homeGoalAvg = parseFloat(prediction.teams.home?.last_5?.goals?.for?.average || "0") || 1.2;
-  const awayGoalAvg = parseFloat(prediction.teams.away?.last_5?.goals?.for?.average || "0") || 1.0;
+  // Gerçek gol ortalamasından korner tahmini: /teams/statistics veya /predictions
+  let homeGoalAvg = 1.2;
+  let awayGoalAvg = 1.0;
+
+  if (homeTeamStats?.goals?.for?.average) {
+    homeGoalAvg = parseFloat(homeTeamStats.goals.for.average.home) || 1.2;
+  } else if (prediction?.teams?.home?.last_5?.goals?.for?.average) {
+    homeGoalAvg = parseFloat(prediction.teams.home.last_5.goals.for.average) || 1.2;
+  }
+
+  if (awayTeamStats?.goals?.for?.average) {
+    awayGoalAvg = parseFloat(awayTeamStats.goals.for.average.away) || 1.0;
+  } else if (prediction?.teams?.away?.last_5?.goals?.for?.average) {
+    awayGoalAvg = parseFloat(prediction.teams.away.last_5.goals.for.average) || 1.0;
+  }
+
   const formGoalTotal = homeGoalAvg + awayGoalAvg;
   const formCornerEstimate = 5.0 + formGoalTotal * 1.2;
 
-  // Attack/defense bazlı tahmin (eski formül — fallback)
-  const attDefHomeCorner = 3.0 + (homeAtt / 100) * 4 + (awayDef / 100) * 1.5;
-  const attDefAwayCorner = 2.5 + (awayAtt / 100) * 4 + (homeDef / 100) * 1.5;
-  const attDefTotal = attDefHomeCorner + attDefAwayCorner;
-
-  // Üç kaynağı harmanlama: H2H > Form golleri > Att/Def sentetik
   let totalAvg: number;
   if (h2hCornerEstimate > 0) {
-    totalAvg = h2hCornerEstimate * 0.35 + formCornerEstimate * 0.35 + attDefTotal * 0.30;
+    totalAvg = h2hCornerEstimate * 0.45 + formCornerEstimate * 0.55;
   } else {
-    totalAvg = formCornerEstimate * 0.55 + attDefTotal * 0.45;
+    totalAvg = formCornerEstimate;
   }
 
-  // Ev sahibi avantajı ile dağıt (%55 ev, %45 deplasman)
   const homeCornerAvg = totalAvg * 0.55;
   const awayCornerAvg = totalAvg * 0.45;
   const overProb = Math.min(80, Math.max(20, (totalAvg - 8.5) * 15 + 50));
@@ -328,11 +355,81 @@ function extractCornerData(
 function extractCardData(
   prediction: PredictionResponse | null,
   h2hMatches?: H2HResponse[],
-  refereeProfile?: RefereeProfile | null
+  refereeProfile?: RefereeProfile | null,
+  homeTeamStats?: TeamStatisticsResponse | null,
+  awayTeamStats?: TeamStatisticsResponse | null
 ): CornerCardData {
-  if (!prediction?.teams) {
-    console.warn("[FALLBACK] extractCardData: prediction.teams yok — varsayılan kart kullanılıyor (2.0 + 2.0)");
-    // Hakem profili varsa ondan al
+  let homeAvg = 0;
+  let awayAvg = 0;
+  let hasRealData = false;
+
+  // === GERÇEK VERİ KAYNAĞI 1: /teams/statistics — sezon kart istatistikleri ===
+  if (homeTeamStats?.cards && awayTeamStats?.cards) {
+    const countCards = (cards: TeamStatisticsResponse["cards"]): number => {
+      let total = 0;
+      for (const [, data] of Object.entries(cards.yellow)) {
+        if (data?.total) total += data.total;
+      }
+      for (const [, data] of Object.entries(cards.red)) {
+        if (data?.total) total += data.total;
+      }
+      return total;
+    };
+
+    const homeGamesPlayed = homeTeamStats.fixtures?.played?.total || 1;
+    const awayGamesPlayed = awayTeamStats.fixtures?.played?.total || 1;
+
+    homeAvg = countCards(homeTeamStats.cards) / homeGamesPlayed;
+    awayAvg = countCards(awayTeamStats.cards) / awayGamesPlayed;
+    hasRealData = true;
+    console.log(`[CARDS-REAL] Team stats cards: Home=${homeAvg.toFixed(1)}/game, Away=${awayAvg.toFixed(1)}/game`);
+  }
+
+  // === GERÇEK VERİ KAYNAĞI 2: /predictions — kart dağılımı ===
+  if (!hasRealData && prediction?.teams) {
+    const homeCards = prediction.teams.home?.league?.cards;
+    const awayCards = prediction.teams.away?.league?.cards;
+
+    let homeTotal = 0;
+    let awayTotal = 0;
+    let homeMatches = 15;
+    let awayMatches = 15;
+
+    if (homeCards) {
+      for (const [, minutes] of Object.entries(homeCards)) {
+        if (typeof minutes === "object" && minutes !== null) {
+          for (const [, data] of Object.entries(minutes as Record<string, { total: number | null }>)) {
+            if (data?.total) homeTotal += data.total;
+          }
+        }
+      }
+      const fixtures = prediction.teams.home?.league?.fixtures;
+      if (fixtures?.played) {
+        homeMatches = (fixtures.played as unknown as Record<string, number>)?.total || 15;
+      }
+    }
+
+    if (awayCards) {
+      for (const [, minutes] of Object.entries(awayCards)) {
+        if (typeof minutes === "object" && minutes !== null) {
+          for (const [, data] of Object.entries(minutes as Record<string, { total: number | null }>)) {
+            if (data?.total) awayTotal += data.total;
+          }
+        }
+      }
+      const fixtures = prediction.teams.away?.league?.fixtures;
+      if (fixtures?.played) {
+        awayMatches = (fixtures.played as unknown as Record<string, number>)?.total || 15;
+      }
+    }
+
+    homeAvg = homeMatches > 0 ? homeTotal / homeMatches : 2.0;
+    awayAvg = awayMatches > 0 ? awayTotal / awayMatches : 2.0;
+    hasRealData = homeTotal > 0 || awayTotal > 0;
+  }
+
+  // === FALLBACK: Hakem profili veya varsayılan ===
+  if (!hasRealData) {
     if (refereeProfile) {
       const avg = refereeProfile.avgCardsPerMatch;
       return { homeAvg: avg * 0.52, awayAvg: avg * 0.48, totalAvg: avg, overProb: avg > 4.5 ? 60 : 45 };
@@ -340,52 +437,12 @@ function extractCardData(
     return { homeAvg: 2.0, awayAvg: 2.0, totalAvg: 4.0, overProb: 50 };
   }
 
-  const homeCards = prediction.teams.home?.league?.cards;
-  const awayCards = prediction.teams.away?.league?.cards;
-
-  let homeTotal = 0;
-  let awayTotal = 0;
-  let homeMatches = 15;
-  let awayMatches = 15;
-
-  if (homeCards) {
-    for (const [, minutes] of Object.entries(homeCards)) {
-      if (typeof minutes === "object" && minutes !== null) {
-        for (const [, data] of Object.entries(minutes as Record<string, { total: number | null }>)) {
-          if (data?.total) homeTotal += data.total;
-        }
-      }
-    }
-    const fixtures = prediction.teams.home?.league?.fixtures;
-    if (fixtures?.played) {
-      homeMatches = (fixtures.played as unknown as Record<string, number>)?.total || 15;
-    }
-  }
-
-  if (awayCards) {
-    for (const [, minutes] of Object.entries(awayCards)) {
-      if (typeof minutes === "object" && minutes !== null) {
-        for (const [, data] of Object.entries(minutes as Record<string, { total: number | null }>)) {
-          if (data?.total) awayTotal += data.total;
-        }
-      }
-    }
-    const fixtures = prediction.teams.away?.league?.fixtures;
-    if (fixtures?.played) {
-      awayMatches = (fixtures.played as unknown as Record<string, number>)?.total || 15;
-    }
-  }
-
-  let homeAvg = homeMatches > 0 ? homeTotal / homeMatches : 2.0;
-  let awayAvg = awayMatches > 0 ? awayTotal / awayMatches : 2.0;
-
-  // Hakem profili ile ağırlıklı düzeltme
+  // Hakem profili ile ağırlıklı düzeltme (gerçek hakem verisi varsa)
   if (refereeProfile) {
     const refAvg = refereeProfile.avgCardsPerMatch;
     const teamTotal = homeAvg + awayAvg;
     if (teamTotal > 0) {
-      // Takım verisi %60 + hakem verisi %40
-      const blendedTotal = teamTotal * 0.6 + refAvg * 0.4;
+      const blendedTotal = teamTotal * 0.7 + refAvg * 0.3; // %70 takım + %30 hakem
       const ratio = homeAvg / teamTotal;
       homeAvg = blendedTotal * ratio;
       awayAvg = blendedTotal * (1 - ratio);

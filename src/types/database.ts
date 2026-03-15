@@ -116,6 +116,17 @@ type MLModelRow = {
   record_count: number;
 }
 
+type RefereeProfileRow = {
+  id: number;
+  name: string;
+  name_lower: string;
+  avg_cards_per_match: number;
+  card_tendency: "strict" | "moderate" | "lenient";
+  matches_analyzed: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---- Database Type ----
 export type Database = {
   public: {
@@ -166,6 +177,12 @@ export type Database = {
         Row: MLModelRow;
         Insert: Omit<MLModelRow, "trained_at"> & { trained_at?: string };
         Update: Partial<Omit<MLModelRow, "id">>;
+        Relationships: [];
+      };
+      referee_profiles: {
+        Row: RefereeProfileRow;
+        Insert: Omit<RefereeProfileRow, "id" | "created_at" | "updated_at"> & { id?: number; created_at?: string; updated_at?: string };
+        Update: Partial<Omit<RefereeProfileRow, "id">>;
         Relationships: [];
       };
     };

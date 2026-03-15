@@ -14,6 +14,7 @@ import type {
   FixtureStatisticsResponse,
   H2HResponse,
   FixtureEvent,
+  TeamStatisticsResponse,
 } from "@/types/api-football";
 import { getCached, setCache } from "@/lib/cache";
 
@@ -196,6 +197,22 @@ export async function getInjuries(fixtureId: number): Promise<InjuryResponse[]> 
     { revalidate: 3600, cacheTtl: 7200 }
   );
   return data.response;
+}
+
+// ---- Team Statistics (Season-level) ----
+
+export async function getTeamStatistics(
+  teamId: number,
+  leagueId: number,
+  season: number
+): Promise<TeamStatisticsResponse | null> {
+  const data = await apiFetch<TeamStatisticsResponse>(
+    "/teams/statistics",
+    { team: teamId, league: leagueId, season },
+    { revalidate: 3600, cacheTtl: 86400 } // 24 saat cache — sezon istatistikleri yavaş değişir
+  );
+  // /teams/statistics tek obje döner, dizi değil
+  return (data.response as unknown as TeamStatisticsResponse) ?? null;
 }
 
 // ---- Lineups ----

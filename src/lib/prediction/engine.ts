@@ -43,7 +43,12 @@ import type { AIAnalysis } from "@/types";
 
 const CACHE_TTL = 10 * 60; // 10 dakika (veri tazeliği için kısa)
 
-export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPrediction> {
+interface AnalyzeOptions {
+  /** AI analizini atla (kullanıcı-facing route'larda timeout önlemek için) */
+  skipAI?: boolean;
+}
+
+export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOptions): Promise<MatchPrediction> {
   const fixtureId = fixture.fixture.id;
   const homeId = fixture.teams.home.id;
   const awayId = fixture.teams.away.id;
@@ -142,7 +147,7 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   // === AI Analizi (Gemini) ===
   const sortedPicks = picks.sort((a, b) => b.confidence - a.confidence);
   let aiAnalysis: AIAnalysis | undefined;
-  try {
+  if (!options?.skipAI) try {
     const bestPick = sortedPicks[0];
     const aiResult = await analyzeMatchWithAI({
       homeTeam: fixture.teams.home.name,
@@ -2195,12 +2200,12 @@ function adjustByForm(base: number, form: string): number {
   return Math.max(10, Math.min(95, base + bonus));
 }
 
-export async function analyzeMatches(fixtures: FixtureResponse[], maxConcurrent = 3): Promise<MatchPrediction[]> {
+export async function analyzeMatches(fixtures: FixtureResponse[], maxConcurrent = 3, options?: AnalyzeOptions): Promise<MatchPrediction[]> {
   const results: MatchPrediction[] = [];
 
   for (let i = 0; i < fixtures.length; i += maxConcurrent) {
     const batch = fixtures.slice(i, i + maxConcurrent);
-    const batchResults = await Promise.allSettled(batch.map((fixture) => analyzeMatch(fixture)));
+    const batchResults = await Promise.allSettled(batch.map((fixture) => analyzeMatch(fixture, options)));
 
     for (const result of batchResults) {
       if (result.status === "fulfilled") results.push(result.value);

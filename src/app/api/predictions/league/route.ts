@@ -153,7 +153,7 @@ export async function GET(req: NextRequest) {
     let liveAnalyzed: unknown[] = [];
     if (unseenFixtures.length > 0) {
       try {
-        liveAnalyzed = await analyzeMatches(unseenFixtures, 2);
+        liveAnalyzed = await analyzeMatches(unseenFixtures, 2, { skipAI: true });
       } catch (err) {
         console.error(`[LEAGUE-PRED] Analysis error for league ${leagueId}:`, err);
       }

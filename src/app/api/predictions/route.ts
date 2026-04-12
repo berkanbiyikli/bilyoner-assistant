@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
       if (fixturesNeedingAnalysis.length > 0) {
         const analysisPromises = fixturesNeedingAnalysis.map(async (fixture) => {
           try {
-            const result = await analyzeMatch(fixture);
+            const result = await analyzeMatch(fixture, { skipAI: true });
             dbAnalysisResults.set(fixture.fixture.id, result);
           } catch (err) {
             console.warn(`[PREDICTIONS] DB fixture analiz hatası (${fixture.fixture.id}):`, err);
@@ -231,7 +231,7 @@ export async function GET(req: NextRequest) {
 
       if (unseenFixtures.length > 0) {
         try {
-          const liveResults = await analyzeMatches(unseenFixtures, 3);
+          const liveResults = await analyzeMatches(unseenFixtures, 3, { skipAI: true });
           allLiveAnalyzed.push(...liveResults);
         } catch (err) {
           console.error(`[PREDICTIONS] Live analysis error for ${date}:`, err);

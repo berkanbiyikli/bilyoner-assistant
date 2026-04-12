@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
       (f) => f.fixture.status.short === "NS"
     );
 
-    const predictions = await analyzeMatches(fixtures);
+    const predictions = await analyzeMatches(fixtures, undefined, { skipAI: true });
     const coupon = buildCoupon(predictions, { category, stake });
 
     return NextResponse.json({ coupon }, { headers: CORS_HEADERS });

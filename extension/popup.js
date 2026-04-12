@@ -89,6 +89,12 @@ transferBtn.addEventListener("click", async () => {
     return;
   }
 
+  // Bülten sayfasında olduğundan emin ol
+  if (!tab.url.includes("/iddaa/") && !tab.url.includes("/mac-karti/")) {
+    showStatus("Bilyoner İddaa bülten sayfasına gidin! (iddaa/futbol)", "error");
+    return;
+  }
+
   transferBtn.disabled = true;
   showStatus("Kupon aktarılıyor...", "info");
 
@@ -105,9 +111,15 @@ transferBtn.addEventListener("click", async () => {
     });
 
     if (response && response.success) {
-      showStatus(`${response.transferred}/${predictions.length} bahis kupona eklendi!`, "success");
+      const msg = response.transferred === predictions.length
+        ? `${response.transferred} bahis kupona eklendi!`
+        : `${response.transferred}/${predictions.length} bahis eklendi`;
+      showStatus(msg, "success");
+      if (response.errors && response.errors.length > 0) {
+        console.warn("[BA] Transfer hataları:", response.errors);
+      }
     } else {
-      showStatus(response?.error || "Aktarım başarısız", "error");
+      showStatus(response?.errors?.[0] || "Aktarım başarısız — bülten sayfasını kontrol edin", "error");
     }
   } catch (err) {
     showStatus("Content script bağlantı hatası. Sayfayı yenileyin.", "error");

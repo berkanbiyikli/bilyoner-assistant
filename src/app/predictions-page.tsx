@@ -5,12 +5,12 @@ import { LeagueFilter } from "@/components/league-filter";
 import { PreferenceFilter } from "@/components/preference-filter";
 import { CouponSidebar } from "@/components/coupon-sidebar";
 import { useAppStore, MARKET_PICK_MAP } from "@/lib/store";
-import type { MatchPrediction, Pick as PickT, CrazyPickResult } from "@/types";
+import type { MatchPrediction, Pick as PickT, CrazyPickResult, AIAnalysis } from "@/types";
 import {
   Trophy, Calendar, RefreshCw, Dices, Flame, TrendingUp, Zap,
   AlertTriangle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Target, Shield, Swords, BarChart3, Plus, Check, Sparkles,
-  Star, ArrowUpRight, Filter, X, Clock,
+  Star, ArrowUpRight, Filter, X, Clock, Bot, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
@@ -1063,6 +1063,7 @@ function ExpandedDetail({
           { key: "picks", icon: Target, label: "Tahminler" },
           { key: "simulation", icon: Sparkles, label: "Simülasyon" },
           { key: "insights", icon: Zap, label: "Derinlemesine" },
+          { key: "ai", icon: Bot, label: "AI" },
         ].map(({ key, icon: Icon, label }) => (
           <button
             key={key}
@@ -1084,6 +1085,7 @@ function ExpandedDetail({
         {activeTab === "picks" && <PicksTab prediction={p} isInCoupon={isInCoupon} onAddToCoupon={onAddToCoupon} />}
         {activeTab === "simulation" && <SimulationTab sim={analysis?.simulation} analysis={analysis} homeTeam={p.homeTeam.name} awayTeam={p.awayTeam.name} />}
         {activeTab === "insights" && <InsightsTab analysis={analysis} insights={insights} />}
+        {activeTab === "ai" && <AITab prediction={p} />}
       </div>
     </div>
   );
@@ -1350,6 +1352,158 @@ function InsightsTab({ analysis, insights }: { analysis: MatchPrediction["analys
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- AI Tab ----
+function AITab({ prediction: p }: { prediction: MatchPrediction }) {
+  const [aiResult, setAiResult] = useState<AIAnalysis | null>(p.aiAnalysis || null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [autoStarted, setAutoStarted] = useState(false);
+
+  const fetchAI = async () => {
+    if (aiLoading) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const bestPick = p.picks[0];
+      const res = await fetch(`/api/match/${p.fixtureId}/ai`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          analysis: p.analysis,
+          odds: p.odds,
+          homeTeam: p.homeTeam.name,
+          awayTeam: p.awayTeam.name,
+          league: p.league.name,
+          kickoff: p.kickoff,
+          topPick: bestPick ? {
+            type: bestPick.type,
+            confidence: bestPick.confidence,
+            odds: bestPick.odds,
+            ev: bestPick.expectedValue,
+          } : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.aiAnalysis) {
+        setAiResult(data.aiAnalysis);
+      } else {
+        setAiError(data.error || "AI analiz ba\u015far\u0131s\u0131z");
+      }
+    } catch {
+      setAiError("AI ba\u011flant\u0131 hatas\u0131");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Tab a\u00e7\u0131ld\u0131\u011f\u0131nda AI yoksa otomatik ba\u015flat
+  useEffect(() => {
+    if (!aiResult && !aiLoading && !aiError && !autoStarted) {
+      setAutoStarted(true);
+      fetchAI();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (aiLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 gap-3">
+        <div className="relative">
+          <Bot className="h-8 w-8 text-indigo-400" />
+          <Loader2 className="h-4 w-4 text-indigo-400 animate-spin absolute -bottom-1 -right-1" />
+        </div>
+        <p className="text-sm text-indigo-400 font-medium">AI analiz ediliyor...</p>
+        <p className="text-[10px] text-zinc-500">{p.homeTeam.name} vs {p.awayTeam.name}</p>
+      </div>
+    );
+  }
+
+  if (aiError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 gap-3">
+        <Bot className="h-8 w-8 text-red-400" />
+        <p className="text-sm text-red-400">{aiError}</p>
+        <button
+          onClick={fetchAI}
+          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-500/10 border border-indigo-500/30 rounded-lg text-sm text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+        >
+          <RefreshCw className="h-3.5 w-3.5" /> Tekrar Dene
+        </button>
+      </div>
+    );
+  }
+
+  if (!aiResult) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 gap-3">
+        <Bot className="h-8 w-8 text-zinc-600" />
+        <button
+          onClick={fetchAI}
+          className="flex items-center gap-2 px-5 py-2.5 bg-indigo-500/10 border border-indigo-500/30 rounded-lg text-sm font-medium text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+        >
+          <Bot className="h-4 w-4" /> \uD83E\uDD16 AI ile Analiz Et
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Headline */}
+      <div className="rounded-lg bg-indigo-500/5 border border-indigo-500/20 p-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Sparkles className="h-4 w-4 text-amber-400" />
+          <span className="text-xs font-bold text-indigo-400">AI MA\u00c7 ANAL\u0130Z\u0130</span>
+        </div>
+        <p className="text-sm text-zinc-200 font-medium leading-relaxed">{aiResult.headline}</p>
+      </div>
+
+      {/* Key Factors */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">\u00d6ne \u00c7\u0131kan Fakt\u00f6rler</p>
+        {aiResult.keyFactors.map((f, i) => (
+          <div key={i} className="flex items-start gap-2 bg-zinc-800/30 rounded-lg px-3 py-2">
+            <span className="text-indigo-400 mt-0.5 shrink-0 text-xs">\u2022</span>
+            <p className="text-[11px] text-zinc-300 leading-relaxed">{f}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Recommendation */}
+      <div className="rounded-lg bg-indigo-500/10 border border-indigo-500/25 p-3">
+        <p className="text-[10px] font-semibold text-indigo-400 mb-1">\uD83D\uDCA1 \u00d6NER\u0130</p>
+        <p className="text-sm text-indigo-300 font-medium leading-relaxed">{aiResult.recommendation}</p>
+      </div>
+
+      {/* Risk Warning */}
+      {aiResult.riskWarning && (
+        <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/25 p-3">
+          <p className="text-[10px] font-semibold text-yellow-400 mb-1">\u26a0\ufe0f R\u0130SK</p>
+          <p className="text-[11px] text-yellow-300 leading-relaxed">{aiResult.riskWarning}</p>
+        </div>
+      )}
+
+      {/* Confidence Adjustment */}
+      {aiResult.confidenceAdjustment !== 0 && (
+        <div className="flex items-center gap-2 text-xs bg-zinc-800/40 rounded-lg px-3 py-2">
+          <span className="text-zinc-500">G\u00fcven D\u00fczeltmesi:</span>
+          <span className={aiResult.confidenceAdjustment > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>
+            {aiResult.confidenceAdjustment > 0 ? "+" : ""}{aiResult.confidenceAdjustment}
+          </span>
+        </div>
+      )}
+
+      {/* Re-analyze */}
+      <button
+        onClick={fetchAI}
+        disabled={aiLoading}
+        className="w-full flex items-center justify-center gap-1.5 py-2 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+      >
+        <RefreshCw className="h-3 w-3" /> Yeniden Analiz Et
+      </button>
     </div>
   );
 }

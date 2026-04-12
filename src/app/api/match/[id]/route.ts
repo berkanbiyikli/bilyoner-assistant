@@ -20,7 +20,7 @@ export async function GET(
       return NextResponse.json({ error: "Maç bulunamadı" }, { status: 404 });
     }
 
-    const prediction = await analyzeMatch(fixture, { skipAI: true });
+    const prediction = await analyzeMatch(fixture, { skipAI: true, lightweight: true });
 
     return NextResponse.json({ prediction });
   } catch (error) {

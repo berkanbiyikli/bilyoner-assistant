@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
       (f) => f.fixture.status.short === "NS"
     );
 
-    const predictions = await analyzeMatches(fixtures, undefined, { skipAI: true });
+    const predictions = await analyzeMatches(fixtures, undefined, { skipAI: true, lightweight: true });
     const valueBets = findValueBets(predictions);
 
     return NextResponse.json({

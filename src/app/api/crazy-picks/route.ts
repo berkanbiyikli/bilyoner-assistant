@@ -31,7 +31,7 @@ export async function GET() {
     }
 
     // Tüm maçları analiz et (simülasyon + odds)
-    const predictions = await analyzeMatches(fixtures, undefined, { skipAI: true });
+    const predictions = await analyzeMatches(fixtures, undefined, { skipAI: true, lightweight: true });
 
     // Crazy Pick'leri bul
     const results = findCrazyPicks(predictions);

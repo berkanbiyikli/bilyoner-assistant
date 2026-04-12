@@ -47,6 +47,8 @@ const CACHE_TTL = 10 * 60; // 10 dakika (veri tazeliği için kısa)
 interface AnalyzeOptions {
   /** AI analizini atla (kullanıcı-facing route'larda timeout önlemek için) */
   skipAI?: boolean;
+  /** Ağır API çağrılarını atla (shot stats, recent fixtures — serverless timeout önlemi) */
+  lightweight?: boolean;
 }
 
 export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOptions): Promise<MatchPrediction> {
@@ -60,6 +62,9 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
   if (cached) return cached;
 
   // Paralel veri çekimi (tüm kaynaklardan)
+  // lightweight=true: shot stats + recent fixtures atlanır (Vercel serverless timeout önlemi)
+  const isLightweight = options?.lightweight === true;
+
   const [prediction, h2h, odds, injuries, importance, homeTeamStats, awayTeamStats, leagueRealStats, homeShotStats, awayShotStats, homeRecentFixtures, awayRecentFixtures] = await Promise.all([
     getPrediction(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Prediction API hatası — null`); return null; }),
     getH2H(homeId, awayId, 25).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: H2H API hatası — boş dizi`); return []; }),
@@ -75,12 +80,12 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
     getTeamStatistics(homeId, fixture.league.id, getCurrentSeason()).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home team stats hatası`); return null; }),
     getTeamStatistics(awayId, fixture.league.id, getCurrentSeason()).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away team stats hatası`); return null; }),
     getLeagueRealStats(fixture.league.id).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: League real stats hatası`); return null; }),
-    // === YENİ: Şut istatistikleri (SoT bazlı xG için) ===
-    getTeamRecentShotStats(homeId, 5).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home shot stats hatası`); return null; }),
-    getTeamRecentShotStats(awayId, 5).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away shot stats hatası`); return null; }),
-    // === YENİ: Son maç tarihi (dinlenme günü hesabı için) ===
-    getTeamRecentFixtures(homeId, 1).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home recent fixtures hatası`); return []; }),
-    getTeamRecentFixtures(awayId, 1).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away recent fixtures hatası`); return []; }),
+    // Şut istatistikleri (SoT bazlı xG + korner) — lightweight modda atlanır
+    isLightweight ? Promise.resolve(null) : getTeamRecentShotStats(homeId, 5).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home shot stats hatası`); return null; }),
+    isLightweight ? Promise.resolve(null) : getTeamRecentShotStats(awayId, 5).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away shot stats hatası`); return null; }),
+    // Son maç tarihi (dinlenme günü hesabı) — lightweight modda atlanır
+    isLightweight ? Promise.resolve([]) : getTeamRecentFixtures(homeId, 1).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home recent fixtures hatası`); return []; }),
+    isLightweight ? Promise.resolve([]) : getTeamRecentFixtures(awayId, 1).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away recent fixtures hatası`); return []; }),
   ]);
 
   // Analizleri oluştur

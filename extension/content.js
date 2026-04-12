@@ -1,4 +1,571 @@
 // ============================================
+// Bilyoner Assistant — Content Script v4.1
+//
+// AKIŞ:
+//  [Bülten] Scroll yaparak maç ID'lerini topla
+//         ↓
+//  Her tahmin için mac-karti/futbol/{id}/oranlar'a git
+//         ↓
+//  [Mac-karti] Tüm marketler açık — butona tıkla
+//         ↓
+//  Sonraki maç varsa yönlendir, yoksa tamamlama overlay'i göster
+// ============================================
+
+// ============================================
+// Mesaj Dinleyicisi
+// ============================================
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "TRANSFER_COUPON") {
+    handleTransferFromMessage(message.predictions)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+});
+
+// ============================================
+// Pick → Bilyoner maç kart buton etiketleri
+// ============================================
+const PICK_TO_BILYONER = {
+  // Maç Sonucu
+  "1": ["MS 1"], "X": ["MS X"], "2": ["MS 2"],
+  "Home Win": ["MS 1"], "Draw": ["MS X"], "Away Win": ["MS 2"],
+  // Toplam Gol
+  "Over 1.5": ["1,5 Üst"], "Under 1.5": ["1,5 Alt"],
+  "Over 2.5": ["2,5 Üst"], "Under 2.5": ["2,5 Alt"],
+  "Over 3.5": ["3,5 Üst"], "Under 3.5": ["3,5 Alt"],
+  "Over 4.5": ["4,5 Üst"], "Under 4.5": ["4,5 Alt"],
+  // Karşılıklı Gol
+  "BTTS Yes": ["KG Var"], "BTTS No": ["KG Yok"],
+  // Çifte Şans
+  "1X": ["ÇŞ 1-X"], "X2": ["ÇŞ X-2"], "12": ["ÇŞ 1-2"],
+  // İlk Yarı Gol
+  "HT Over 0.5": ["İY 0,5 Üst"], "HT Under 0.5": ["İY 0,5 Alt"],
+  "HT Over 1.5": ["İY 1,5 Üst"], "HT Under 1.5": ["İY 1,5 Alt"],
+  "HT BTTS Yes": ["İY KG Var"], "HT BTTS No": ["İY KG Yok"],
+  // İY/MS
+  "1/1": ["1/1"], "1/X": ["1/X"], "1/2": ["1/2"],
+  "X/1": ["X/1"], "X/X": ["X/X"], "X/2": ["X/2"],
+  "2/1": ["2/1"], "2/X": ["2/X"], "2/2": ["2/2"],
+  // Kombo
+  "1 & Over 1.5": ["MS 1 ve 1,5 Üst"], "2 & Over 1.5": ["MS 2 ve 1,5 Üst"],
+  "1 & Over 2.5": ["MS 1 ve 2,5 Üst"], "2 & Over 2.5": ["MS 2 ve 2,5 Üst"],
+  "1 & BTTS Yes": ["MS 1 ve Var"], "2 & BTTS Yes": ["MS 2 ve Var"],
+  "1 & BTTS No":  ["MS 1 ve Yok"],  "2 & BTTS No":  ["MS 2 ve Yok"],
+  // Korner
+  "Over 7.5 Corners": ["7,5 Üst"], "Under 7.5 Corners": ["7,5 Alt"],
+  "Over 8.5 Corners": ["8,5 Üst"], "Under 8.5 Corners": ["8,5 Alt"],
+  "Over 9.5 Corners": ["9,5 Üst"], "Under 9.5 Corners": ["9,5 Alt"],
+  // Kart
+  "Over 3.5 Cards": ["3,5 Üst"], "Under 3.5 Cards": ["3,5 Alt"],
+  "Over 4.5 Cards": ["4,5 Üst"], "Under 4.5 Cards": ["4,5 Alt"],
+};
+
+// ============================================
+// Yardımcılar
+// ============================================
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+function norm(name) {
+  return name
+    .toLowerCase().replace(/\s+/g, " ").trim()
+    .replace(/\b(fc|cf|sc|ac|as|ss|us|afc|fk|sk|gk|bk|if|bsc|tsg|rb|sv|vfb|vfl|tsv|1\.|ud|cd|sd|se|ce|rcd|rc|real|sporting|atletico|deportivo)\b/gi, "")
+    .replace(/ı/g, "i").replace(/ş/g, "s").replace(/ç/g, "c").replace(/ğ/g, "g").replace(/ö/g, "o").replace(/ü/g, "u")
+    .replace(/ń/g, "n").replace(/ś/g, "s").replace(/ć/g, "c").replace(/ź|ż/g, "z").replace(/ł/g, "l")
+    .replace(/ą/g, "a").replace(/ę/g, "e").replace(/ř/g, "r").replace(/ž/g, "z").replace(/ě/g, "e")
+    .replace(/ů/g, "u").replace(/ď|đ/g, "d").replace(/ť/g, "t").replace(/ň/g, "n").replace(/ã/g, "a")
+    .replace(/ß/g, "ss").replace(/ä/g, "a")
+    .replace(/æ/g, "ae").replace(/ø/g, "o").replace(/å/g, "a")
+    .replace(/á|à|â/g, "a").replace(/é|è|ê|ë/g, "e").replace(/í|ì|î|ï/g, "i")
+    .replace(/ó|ò|ô|õ/g, "o").replace(/ú|ù|û/g, "u").replace(/ñ/g, "n").replace(/ý/g, "y")
+    .replace(/[''`\-_.()]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function teamScore(apiName, bilyonerName) {
+  const a = norm(apiName);
+  const b = norm(bilyonerName);
+  if (a === b) return 1.0;
+  if (a.includes(b) || b.includes(a)) return 0.85;
+  const wa = a.split(" ").filter(w => w.length >= 3);
+  const wb = b.split(" ").filter(w => w.length >= 3);
+  if (!wa.length || !wb.length) return 0;
+  let hits = 0;
+  for (const w of wa) { if (wb.some(x => x === w || x.includes(w) || w.includes(x))) hits++; }
+  return hits / Math.max(wa.length, wb.length);
+}
+
+function findBestMatch(matches, homeTeam, awayTeam) {
+  let best = null, bestScore = 0;
+  for (const m of matches) {
+    const hs = teamScore(homeTeam, m.homeTeam);
+    const as = teamScore(awayTeam, m.awayTeam);
+    const score = (hs + as) / 2;
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  // Tek sonuç varsa düşük skorla da kabul et
+  if (matches.length === 1 && bestScore >= 0.2) return matches[0];
+  return bestScore >= 0.35 ? best : null;
+}
+
+// ============================================
+// Chrome Storage
+// ============================================
+const storageGet = (keys) => new Promise(r => chrome.storage.local.get(keys, r));
+const storageSet = (data) => new Promise(r => chrome.storage.local.set(data, r));
+const storageClear = () => new Promise(r => chrome.storage.local.remove(["ba_queue", "ba_progress"], r));
+
+// ============================================
+// BÜLTEN: Scroll yaparak maç ID'lerini topla
+// ============================================
+async function discoverMatchIds(predictions, onProgress) {
+  const collected = [];
+  const seen = new Set();
+
+  function scanDOM() {
+    let added = 0;
+    for (const link of document.querySelectorAll('a[href*="/mac-karti/"]')) {
+      const href = link.getAttribute("href") || "";
+      const idMatch = href.match(/\/mac-karti\/[^/]+\/(\d+)/);
+      if (!idMatch) continue;
+      const id = idMatch[1];
+      if (seen.has(id)) continue;
+      seen.add(id);
+
+      // Link text'ini temizle
+      let text = (link.textContent || "").replace(/\s+/g, " ").trim();
+      text = text.replace(/\d+[.,]\d+/g, " ");   // Oranları sil: 1.81
+      text = text.replace(/\+\d+\s*Tümü/g, " "); // "+40 Tümü" sil
+      text = text.replace(/^\d{1,2}:\d{2}\s*/, ""); // Saat sil: "12:00"
+      text = text.replace(/^\d+\s*/, "");          // Baştaki sayı sil: "3"
+      text = text.trim();
+
+      // "Ev - Dep" veya "Ev – Dep" formatı
+      const parts = text.split(/\s*[-–]\s*/);
+      if (parts.length >= 2) {
+        const home = parts[0].trim();
+        const away = parts.slice(1).join(" - ").trim();
+        if (home.length >= 2 && away.length >= 2) {
+          collected.push({ bilyonerId: id, homeTeam: home, awayTeam: away });
+          added++;
+        }
+      }
+    }
+    return added;
+  }
+
+  function allPredictionsFound() {
+    return predictions.every(p => !!findBestMatch(collected, p.homeTeam, p.awayTeam));
+  }
+
+  // İlk tarama
+  scanDOM();
+  if (allPredictionsFound()) return collected;
+
+  // Scroll ile yükle
+  const maxMs = 25000;
+  const start = Date.now();
+  let noNewCount = 0;
+
+  while (Date.now() - start < maxMs) {
+    const before = collected.length;
+    window.scrollBy(0, 1000);
+    await sleep(500);
+    const added = scanDOM();
+
+    if (onProgress) onProgress(collected.length, seen.size);
+
+    if (added === 0) {
+      noNewCount++;
+      if (noNewCount >= 4) break;
+    } else {
+      noNewCount = 0;
+    }
+
+    if (allPredictionsFound()) break;
+
+    const atBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 300);
+    if (atBottom && noNewCount >= 2) break;
+  }
+
+  window.scrollTo(0, 0);
+  await sleep(200);
+
+  console.log(`[BA] Bülten tarama tamamlandı: ${collected.length} maç bulundu`);
+  return collected;
+}
+
+// ============================================
+// BÜLTEN: Aktarım başlatma
+// ============================================
+async function handleTransfer(predictions) {
+  const statusEl = document.getElementById("ba-status");
+  const updateStatus = (msg) => { if (statusEl) statusEl.textContent = msg; };
+
+  updateStatus("🔍 Maçlar aranıyor (scroll)...");
+
+  const allMatches = await discoverMatchIds(predictions, (found, scanned) => {
+    updateStatus(`🔍 Taranıyor... ${found} maç bulundu (${scanned} link)`);
+  });
+
+  console.log(`[BA] Keşfedilen maçlar (${allMatches.length}):`, allMatches.map(m => `${m.homeTeam} - ${m.awayTeam} [${m.bilyonerId}]`));
+
+  // Her prediction için maç ID'si eşleştir
+  const queue = [];
+  const errors = [];
+
+  for (const pred of predictions) {
+    const match = findBestMatch(allMatches, pred.homeTeam, pred.awayTeam);
+    if (match) {
+      let entry = queue.find(q => q.matchId === match.bilyonerId);
+      if (!entry) {
+        entry = { matchId: match.bilyonerId, homeTeam: pred.homeTeam, awayTeam: pred.awayTeam, bets: [] };
+        queue.push(entry);
+      }
+      entry.bets.push({ pick: pred.pick, odds: pred.odds });
+      console.log(`[BA] ✓ Eşleşti: "${pred.homeTeam}" → "${match.homeTeam}" [${match.bilyonerId}]`);
+    } else {
+      errors.push(`${pred.homeTeam} vs ${pred.awayTeam}: Bilyoner bülteninde bulunamadı`);
+      console.warn(`[BA] ✗ Eşleşme yok: "${pred.homeTeam}" vs "${pred.awayTeam}"`);
+    }
+  }
+
+  if (queue.length === 0) {
+    updateStatus("✗ Hiçbir maç bulunamadı");
+    if (statusEl) statusEl.style.color = "#f87171";
+    return { success: false, transferred: 0, total: predictions.length, errors };
+  }
+
+  const progress = { total: predictions.length, transferred: 0, errors: [...errors] };
+  await storageSet({ ba_queue: queue, ba_progress: progress });
+
+  const totalBets = queue.reduce((s, q) => s + q.bets.length, 0);
+  updateStatus(`✓ ${queue.length} maç bulundu (${totalBets} bahis) → Mac-kartilara gidiliyor...`);
+  if (statusEl) statusEl.style.color = "#34d399";
+  await sleep(1200);
+
+  window.location.href = `/mac-karti/futbol/${queue[0].matchId}/oranlar`;
+  return { success: true, transferred: 0, total: predictions.length, errors };
+}
+
+// popup.js veya extensiondan gelen direkt mesaj
+async function handleTransferFromMessage(predictions) {
+  return handleTransfer(predictions);
+}
+
+// ============================================
+// MAC-KARTI: Sayfanın yüklenmesini bekle
+// ============================================
+async function waitForMacKartiOdds(timeoutMs = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    // Oran butonları yüklendi mi?
+    const els = document.querySelectorAll('button, [role="button"]');
+    const hasOdds = Array.from(els).some(el => {
+      const t = (el.textContent || "").trim();
+      return /^\d+[.,]\d+/.test(t) && t.length < 35;
+    });
+    if (hasOdds) {
+      await sleep(300); // DOM stabilize
+      return true;
+    }
+    await sleep(400);
+  }
+  return false;
+}
+
+// ============================================
+// MAC-KARTI: Oran butonu bul ve tıkla
+// ============================================
+function findAndClickOddsButton(pick) {
+  const targets = PICK_TO_BILYONER[pick];
+  if (!targets) {
+    console.warn(`[BA] Bilinmeyen pick: ${pick}`);
+    return false;
+  }
+
+  // Tüm tıklanabilir elementleri tara
+  const els = document.querySelectorAll(
+    'button, [role="button"], [class*="odd"], [class*="rate"], [class*="selection"], [class*="bet-button"], [class*="betButton"]'
+  );
+
+  for (const el of els) {
+    const rawText = (el.textContent || "").trim();
+    if (!rawText || rawText.startsWith("—") || rawText === "-") continue;
+    if (rawText.length > 40) continue; // container değil buton olmalı
+
+    for (const target of targets) {
+      // Tam eşleşme: "KG Var"
+      if (rawText === target) {
+        (el.closest("button, [role='button']") || el).click();
+        return true;
+      }
+      // Oran + etiket: "1.67 KG Var"
+      if (new RegExp(`^\\d+[.,]\\d+\\s+${escapeRegex(target)}$`, "i").test(rawText)) {
+        (el.closest("button, [role='button']") || el).click();
+        return true;
+      }
+      // Etiket alt elemanda: kontrol et
+      const inner = el.querySelector('[class*="label"], [class*="name"], [class*="market"], span, div');
+      if (inner && inner.textContent.trim() === target) {
+        (el.closest("button, [role='button']") || el).click();
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// ============================================
+// MAC-KARTI: Queue işle
+// ============================================
+async function processMacKartiQueue() {
+  const currentId = (window.location.pathname.match(/\/mac-karti\/[^/]+\/(\d+)/) || [])[1];
+  if (!currentId) return;
+
+  const { ba_queue: queue, ba_progress: progress } = await storageGet(["ba_queue", "ba_progress"]);
+  if (!queue || !queue.length || !progress) return;
+
+  const idx = queue.findIndex(q => q.matchId === currentId);
+  if (idx === -1) {
+    console.log(`[BA] Mac-karti ${currentId} queue'da yok`);
+    return;
+  }
+
+  const current = queue[idx];
+  console.log(`[BA] 🎯 ${current.homeTeam} vs ${current.awayTeam} | ${current.bets.map(b => b.pick).join(", ")}`);
+
+  // Durum widget'ı göster
+  const widget = createStatusWidget(current, progress, queue.length - 1);
+  const setWidgetStatus = widget.setStatus;
+
+  setWidgetStatus("⏳ Sayfa yükleniyor...");
+  const loaded = await waitForMacKartiOdds();
+
+  if (!loaded) {
+    setWidgetStatus("⚠ Sayfa yüklenemedi!");
+    progress.errors.push(`${current.homeTeam} vs ${current.awayTeam}: Sayfa yüklenemedi`);
+    await sleep(2000);
+  } else {
+    for (const bet of current.bets) {
+      setWidgetStatus(`🔍 "${bet.pick}" aranıyor...`);
+      await sleep(400);
+
+      const found = findAndClickOddsButton(bet.pick);
+      if (found) {
+        progress.transferred++;
+        setWidgetStatus(`✅ ${bet.pick} eklendi`);
+        console.log(`[BA] ✓ ${current.homeTeam} vs ${current.awayTeam} → ${bet.pick}`);
+      } else {
+        progress.errors.push(`${current.homeTeam} vs ${current.awayTeam}: "${bet.pick}" butonu bulunamadı`);
+        setWidgetStatus(`✗ ${bet.pick} bulunamadı`);
+        console.warn(`[BA] ✗ ${current.homeTeam} vs ${current.awayTeam} → ${bet.pick} yok`);
+      }
+      await sleep(600);
+    }
+  }
+
+  // Bu maçı queue'dan çıkar
+  queue.splice(idx, 1);
+
+  if (queue.length > 0) {
+    await storageSet({ ba_queue: queue, ba_progress: progress });
+    setWidgetStatus(`➡ Sonraki maça gidiliyor... (${queue.length} kaldı)`);
+    await sleep(1000);
+    window.location.href = `/mac-karti/futbol/${queue[0].matchId}/oranlar`;
+  } else {
+    await storageClear();
+    setWidgetStatus("✅ Aktarım tamamlandı!");
+    await sleep(500);
+    showCompletionOverlay(progress);
+  }
+}
+
+// ============================================
+// MAC-KARTI: Durum widget'ı
+// ============================================
+function createStatusWidget(currentMatch, progress, remaining) {
+  const el = document.createElement("div");
+  el.id = "ba-widget";
+  el.style.cssText = `
+    position:fixed; bottom:20px; right:20px; z-index:99999;
+    background:#1e293b; border:1px solid #334155; border-radius:12px;
+    padding:14px 18px; color:#e2e8f0; font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+    min-width:280px; max-width:340px; box-shadow:0 8px 32px rgba(0,0,0,0.5);
+    font-size:13px;
+  `;
+  el.innerHTML = `
+    <div style="font-weight:700; font-size:13px; color:#60a5fa; margin-bottom:6px;">⚽ Bilyoner Assistant v4</div>
+    <div style="font-weight:600; color:#f1f5f9; margin-bottom:2px;">${currentMatch.homeTeam}</div>
+    <div style="color:#94a3b8; margin-bottom:6px;">vs ${currentMatch.awayTeam}</div>
+    <div style="color:#a78bfa; margin-bottom:8px; font-size:11px;">${currentMatch.bets.map(b => b.pick).join(" · ")}</div>
+    <div id="ba-widget-status" style="color:#34d399; font-size:12px;"></div>
+    ${remaining > 0 ? `<div style="color:#64748b; font-size:11px; margin-top:4px;">${remaining} maç daha kaldı</div>` : ""}
+  `;
+  document.body.appendChild(el);
+
+  return {
+    setStatus: (msg) => {
+      const s = document.getElementById("ba-widget-status");
+      if (s) s.textContent = msg;
+    },
+  };
+}
+
+// ============================================
+// Tamamlama Overlay'i
+// ============================================
+function showCompletionOverlay(progress) {
+  document.getElementById("ba-widget")?.remove();
+
+  const ok = progress.transferred > 0;
+  const errHtml = progress.errors.length
+    ? `<div style="text-align:left;max-height:120px;overflow-y:auto;margin-bottom:12px;border-top:1px solid #334155;padding-top:8px;">
+        ${progress.errors.map(e => `<div style="font-size:11px;color:#f87171;margin-bottom:3px;">• ${e}</div>`).join("")}
+       </div>`
+    : "";
+
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:99999;display:flex;align-items:center;justify-content:center;";
+  overlay.innerHTML = `
+    <div style="background:#1e293b;border-radius:16px;padding:28px 32px;max-width:380px;width:90%;color:#e2e8f0;font-family:-apple-system,sans-serif;text-align:center;">
+      <div style="font-size:48px;margin-bottom:12px;">${ok ? "✅" : "❌"}</div>
+      <h2 style="font-size:18px;font-weight:700;margin-bottom:8px;">Aktarım ${ok ? "Tamamlandı!" : "Başarısız"}</h2>
+      <p style="font-size:22px;font-weight:700;color:${ok ? "#34d399" : "#f87171"};margin-bottom:12px;">${progress.transferred}/${progress.total}</p>
+      <p style="font-size:13px;color:#94a3b8;margin-bottom:16px;">bahis kupona eklendi</p>
+      ${errHtml}
+      <button id="ba-done-btn" style="padding:10px 28px;border:none;border-radius:8px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;font-weight:600;font-size:14px;cursor:pointer;">Tamam</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById("ba-done-btn").addEventListener("click", () => overlay.remove());
+}
+
+// ============================================
+// BA Göstergesi
+// ============================================
+function injectIndicator() {
+  if (document.getElementById("ba-indicator")) return;
+  const el = document.createElement("div");
+  el.id = "ba-indicator";
+  el.innerHTML = "⚽ BA";
+  el.title = "Bilyoner Assistant v4.1";
+  document.body.appendChild(el);
+}
+
+// ============================================
+// Hash Kupon (Bülten → Hash okunur)
+// ============================================
+function checkHashCoupon() {
+  const hash = window.location.hash;
+  if (!hash.startsWith("#ba-coupon=")) return;
+
+  let data;
+  try {
+    data = JSON.parse(decodeURIComponent(hash.slice("#ba-coupon=".length)));
+  } catch (e) {
+    console.error("[BA] Hash parse hatası:", e);
+    return;
+  }
+
+  if (!Array.isArray(data) || data.length === 0) return;
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  console.log(`[BA] Hash kupon: ${data.length} tahmin`);
+  showBultenOverlay(data);
+}
+
+// ============================================
+// Bülten Overlay (aktarım başlatma ekranı)
+// ============================================
+function showBultenOverlay(couponData) {
+  const overlay = document.createElement("div");
+  overlay.id = "ba-bulten-overlay";
+  overlay.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:99999;display:flex;align-items:center;justify-content:center;";
+
+  const listHtml = couponData.map(item => `
+    <div style="padding:6px 8px;margin-bottom:4px;background:#0f172a;border-radius:6px;">
+      <div style="font-weight:600;color:#f1f5f9;font-size:12px;">${item.h} - ${item.a}</div>
+      <div style="color:#a78bfa;font-size:11px;">${item.p} <span style="color:#34d399">@${item.o}</span></div>
+    </div>
+  `).join("");
+
+  overlay.innerHTML = `
+    <div style="background:#1e293b;border-radius:16px;padding:24px 28px;max-width:400px;width:92%;color:#e2e8f0;font-family:-apple-system,sans-serif;text-align:center;">
+      <div style="font-size:28px;margin-bottom:10px;">⚽</div>
+      <h2 style="font-size:17px;font-weight:700;margin-bottom:6px;">Bilyoner Assistant</h2>
+      <p style="font-size:13px;color:#94a3b8;margin-bottom:12px;">${couponData.length} bahis aktarılacak</p>
+      <div style="text-align:left;max-height:180px;overflow-y:auto;margin-bottom:12px;">${listHtml}</div>
+      <div id="ba-status" style="font-size:12px;color:#60a5fa;min-height:18px;margin-bottom:14px;">Bülten bekleniyor...</div>
+      <div style="display:flex;gap:8px;">
+        <button id="ba-start-btn" style="flex:1;padding:10px;border:none;border-radius:8px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;font-weight:600;font-size:14px;cursor:pointer;">Aktarımı Başlat</button>
+        <button id="ba-cancel-btn" style="padding:10px 14px;border:1px solid #334155;border-radius:8px;background:transparent;color:#94a3b8;cursor:pointer;font-size:13px;">İptal</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Bülten sayfasının yüklenip yüklenmediğini kontrol et
+  const statusEl = document.getElementById("ba-status");
+  let ready = false;
+  const poll = setInterval(() => {
+    const links = document.querySelectorAll('a[href*="/mac-karti/"]');
+    if (links.length > 0) {
+      ready = true;
+      clearInterval(poll);
+      statusEl.textContent = `✓ Bülten yüklendi (${links.length}+ maç görünür) — aktarıma hazır`;
+      statusEl.style.color = "#34d399";
+    }
+  }, 500);
+
+  setTimeout(() => {
+    if (!ready) {
+      clearInterval(poll);
+      statusEl.textContent = "⚠ Bülten yüklenemedi — yine de deneyin";
+      statusEl.style.color = "#fbbf24";
+      ready = true;
+    }
+  }, 12000);
+
+  document.getElementById("ba-start-btn").addEventListener("click", async () => {
+    const btn = document.getElementById("ba-start-btn");
+    btn.disabled = true;
+    btn.textContent = "Aranıyor...";
+    btn.style.opacity = "0.7";
+
+    const predictions = couponData.map(item => ({
+      homeTeam: item.h, awayTeam: item.a, pick: item.p, odds: item.o,
+    }));
+
+    await handleTransfer(predictions);
+    // handleTransfer ya window.location değiştirir (mac-karti'ya gider)
+    // ya da hata durumunda statusEl'i günceller
+  });
+
+  document.getElementById("ba-cancel-btn").addEventListener("click", () => overlay.remove());
+}
+
+// ============================================
+// BAŞLATICI
+// ============================================
+async function init() {
+  injectIndicator();
+  const path = window.location.pathname;
+
+  if (path.includes("/mac-karti/")) {
+    // Mac-karti sayfasındayız: queue işle
+    await processMacKartiQueue();
+  } else {
+    // Bülten veya başka sayfa: hash coupon kontrol et
+    checkHashCoupon();
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
+// ============================================
 // Bilyoner Assistant — Content Script v4
 // Hibrit: Bülten'de ara → buton bulunamazsa
 // maç kartı sayfasına git → oradan tıkla

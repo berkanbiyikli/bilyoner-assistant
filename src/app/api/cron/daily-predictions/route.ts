@@ -63,8 +63,8 @@ export async function GET(req: NextRequest) {
       return 0;
     });
 
-    // Batch: max 200 maç per cron run (lokal için, Vercel'de 10 kullanılacak)
-    const fixtures = sortedFixtures.slice(0, 200);
+    // Batch: max 10 maç per cron run — Vercel 60s timeout
+    const fixtures = sortedFixtures.slice(0, 10);
     console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${nsFixtures.length} NS, ${newFixtures.length} yeni, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {

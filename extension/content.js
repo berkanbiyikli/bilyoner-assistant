@@ -8,6 +8,10 @@
 //         ↓
 //  [Mac-karti] Tüm marketler açık — butona tıkla
 //         ↓
+
+// Hash'i HEMEN yakala — Bilyoner SPA kendi router'ı için hash'i siliyor.
+// document_start'ta çalıştığımız için SPA'dan önce okuyoruz.
+const INITIAL_HASH = window.location.hash;
 //  Sonraki maç varsa yönlendir, yoksa tamamlama overlay'i göster
 // ============================================
 

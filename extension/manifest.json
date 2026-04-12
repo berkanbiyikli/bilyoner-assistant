@@ -23,7 +23,8 @@
     {
       "matches": ["https://www.bilyoner.com/*", "https://bilyoner.com/*"],
       "js": ["content.js"],
-      "css": ["content.css"]
+      "css": ["content.css"],
+      "run_at": "document_start"
     }
   ],
   "icons": {

@@ -34,7 +34,7 @@ chrome.storage.local.get(["apiUrl"], (result) => {
 
 // API URL değişince kaydet
 apiUrlInput.addEventListener("change", () => {
-  chrome.storage.local.set({ apiUrl: apiUrlInput.value.trim() });
+  chrome.storage.local.set({ apiUrl: apiUrlInput.value.trim().replace(/\/+$/, "") });
 });
 
 // Tahminleri getir
@@ -55,7 +55,8 @@ fetchBtn.addEventListener("click", async () => {
   fetchBtn.disabled = true;
 
   try {
-    const response = await fetch(`${apiUrl}/api/coupon/generate?category=${selectedCategory}`, {
+    const baseUrl = apiUrl.replace(/\/+$/, "");
+    const response = await fetch(`${baseUrl}/api/coupon/generate?category=${selectedCategory}`, {
       method: "GET",
       headers: { "Accept": "application/json" },
     });

@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
 
     // analysis_data zenginliği
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const withAnalysisData = records.filter((r: any) => r.analysis_data?.homeAttack != null).length;
+    const withAnalysisData = records.filter((r: any) => r.analysis_data?.analysis?.homeAttack != null).length;
 
     console.log(`[ML-TRAIN] Won: ${wonCount}, Lost: ${lostCount}, WinRate: ${winRate}%`);
     console.log(`[ML-TRAIN] analysis_data olan: ${withAnalysisData}/${records.length}`);
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
       sim_probability: r.sim_probability || null,
       home_team: r.home_team,
       away_team: r.away_team,
-      analysis_data: r.analysis_data || null,
+      analysis_data: r.analysis_data?.analysis || null,
     }));
 
     const model = await autoTrainFromHistory(trainingData);

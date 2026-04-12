@@ -202,19 +202,20 @@ async function discoverMatchIds(predictions, onProgress) {
 // ============================================
 // BÜLTEN: Aktarım başlatma
 // ============================================
-async function handleTransfer(predictions) {
-  const statusEl = document.getElementById("ba-status");
-  const updateStatus = (msg) => { if (statusEl) statusEl.textContent = msg; };
+async function handleTransfer(predictions, setStatus, setProgress) {
+  setStatus = setStatus || ((msg) => { const el = document.getElementById("ba-status"); if (el) el.textContent = msg; });
+  setProgress = setProgress || (() => {});
 
-  updateStatus("🔍 Maçlar aranıyor (scroll)...");
+  setStatus("🔍 Maçlar taranıyor...");
+  setProgress(20);
 
   const allMatches = await discoverMatchIds(predictions, (found, scanned) => {
-    updateStatus(`🔍 Taranıyor... ${found} maç bulundu (${scanned} link)`);
+    setStatus(`🔍 Taranıyor... ${found} maç bulundu (${scanned} link)`);
+    setProgress(20 + Math.min(40, found * 2));
   });
 
   console.log(`[BA] Keşfedilen maçlar (${allMatches.length}):`, allMatches.map(m => `${m.homeTeam} - ${m.awayTeam} [${m.bilyonerId}]`));
 
-  // Her prediction için maç ID'si eşleştir
   const queue = [];
   const errors = [];
 
@@ -234,9 +235,10 @@ async function handleTransfer(predictions) {
     }
   }
 
+  setProgress(70);
+
   if (queue.length === 0) {
-    updateStatus("✗ Hiçbir maç bulunamadı");
-    if (statusEl) statusEl.style.color = "#f87171";
+    setStatus("✗ Hiçbir maç bulunamadı. Bülten sayfasında olduğunuzdan emin olun.", "#f87171");
     return { success: false, transferred: 0, total: predictions.length, errors };
   }
 
@@ -244,17 +246,12 @@ async function handleTransfer(predictions) {
   await storageSet({ ba_queue: queue, ba_progress: progress });
 
   const totalBets = queue.reduce((s, q) => s + q.bets.length, 0);
-  updateStatus(`✓ ${queue.length} maç bulundu (${totalBets} bahis) → Mac-kartilara gidiliyor...`);
-  if (statusEl) statusEl.style.color = "#34d399";
-  await sleep(1200);
+  setStatus(`✓ ${queue.length} maç bulundu (${totalBets} bahis). Maç kartına gidiliyor...`, "#34d399");
+  setProgress(90);
+  await sleep(800);
 
   window.location.href = `/mac-karti/futbol/${queue[0].matchId}/oranlar`;
   return { success: true, transferred: 0, total: predictions.length, errors };
-}
-
-// popup.js veya extensiondan gelen direkt mesaj
-async function handleTransferFromMessage(predictions) {
-  return handleTransfer(predictions);
 }
 
 // ============================================
@@ -485,73 +482,92 @@ function checkHashCoupon() {
 }
 
 // ============================================
-// Bülten Overlay (aktarım başlatma ekranı)
+// Bülten Overlay — Otomatik başlar
 // ============================================
 function showBultenOverlay(couponData) {
   const overlay = document.createElement("div");
   overlay.id = "ba-bulten-overlay";
-  overlay.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:99999;display:flex;align-items:center;justify-content:center;";
+  overlay.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;";
 
   const listHtml = couponData.map(item => `
-    <div style="padding:6px 8px;margin-bottom:4px;background:#0f172a;border-radius:6px;">
-      <div style="font-weight:600;color:#f1f5f9;font-size:12px;">${item.h} - ${item.a}</div>
-      <div style="color:#a78bfa;font-size:11px;">${item.p} <span style="color:#34d399">@${item.o}</span></div>
+    <div style="padding:6px 8px;margin-bottom:4px;background:#0f172a;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-weight:600;color:#f1f5f9;font-size:12px;">${item.h} - ${item.a}</div>
+        <div style="color:#a78bfa;font-size:11px;">${item.p} <span style="color:#34d399">@${item.o}</span></div>
+      </div>
+      <div id="ba-item-${item.h.replace(/\s/g,'')}" style="font-size:16px;">⏳</div>
     </div>
   `).join("");
 
   overlay.innerHTML = `
-    <div style="background:#1e293b;border-radius:16px;padding:24px 28px;max-width:400px;width:92%;color:#e2e8f0;font-family:-apple-system,sans-serif;text-align:center;">
-      <div style="font-size:28px;margin-bottom:10px;">⚽</div>
-      <h2 style="font-size:17px;font-weight:700;margin-bottom:6px;">Bilyoner Assistant</h2>
-      <p style="font-size:13px;color:#94a3b8;margin-bottom:12px;">${couponData.length} bahis aktarılacak</p>
-      <div style="text-align:left;max-height:180px;overflow-y:auto;margin-bottom:12px;">${listHtml}</div>
-      <div id="ba-status" style="font-size:12px;color:#60a5fa;min-height:18px;margin-bottom:14px;">Bülten bekleniyor...</div>
-      <div style="display:flex;gap:8px;">
-        <button id="ba-start-btn" style="flex:1;padding:10px;border:none;border-radius:8px;background:linear-gradient(135deg,#059669,#10b981);color:#fff;font-weight:600;font-size:14px;cursor:pointer;">Aktarımı Başlat</button>
-        <button id="ba-cancel-btn" style="padding:10px 14px;border:1px solid #334155;border-radius:8px;background:transparent;color:#94a3b8;cursor:pointer;font-size:13px;">İptal</button>
+    <div style="background:#1e293b;border-radius:16px;padding:24px 28px;max-width:420px;width:92%;color:#e2e8f0;font-family:-apple-system,sans-serif;">
+      <div style="text-align:center;margin-bottom:14px;">
+        <div style="font-size:28px;margin-bottom:6px;">⚽</div>
+        <div style="font-size:16px;font-weight:700;">Bilyoner Assistant</div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:2px;">${couponData.length} bahis aktarılıyor</div>
+      </div>
+      <div style="text-align:left;max-height:220px;overflow-y:auto;margin-bottom:14px;">${listHtml}</div>
+      <div id="ba-progress-bar-wrap" style="background:#0f172a;border-radius:6px;height:6px;margin-bottom:10px;">
+        <div id="ba-progress-bar" style="background:#10b981;height:6px;border-radius:6px;width:0%;transition:width 0.3s;"></div>
+      </div>
+      <div id="ba-status" style="font-size:12px;color:#60a5fa;text-align:center;min-height:16px;">⏳ Sayfa yükleniyor...</div>
+      <div style="text-align:center;margin-top:10px;">
+        <button id="ba-cancel-btn" style="padding:6px 18px;border:1px solid #334155;border-radius:6px;background:transparent;color:#64748b;cursor:pointer;font-size:12px;">İptal</button>
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
 
-  // Bülten sayfasının yüklenip yüklenmediğini kontrol et
   const statusEl = document.getElementById("ba-status");
-  let ready = false;
-  const poll = setInterval(() => {
+  const progressBar = document.getElementById("ba-progress-bar");
+  const setStatus = (msg, color = "#60a5fa") => {
+    if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color; }
+  };
+  const setProgress = (pct) => {
+    if (progressBar) progressBar.style.width = Math.min(100, pct) + "%";
+  };
+
+  document.getElementById("ba-cancel-btn").addEventListener("click", () => overlay.remove());
+
+  // Sayfa yüklenip maç linkleri çıkınca otomatik başlat
+  let started = false;
+  setProgress(5);
+
+  const tryStart = async () => {
+    if (started) return;
     const links = document.querySelectorAll('a[href*="/mac-karti/"]');
     if (links.length > 0) {
-      ready = true;
-      clearInterval(poll);
-      statusEl.textContent = `✓ Bülten yüklendi (${links.length}+ maç görünür) — aktarıma hazır`;
-      statusEl.style.color = "#34d399";
+      started = true;
+      setStatus(`✓ ${links.length} maç linki bulundu. Tarama başlıyor...`, "#34d399");
+      setProgress(15);
+      await sleep(400);
+
+      const predictions = couponData.map(item => ({
+        homeTeam: item.h, awayTeam: item.a, pick: item.p, odds: item.o,
+      }));
+
+      await handleTransfer(predictions, setStatus, setProgress);
     }
+  };
+
+  // Hemen dene, sonra 500ms'de bir tekrar dene (SPA lazy-render için)
+  tryStart();
+  const poll = setInterval(async () => {
+    if (started) { clearInterval(poll); return; }
+    await tryStart();
   }, 500);
 
-  setTimeout(() => {
-    if (!ready) {
-      clearInterval(poll);
-      statusEl.textContent = "⚠ Bülten yüklenemedi — yine de deneyin";
-      statusEl.style.color = "#fbbf24";
-      ready = true;
-    }
-  }, 12000);
-
-  document.getElementById("ba-start-btn").addEventListener("click", async () => {
-    const btn = document.getElementById("ba-start-btn");
-    btn.disabled = true;
-    btn.textContent = "Aranıyor...";
-    btn.style.opacity = "0.7";
-
+  // 15 saniye sonra hala başlamamışsa zorla başlat
+  setTimeout(async () => {
+    if (started) return;
+    clearInterval(poll);
+    started = true;
+    setStatus("⚠ Bülten tam yüklenemedi, yine de deneniyor...", "#fbbf24");
     const predictions = couponData.map(item => ({
       homeTeam: item.h, awayTeam: item.a, pick: item.p, odds: item.o,
     }));
-
-    await handleTransfer(predictions);
-    // handleTransfer ya window.location değiştirir (mac-karti'ya gider)
-    // ya da hata durumunda statusEl'i günceller
-  });
-
-  document.getElementById("ba-cancel-btn").addEventListener("click", () => overlay.remove());
+    await handleTransfer(predictions, setStatus, setProgress);
+  }, 15000);
 }
 
 // ============================================

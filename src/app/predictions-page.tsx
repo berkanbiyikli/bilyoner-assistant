@@ -862,9 +862,12 @@ function PredictionRow({
       isFinished ? "opacity-40" : hasValueBet ? "bg-emerald-500/[0.02]" : "hover:bg-zinc-800/20"
     )}>
       {/* Main Row */}
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
-        className="w-full flex items-center px-4 py-2.5 text-left gap-3"
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
+        className="w-full flex items-center px-4 py-2.5 text-left gap-3 cursor-pointer"
       >
         {/* Time */}
         <div className="w-11 shrink-0">
@@ -981,7 +984,7 @@ function PredictionRow({
           )}
           {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-zinc-600" /> : <ChevronDown className="w-3.5 h-3.5 text-zinc-600" />}
         </div>
-      </button>
+      </div>
 
       {/* Extra picks row */}
       {p.picks.length > 1 && !isExpanded && (

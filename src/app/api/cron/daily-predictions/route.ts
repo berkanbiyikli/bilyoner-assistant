@@ -63,8 +63,8 @@ export async function GET(req: NextRequest) {
       return 0;
     });
 
-    // Batch: max 8 maç per cron run — her 30dk çalışır, kalan maçlar sonraki batch'te
-    const fixtures = sortedFixtures.slice(0, 8);
+    // Batch: max 50 maç per cron run — lokal'de timeout yok, Vercel'de cron 30dk'da 1 çalışır
+    const fixtures = sortedFixtures.slice(0, 50);
     console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${nsFixtures.length} NS, ${newFixtures.length} yeni, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {

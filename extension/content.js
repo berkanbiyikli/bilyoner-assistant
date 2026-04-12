@@ -508,27 +508,6 @@ function showTransferOverlay(couponData) {
 
   document.getElementById("ba-close").addEventListener("click", () => overlay.remove());
 }
-// ============================================
-// Bilyoner Assistant — Content Script
-// Bilyoner.com üzerinde kupon aktarımı yapar
-// Gerçek Bilyoner DOM yapısına göre çalışır
-// ============================================
-
-// Mesaj dinleyicisi
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "TRANSFER_COUPON") {
-    handleTransfer(message.predictions)
-      .then(sendResponse)
-      .catch((err) => sendResponse({ success: false, error: err.message }));
-    return true; // async response
-  }
-
-  if (message.action === "SCAN_MATCHES") {
-    const matches = scanBilyonerMatches();
-    sendResponse({ matches });
-    return true;
-  }
-});
 
 // ============================================
 // Pick tipi → Bilyoner buton text eşleme

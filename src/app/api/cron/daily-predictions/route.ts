@@ -27,14 +27,6 @@ export async function GET(req: NextRequest) {
 
     const apiUsage = getApiUsage();
 
-    // Bugünkü eski no_pick marker'ları temizle (artık re-analiz izni var)
-    await supabase
-      .from("predictions")
-      .delete()
-      .eq("pick", "no_pick")
-      .gte("kickoff", `${date}T00:00:00.000Z`)
-      .lte("kickoff", `${date}T23:59:59.999Z`);
-
     // force=true ise tüm tahminleri sil ve yeniden üret
     if (forceRegenerate) {
       await supabase
@@ -51,11 +43,11 @@ export async function GET(req: NextRequest) {
       .gte("kickoff", `${date}T00:00:00.000Z`)
       .lte("kickoff", `${date}T23:59:59.999Z`);
     
-    // Gerçek pick'i olan fixture'ları atla, no_pick olanları yeniden dene
-    const fixturesWithRealPicks = new Set(
-      (existingPreds || []).filter((p) => p.pick !== "no_pick").map((p) => p.fixture_id)
+    // Herhangi bir kaydı olan fixture'ları atla (real pick veya no_pick fark etmez)
+    const fixturesWithAnyRecord = new Set(
+      (existingPreds || []).map((p) => p.fixture_id)
     );
-    const newFixtures = nsFixtures.filter((f) => !fixturesWithRealPicks.has(f.fixture.id));
+    const newFixtures = nsFixtures.filter((f) => !fixturesWithAnyRecord.has(f.fixture.id));
     
     // Büyük ligleri önceliklendir: LEAGUE_IDS'deki ligler önce, priority'ye göre sırala
     const sortedFixtures = [...newFixtures].sort((a, b) => {
@@ -71,8 +63,8 @@ export async function GET(req: NextRequest) {
       return 0;
     });
 
-    // Batch: max 3 maç per cron run — her maç ~15 API çağrısı yapıyor, 60s timeout sınırı var
-    const fixtures = sortedFixtures.slice(0, 3);
+    // Batch: max 5 maç per cron run — 60s timeout sınırı var
+    const fixtures = sortedFixtures.slice(0, 5);
     console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${nsFixtures.length} NS, ${newFixtures.length} yeni, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {
@@ -99,7 +91,24 @@ export async function GET(req: NextRequest) {
 
     for (const pred of predictions) {
       if (pred.picks.length === 0) {
-        // Pick üretilmeyen maç — no_pick yazmıyoruz, sonraki cron tekrar deneyecek
+        // Pick üretilmeyen maç — no_pick marker yaz, sonraki cron atlasın
+        const existsNoPickKey = existingPickKeys.has(`${pred.fixtureId}_no_pick`);
+        if (!existsNoPickKey) {
+          await supabase.from("predictions").insert({
+            fixture_id: pred.fixtureId,
+            home_team: pred.homeTeam.name,
+            away_team: pred.awayTeam.name,
+            league: pred.league.name,
+            league_id: pred.league.id || null,
+            kickoff: pred.kickoff,
+            pick: "no_pick",
+            odds: 0,
+            confidence: 0,
+            expected_value: 0,
+            is_value_bet: false,
+            analysis_summary: "Yeterli veri yok veya güvenilir tahmin üretilemedi",
+          });
+        }
         continue;
       }
 

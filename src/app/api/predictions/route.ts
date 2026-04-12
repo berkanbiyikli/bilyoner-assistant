@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById, getLeagueByName } from "@/lib/api-football";
-import { analyzeMatch, analyzeMatches } from "@/lib/prediction";
 import { getSimProbability, simulateMatch } from "@/lib/prediction/simulator";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
 import type { FixtureResponse } from "@/types/api-football";
 import type { MatchAnalysis, MatchInsights, MatchOdds, AIAnalysis } from "@/types";
 
-export const maxDuration = 60; // Vercel timeout 60s
+export const maxDuration = 30; // DB-only okuma, canlı analiz yok
 
 /**
  * /api/predictions?date=2026-02-13          → tek gün
@@ -67,8 +66,6 @@ export async function GET(req: NextRequest) {
         .neq("pick", "no_pick")
         .order("confidence", { ascending: false });
 
-      const dbFixtureIds = new Set((dbPredictions || []).map((p) => p.fixture_id));
-
       // 3) DB tahminlerini fixture bazlı grupla ve zenginleştir
       const fixtureGrouped = new Map<number, typeof dbPredictions>();
       for (const dbPred of (dbPredictions || [])) {
@@ -77,46 +74,9 @@ export async function GET(req: NextRequest) {
         fixtureGrouped.set(dbPred.fixture_id, group);
       }
 
-      // DB tahminlerini fixture ile eşleştir + varsa canlı analiz çalıştır
-      const dbFixturesForAnalysis: FixtureResponse[] = [];
-      const dbFixtureMap = new Map<number, typeof dbPredictions>();
-
-      for (const [fixtureId, preds] of fixtureGrouped.entries()) {
-        const fixture = allFixtures.find((f) => f.fixture.id === fixtureId);
-        if (fixture) {
-          dbFixturesForAnalysis.push(fixture);
-        }
-        dbFixtureMap.set(fixtureId, preds);
-      }
-
-      // Fixture'ı olan DB maçları için paralel analiz çalıştır — SADECE analysis_data olmayan eski kayıtlar için
-      // analysis_data olan kayıtlar zaten zengin veri içeriyor, API call gereksiz
-      const dbAnalysisResults = new Map<number, Awaited<ReturnType<typeof analyzeMatch>>>();
-      const fixturesNeedingAnalysis = dbFixturesForAnalysis.filter((f) => {
-        if (f.fixture.status.short !== "NS") return false;
-        const preds = fixtureGrouped.get(f.fixture.id);
-        const hasStoredData = preds?.[0]?.analysis_data != null;
-        return !hasStoredData; // Sadece analysis_data OLMAYAN maçlar
-      }).sort((a, b) => {
-        const aPri = getLeagueById(a.league.id)?.priority ?? 99;
-        const bPri = getLeagueById(b.league.id)?.priority ?? 99;
-        return aPri - bPri;
-      }).slice(0, 5); // Max 5 — timeout riski azaltmak için
-
-      if (fixturesNeedingAnalysis.length > 0) {
-        const analysisPromises = fixturesNeedingAnalysis.map(async (fixture) => {
-          try {
-            const result = await analyzeMatch(fixture, { skipAI: true, lightweight: true });
-            dbAnalysisResults.set(fixture.fixture.id, result);
-          } catch (err) {
-            console.warn(`[PREDICTIONS] DB fixture analiz hatası (${fixture.fixture.id}):`, err);
-          }
-        });
-        // Max 5 paralel
-        for (let i = 0; i < analysisPromises.length; i += 5) {
-          await Promise.allSettled(analysisPromises.slice(i, i + 5));
-        }
-      }
+      // NOT: Kullanıcı isteğinde canlı analiz YAPILMAZ — 504 timeout'a neden olur.
+      // Cron DB'yi doldurur, kullanıcı sadece DB'den okur.
+      const dbAnalysisResults = new Map<number, Awaited<ReturnType<typeof import("@/lib/prediction").analyzeMatch>>>();
 
       const dbEnriched = Array.from(fixtureGrouped.entries()).map(([fixtureId, preds]) => {
         const fixture = allFixtures.find((f) => f.fixture.id === fixtureId);
@@ -213,30 +173,9 @@ export async function GET(req: NextRequest) {
 
       allDbEnriched.push(...dbEnriched);
 
-      // 4) DB'de OLMAYAN NS maçları canlı analiz et — büyük ligler öncelikli
-      const unseenFixtures = allFixtures.filter(
-        (f) => f.fixture.status.short === "NS" && !dbFixtureIds.has(f.fixture.id)
-      ).sort((a, b) => {
-        const aInLeagues = LEAGUE_IDS.includes(a.league.id);
-        const bInLeagues = LEAGUE_IDS.includes(b.league.id);
-        if (aInLeagues && !bInLeagues) return -1;
-        if (!aInLeagues && bInLeagues) return 1;
-        if (aInLeagues && bInLeagues) {
-          const aPriority = getLeagueById(a.league.id)?.priority ?? 99;
-          const bPriority = getLeagueById(b.league.id)?.priority ?? 99;
-          return aPriority - bPriority;
-        }
-        return 0;
-      }).slice(0, 12);
-
-      if (unseenFixtures.length > 0) {
-        try {
-          const liveResults = await analyzeMatches(unseenFixtures, 2, { skipAI: true, lightweight: true });
-          allLiveAnalyzed.push(...liveResults);
-        } catch (err) {
-          console.error(`[PREDICTIONS] Live analysis error for ${date}:`, err);
-        }
-      }
+      // NOT: Kullanıcı isteğinde canlı analiz YAPILMAZ — 504 timeout'a neden olur.
+      // DB'deki tahminler daily-predictions cron tarafından doldurulur.
+      // DB boşsa redirect veya "hazırlanıyor" mesajı döner (aşağıda).
     }
 
     const allPredictions = [...allDbEnriched, ...allLiveAnalyzed];

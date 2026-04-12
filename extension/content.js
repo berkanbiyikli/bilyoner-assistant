@@ -443,7 +443,23 @@ async function processMacKartiQueue() {
       setWidgetStatus(`🔍 "${bet.pick}" aranıyor...`);
       await sleep(400);
 
-      const found = findAndClickOddsButton(bet.pick);
+      // İlk dene — buton hemen görünür alanda olabilir
+      let found = findAndClickOddsButton(bet.pick);
+
+      // Bulunamazsa: sayfayı aşağı scroll et ve tekrar dene (İY/MS gibi alt bölümler için)
+      if (!found) {
+        const scrollStep = 600;
+        const maxScrolls = 10;
+        for (let i = 0; i < maxScrolls && !found; i++) {
+          window.scrollBy(0, scrollStep);
+          await sleep(350);
+          found = findAndClickOddsButton(bet.pick);
+        }
+        // Bulunan/bulunmadan scroll'u başa al
+        window.scrollTo(0, 0);
+        await sleep(200);
+      }
+
       if (found) {
         progress.transferred++;
         setWidgetStatus(`✅ ${bet.pick} eklendi`);

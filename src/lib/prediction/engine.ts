@@ -38,6 +38,9 @@ import { analyzeForm, type FormAnalysis } from "@/lib/prediction/form-analyzer";
 import { calculateEloFromMatches, eloToWinProbabilities, calculateH2HElo } from "@/lib/prediction/elo";
 import { isMLModelAvailable, getMLProbability, buildFeatureVector, type MLFeatureVector } from "@/lib/prediction/ml-model";
 
+import { analyzeMatchWithAI } from "@/lib/ai/match-analyzer";
+import type { AIAnalysis } from "@/types";
+
 const CACHE_TTL = 10 * 60; // 10 dakika (veri tazeliği için kısa)
 
 export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPrediction> {
@@ -136,6 +139,33 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
   // Derinlemesine bilgiler (insights)
   const insights = buildInsights(analysis, xgData, goalTiming, keyMissingPlayers, matchOdds, importance, homeFormAnalysis, awayFormAnalysis);
 
+  // === AI Analizi (Gemini) ===
+  const sortedPicks = picks.sort((a, b) => b.confidence - a.confidence);
+  let aiAnalysis: AIAnalysis | undefined;
+  try {
+    const bestPick = sortedPicks[0];
+    const aiResult = await analyzeMatchWithAI({
+      homeTeam: fixture.teams.home.name,
+      awayTeam: fixture.teams.away.name,
+      league: fixture.league.name,
+      kickoff: fixture.fixture.date,
+      analysis,
+      odds: matchOdds,
+      simulation: analysis.simulation,
+      injuries: keyMissingPlayers,
+      h2hGoalAvg: analysis.h2hGoalAvg,
+      topPick: bestPick ? {
+        type: bestPick.type,
+        confidence: bestPick.confidence,
+        odds: bestPick.odds,
+        ev: bestPick.expectedValue,
+      } : undefined,
+    });
+    if (aiResult) aiAnalysis = aiResult;
+  } catch (err) {
+    console.warn(`[ENGINE] AI analiz başarısız (${fixtureId}):`, err);
+  }
+
   const result: MatchPrediction = {
     fixtureId,
     fixture,
@@ -143,12 +173,13 @@ export async function analyzeMatch(fixture: FixtureResponse): Promise<MatchPredi
     homeTeam: fixture.teams.home,
     awayTeam: fixture.teams.away,
     kickoff: fixture.fixture.date,
-    picks: picks.sort((a, b) => b.confidence - a.confidence),
+    picks: sortedPicks,
     analysis,
     odds: matchOdds,
     isLive: false,
     insights,
     dataQuality,
+    aiAnalysis,
   };
 
   setCache(cacheKey, result, CACHE_TTL);

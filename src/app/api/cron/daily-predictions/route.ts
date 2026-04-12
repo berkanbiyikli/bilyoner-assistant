@@ -120,6 +120,7 @@ export async function GET(req: NextRequest) {
         analysis: pred.analysis,
         insights: pred.insights,
         odds: oddsForJson,
+        aiAnalysis: pred.aiAnalysis || null,
       };
 
       for (const pick of pred.picks) {

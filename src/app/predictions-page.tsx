@@ -24,6 +24,8 @@ import {
   InjuryReport,
   InsightsList,
 } from "@/components/match-visualizations";
+import { CascadeStrategyComponent } from "@/components/cascade-strategy";
+import type { CascadeRiskLevel, CascadeStrategy } from "@/types";
 
 type TabType = "predictions" | "crazy-picks";
 
@@ -77,6 +79,11 @@ export function PredictionsPage() {
   const [crazySummary, setCrazySummary] = useState<{
     totalMatches: number; totalPicks: number; avgEdge: number; bestEdge: number; totalStake: number;
   } | null>(null);
+
+  // Cascade Strategy state
+  const [cascadeStrategies, setCascadeStrategies] = useState<Record<CascadeRiskLevel, CascadeStrategy> | null>(null);
+  const [cascadeLoading, setCascadeLoading] = useState(false);
+  const [heroTab, setHeroTab] = useState<"cascade" | "top-picks">("cascade");
 
   // Coupon
   const { activeCoupon, addToCoupon } = useAppStore();
@@ -177,6 +184,22 @@ export function PredictionsPage() {
     }
   };
 
+  const fetchCascade = async () => {
+    if (selectedDates.length !== 1) return;
+    setCascadeLoading(true);
+    try {
+      const res = await fetch(`/api/cascade?date=${selectedDates[0]}`);
+      const data = await res.json();
+      if (data.strategies) setCascadeStrategies(data.strategies);
+      else setCascadeStrategies(null);
+    } catch {
+      console.warn("Cascade stratejisi yüklenemedi");
+      setCascadeStrategies(null);
+    } finally {
+      setCascadeLoading(false);
+    }
+  };
+
   const fetchCrazyPicks = async () => {
     setCrazyLoading(true);
     setCrazyError(null);
@@ -192,6 +215,7 @@ export function PredictionsPage() {
   useEffect(() => {
     if (redirectRef.current) { redirectRef.current = false; return; }
     fetchPredictions();
+    fetchCascade();
   }, [selectedDates]);
   useEffect(() => {
     if (activeTab === "crazy-picks" && crazyPicks.length === 0 && !crazyLoading && !crazyError) fetchCrazyPicks();
@@ -495,64 +519,107 @@ export function PredictionsPage() {
               </div>
             )}
 
-            {/* Top Picks Hero */}
-            {!loading && topPicks.length > 0 && (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Star className="h-4 w-4 text-amber-400" />
-                  <h2 className="text-sm font-semibold text-white">Günün En İyileri</h2>
-                  <span className="text-[10px] text-zinc-600">En yüksek güven × değer</span>
+            {/* Hero Section: Cascade Strategy + Top Picks */}
+            {!loading && (sortedPredictions.length > 0 || cascadeStrategies) && (
+              <div className="space-y-3">
+                {/* Hero Tab Toggle */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setHeroTab("cascade")}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all border",
+                      heroTab === "cascade"
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                        : "border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700"
+                    )}
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                    Saat Stratejisi
+                  </button>
+                  <button
+                    onClick={() => setHeroTab("top-picks")}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all border",
+                      heroTab === "top-picks"
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                        : "border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700"
+                    )}
+                  >
+                    <Star className="h-3.5 w-3.5" />
+                    En İyi Tahminler
+                    {topPicks.length > 0 && (
+                      <span className="text-[10px] font-bold text-zinc-600">{topPicks.length}</span>
+                    )}
+                  </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
-                  {topPicks.map(({ prediction: tp, pick: tpick }, i) => (
-                    <button
-                      key={tp.fixtureId}
-                      onClick={() => setExpandedMatch(expandedMatch === tp.fixtureId ? null : tp.fixtureId)}
-                      className={cn(
-                        "relative rounded-xl border p-3 text-left transition-all hover:scale-[1.02]",
-                        i === 0
-                          ? "border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-zinc-900"
-                          : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
-                      )}
-                    >
-                      {i === 0 && (
-                        <div className="absolute -top-2 left-3 bg-amber-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full">
-                          TOP PICK
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between mb-2 mt-1">
-                        <span className={cn(
-                          "text-[10px] font-bold px-1.5 py-0.5 rounded",
-                          tpick.isValueBet ? "bg-emerald-500/15 text-emerald-400" : "bg-indigo-500/15 text-indigo-400"
-                        )}>
-                          {pickLabel(tpick.type)}
-                        </span>
-                        <span className={cn(
-                          "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
-                          tpick.confidence >= 70 ? "bg-green-500/15 text-green-400" :
-                          tpick.confidence >= 55 ? "bg-yellow-500/15 text-yellow-400" :
-                          "bg-red-500/10 text-red-400"
-                        )}>
-                          %{tpick.confidence}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-zinc-300 font-medium truncate">{tp.homeTeam.name}</p>
-                      <p className="text-[11px] text-zinc-500 truncate">vs {tp.awayTeam.name}</p>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="text-[10px] text-zinc-600">
-                          {new Date(tp.kickoff).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                        <span className="text-xs font-bold text-yellow-500">{tpick.odds.toFixed(2)}</span>
-                      </div>
-                      {tpick.isValueBet && (
-                        <div className="flex items-center gap-1 mt-1.5">
-                          <TrendingUp className="h-3 w-3 text-emerald-400" />
-                          <span className="text-[9px] text-emerald-400 font-medium">Value Bet · EV +{(tpick.expectedValue * 100).toFixed(0)}%</span>
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
+
+                {/* Cascade Strategy */}
+                {heroTab === "cascade" && (
+                  <CascadeStrategyComponent
+                    strategies={cascadeStrategies}
+                    loading={cascadeLoading}
+                  />
+                )}
+
+                {/* Top Picks Hero */}
+                {heroTab === "top-picks" && topPicks.length > 0 && (
+                  <div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
+                      {topPicks.map(({ prediction: tp, pick: tpick }, i) => (
+                        <button
+                          key={tp.fixtureId}
+                          onClick={() => setExpandedMatch(expandedMatch === tp.fixtureId ? null : tp.fixtureId)}
+                          className={cn(
+                            "relative rounded-xl border p-3 text-left transition-all hover:scale-[1.02]",
+                            i === 0
+                              ? "border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-zinc-900"
+                              : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
+                          )}
+                        >
+                          {i === 0 && (
+                            <div className="absolute -top-2 left-3 bg-amber-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full">
+                              TOP PICK
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between mb-2 mt-1">
+                            <span className={cn(
+                              "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                              tpick.isValueBet ? "bg-emerald-500/15 text-emerald-400" : "bg-indigo-500/15 text-indigo-400"
+                            )}>
+                              {pickLabel(tpick.type)}
+                            </span>
+                            <span className={cn(
+                              "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                              tpick.confidence >= 70 ? "bg-green-500/15 text-green-400" :
+                              tpick.confidence >= 55 ? "bg-yellow-500/15 text-yellow-400" :
+                              "bg-red-500/10 text-red-400"
+                            )}>
+                              %{tpick.confidence}
+                            </span>
+                          </div>
+                          {/* AI Headline or team names */}
+                          {tp.aiAnalysis?.headline ? (
+                            <p className="text-[10px] text-zinc-400 line-clamp-1 mb-0.5">{tp.aiAnalysis.headline}</p>
+                          ) : null}
+                          <p className="text-[11px] text-zinc-300 font-medium truncate">{tp.homeTeam.name}</p>
+                          <p className="text-[11px] text-zinc-500 truncate">vs {tp.awayTeam.name}</p>
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-[10px] text-zinc-600">
+                              {new Date(tp.kickoff).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            <span className="text-xs font-bold text-yellow-500">{tpick.odds.toFixed(2)}</span>
+                          </div>
+                          {tpick.isValueBet && (
+                            <div className="flex items-center gap-1 mt-1.5">
+                              <TrendingUp className="h-3 w-3 text-emerald-400" />
+                              <span className="text-[9px] text-emerald-400 font-medium">Value Bet · EV +{(tpick.expectedValue * 100).toFixed(0)}%</span>
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

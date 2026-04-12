@@ -118,8 +118,18 @@ export function MatchCard({ prediction }: MatchCardProps) {
           </div>
         </div>
 
-        {/* Best Pick Reasoning (tek satır) */}
-        {bestPick && (
+        {/* Best Pick Reasoning / AI Headline */}
+        {prediction.aiAnalysis ? (
+          <div className="mt-2 space-y-1">
+            <p className="text-[11px] text-zinc-300 line-clamp-1 font-medium">
+              <Sparkles className="inline h-3 w-3 text-amber-400 mr-1" />
+              {prediction.aiAnalysis.headline}
+            </p>
+            <p className="text-[10px] text-indigo-400/90 line-clamp-1">
+              💡 {prediction.aiAnalysis.recommendation}
+            </p>
+          </div>
+        ) : bestPick && (
           <p className="text-[11px] text-muted-foreground mt-2 line-clamp-1">
             <Sparkles className="inline h-3 w-3 text-primary mr-1" />
             {bestPick.reasoning}
@@ -268,6 +278,37 @@ export function MatchCard({ prediction }: MatchCardProps) {
 
             {/* Algoritmik İçgörüler */}
             {insights && <InsightsList notes={insights.notes} />}
+
+            {/* AI Analiz Detayları */}
+            {prediction.aiAnalysis && (
+              <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 space-y-2">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider">AI Analizi</span>
+                </div>
+                <p className="text-[11px] text-zinc-300 font-medium">{prediction.aiAnalysis.headline}</p>
+                <ul className="space-y-1">
+                  {prediction.aiAnalysis.keyFactors.map((f, i) => (
+                    <li key={i} className="text-[10px] text-zinc-400 flex items-start gap-1.5">
+                      <span className="text-indigo-400 mt-0.5 shrink-0">•</span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <div className="rounded-md bg-indigo-500/10 px-2.5 py-1.5 mt-1">
+                  <p className="text-[11px] text-indigo-300 font-medium">
+                    💡 {prediction.aiAnalysis.recommendation}
+                  </p>
+                </div>
+                {prediction.aiAnalysis.riskWarning && (
+                  <div className="rounded-md bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1.5">
+                    <p className="text-[10px] text-yellow-400">
+                      ⚠️ {prediction.aiAnalysis.riskWarning}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Analiz Özeti */}
             <p className="text-[11px] text-muted-foreground italic border-t border-border pt-3">

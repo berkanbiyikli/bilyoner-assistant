@@ -5,7 +5,7 @@ import { getSimProbability, simulateMatch } from "@/lib/prediction/simulator";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
 import type { FixtureResponse } from "@/types/api-football";
-import type { MatchAnalysis, MatchInsights, MatchOdds } from "@/types";
+import type { MatchAnalysis, MatchInsights, MatchOdds, AIAnalysis } from "@/types";
 
 export const maxDuration = 60; // Vercel timeout 60s
 
@@ -144,12 +144,14 @@ export async function GET(req: NextRequest) {
         let analysis: MatchAnalysis | undefined = liveAnalysis?.analysis;
         let insights = liveAnalysis?.insights;
         let odds = liveAnalysis?.odds;
+        let aiAnalysis: AIAnalysis | undefined = liveAnalysis?.aiAnalysis;
 
         // DB'de saklı analysis_data varsa onu kullan
-        const storedData = firstPred.analysis_data as { analysis?: MatchAnalysis; insights?: MatchInsights; odds?: MatchOdds } | null;
+        const storedData = firstPred.analysis_data as { analysis?: MatchAnalysis; insights?: MatchInsights; odds?: MatchOdds; aiAnalysis?: AIAnalysis } | null;
         if (!analysis && storedData?.analysis) {
           analysis = storedData.analysis;
           insights = storedData.insights;
+          if (!aiAnalysis && storedData.aiAnalysis) aiAnalysis = storedData.aiAnalysis;
           // Odds: realMarkets Array → Set dönüşümü
           if (storedData.odds) {
             odds = {
@@ -204,6 +206,7 @@ export async function GET(req: NextRequest) {
           analysis,
           insights,
           odds,
+          aiAnalysis,
           isLive: fixture ? fixture.fixture.status.short !== "NS" && fixture.fixture.status.short !== "FT" : false,
         };
       }).filter(Boolean);
@@ -309,13 +312,15 @@ export async function GET(req: NextRequest) {
             : { id: 0, name: firstPred.league, country: "", logo: "", flag: "", season: 0, round: "" };
 
           // DB'de saklı analysis_data varsa onu kullan
-          const storedData = firstPred.analysis_data as { analysis?: MatchAnalysis; insights?: MatchInsights; odds?: MatchOdds } | null;
+          const storedData = firstPred.analysis_data as { analysis?: MatchAnalysis; insights?: MatchInsights; odds?: MatchOdds; aiAnalysis?: AIAnalysis } | null;
           let analysis: MatchAnalysis;
           let insights: MatchInsights | undefined;
+          let aiAnalysis: AIAnalysis | undefined;
 
           if (storedData?.analysis) {
             analysis = storedData.analysis;
             insights = storedData.insights;
+            aiAnalysis = storedData.aiAnalysis;
           } else {
             analysis = {
               summary: firstPred.analysis_summary || "",
@@ -355,6 +360,7 @@ export async function GET(req: NextRequest) {
             analysis,
             insights,
             odds: undefined,
+            aiAnalysis,
             isLive: false,
           };
         });

@@ -41,6 +41,15 @@ export type PickType =
   | "Under 3.5 Cards"
   | `CS ${string}`; // Exact Score: "CS 3-2", "CS 4-1" etc.
 
+// ---- AI Analiz ----
+export interface AIAnalysis {
+  headline: string;           // 1 cümle maç özeti
+  keyFactors: string[];       // 3-5 öne çıkan istatistiksel faktör
+  recommendation: string;     // Direktif tahmin önerisi
+  riskWarning?: string;       // Varsa risk uyarısı
+  confidenceAdjustment: number; // AI'ın önerdiği güven düzeltmesi (-10 ile +10)
+}
+
 export interface MatchPrediction {
   fixtureId: number;
   fixture: FixtureResponse;
@@ -54,6 +63,7 @@ export interface MatchPrediction {
   isLive: boolean;
   insights?: MatchInsights; // Derinlemesine bilgiler
   dataQuality?: DataQualityScore; // Veri kalitesi göstergesi
+  aiAnalysis?: AIAnalysis; // Gemini AI maç analizi
 }
 
 export interface Pick {
@@ -486,6 +496,43 @@ export interface HtBttsFactor {
   value: number;              // -100 to +100 (negatif = IY KG aleyhine)
   description: string;
   weight: number;             // 0-1 (bu faktörün toplam etkisi)
+}
+
+// ---- Cascade Strateji (Kademeli Bahis) ----
+export type CascadeRiskLevel = "safe" | "balanced" | "risky";
+
+export interface CascadePickItem {
+  fixtureId: number;
+  homeTeam: string;
+  awayTeam: string;
+  league: string;
+  leagueFlag?: string;
+  kickoff: string;
+  pick: string;
+  odds: number;
+  confidence: number;
+  simProbability?: number;
+  isValueBet: boolean;
+  aiHeadline?: string;
+}
+
+export interface CascadeTimeSlot {
+  label: string;          // "13:00 - 16:00"
+  startHour: number;
+  endHour: number;
+  picks: CascadePickItem[];
+  combinedOdds: number;
+  winProbability: number; // Picks'in birleşik kazanma olasılığı %
+}
+
+export interface CascadeStrategy {
+  riskLevel: CascadeRiskLevel;
+  timeSlots: CascadeTimeSlot[];
+  initialStake: number;
+  cascadeReturns: number[];   // Her dilim sonundaki beklenen miktar
+  totalPotentialReturn: number;
+  totalCombinedOdds: number;
+  overallWinProbability: number;
 }
 
 // ---- Live Momentum v2 (Canlı Analiz) ----

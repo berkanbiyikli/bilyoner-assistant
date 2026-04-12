@@ -63,8 +63,8 @@ export async function GET(req: NextRequest) {
       return 0;
     });
 
-    // Batch: max 5 maç per cron run — 60s timeout sınırı var
-    const fixtures = sortedFixtures.slice(0, 5);
+    // Batch: max 2 maç per cron run — full analysis çok ağır, 60s timeout
+    const fixtures = sortedFixtures.slice(0, 2);
     console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${nsFixtures.length} NS, ${newFixtures.length} yeni, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {

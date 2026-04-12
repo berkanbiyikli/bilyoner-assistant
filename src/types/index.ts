@@ -158,6 +158,14 @@ export interface MatchAnalysis {
     comebackRate: number;                    // Geri dönüş oranı (1/2 + 2/1 toplamı %)
     dominantPattern?: string;                // En sık görülen İY/MS (ör. "1/1")
   };
+  // Dinlenme günleri (son maçtan bu yana)
+  homeRestDays?: number;
+  awayRestDays?: number;
+  // SoT bazlı şut istatistikleri
+  homeSotPerGame?: number;
+  awaySotPerGame?: number;
+  homeShotQuality?: number; // insideBox / totalShots ratio
+  awayShotQuality?: number;
 }
 
 export interface GoalTimingData {

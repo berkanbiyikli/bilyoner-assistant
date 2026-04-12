@@ -237,12 +237,18 @@ interface XgData {
   awayActualGoals: number;
   homeXgDelta: number;
   awayXgDelta: number;
+  homeSotPerGame?: number;
+  awaySotPerGame?: number;
+  homeShotQuality?: number; // insideBox / totalShots ratio
+  awayShotQuality?: number;
 }
 
 function extractXgData(
   prediction: PredictionResponse | null,
   homeTeamStats: TeamStatisticsResponse | null,
-  awayTeamStats: TeamStatisticsResponse | null
+  awayTeamStats: TeamStatisticsResponse | null,
+  homeShotStats?: TeamShotStats | null,
+  awayShotStats?: TeamShotStats | null
 ): XgData {
   const defaults: XgData = {
     homeXg: 1.2, awayXg: 1.0,
@@ -250,64 +256,113 @@ function extractXgData(
     homeXgDelta: 0, awayXgDelta: 0,
   };
 
-  // === GERÇEK VERİ KAYNAĞI 1: /teams/statistics ===
-  // Season-level gol ortalamaları — en güvenilir kaynak
+  // === GERÇEK VERİ KAYNAĞI 1: SoT Bazlı xG (en iyi proxy) ===
+  // xG ≈ SoT * ConversionRate * ShotQuality
+  // ShotQuality = insideBox / totalShots (kale içi şut oranı)
+  // Liga ortalaması conversion rate: ~0.30 (SoT başına gol)
+  const BASE_CONVERSION_RATE = 0.30;
+  const SHOT_QUALITY_BONUS = 0.15; // Yüksek kaliteli şut oranı bonusu
+
+  let homeXgFromShots: number | null = null;
+  let awayXgFromShots: number | null = null;
+  let homeSotPerGame: number | undefined;
+  let awaySotPerGame: number | undefined;
+  let homeShotQuality: number | undefined;
+  let awayShotQuality: number | undefined;
+
+  if (homeShotStats && homeShotStats.matchesAnalyzed >= 3) {
+    homeSotPerGame = homeShotStats.avgShotsOnGoal;
+    homeShotQuality = homeShotStats.avgTotalShots > 0
+      ? homeShotStats.avgShotsInsideBox / homeShotStats.avgTotalShots
+      : 0.4;
+    // xG = SoT * (baseConversion + qualityBonus * shotQuality)
+    const convRate = BASE_CONVERSION_RATE + SHOT_QUALITY_BONUS * homeShotQuality;
+    homeXgFromShots = homeSotPerGame! * convRate;
+    console.log(`[XG-SOT] Home SoT xG: ${homeXgFromShots.toFixed(2)} (SoT/g=${homeSotPerGame!.toFixed(1)}, quality=${homeShotQuality!.toFixed(2)}, conv=${convRate.toFixed(3)})`);
+  }
+
+  if (awayShotStats && awayShotStats.matchesAnalyzed >= 3) {
+    awaySotPerGame = awayShotStats.avgShotsOnGoal;
+    awayShotQuality = awayShotStats.avgTotalShots > 0
+      ? awayShotStats.avgShotsInsideBox / awayShotStats.avgTotalShots
+      : 0.4;
+    const convRate = BASE_CONVERSION_RATE + SHOT_QUALITY_BONUS * awayShotQuality;
+    awayXgFromShots = awaySotPerGame! * convRate;
+    console.log(`[XG-SOT] Away SoT xG: ${awayXgFromShots.toFixed(2)} (SoT/g=${awaySotPerGame!.toFixed(1)}, quality=${awayShotQuality!.toFixed(2)}, conv=${convRate.toFixed(3)})`);
+  }
+
+  // === GERÇEK VERİ KAYNAĞI 2: /teams/statistics ===
+  // Season-level gol ortalamaları
+  let homeXgFromStats: number | null = null;
+  let awayXgFromStats: number | null = null;
+  let homeActualGoals = 1.2;
+  let awayActualGoals = 1.0;
+
   if (homeTeamStats?.goals?.for?.average && awayTeamStats?.goals?.for?.average) {
     const homeGoalsForHome = parseFloat(homeTeamStats.goals.for.average.home) || 1.2;
-    const homeGoalsForAway = parseFloat(homeTeamStats.goals.for.average.away) || 1.0;
-    const awayGoalsForHome = parseFloat(awayTeamStats.goals.for.average.home) || 1.2;
     const awayGoalsForAway = parseFloat(awayTeamStats.goals.for.average.away) || 1.0;
 
-    // Ev sahibi evde atıyor, deplasman deplasmanda atıyor
-    const homeXg = homeGoalsForHome;
-    const awayXg = awayGoalsForAway;
+    homeActualGoals = parseFloat(homeTeamStats.goals.for.average.total) || homeGoalsForHome;
+    awayActualGoals = parseFloat(awayTeamStats.goals.for.average.total) || awayGoalsForAway;
 
-    // Gerçek gol ortalamaları (toplam)
-    const homeActualGoals = parseFloat(homeTeamStats.goals.for.average.total) || homeXg;
-    const awayActualGoals = parseFloat(awayTeamStats.goals.for.average.total) || awayXg;
-
-    // Savunma zayıflığı düzeltmesi: Rakibin yediği gol ortalamasıyla blend
+    // Savunma zayıflığı düzeltmesi
     const homeGoalsAgainstAway = parseFloat(awayTeamStats.goals.against.average.away) || 1.2;
     const awayGoalsAgainstHome = parseFloat(homeTeamStats.goals.against.average.home) || 0.8;
 
-    // xG = (takımın attığı ort.) * 0.6 + (rakibin yediği ort.) * 0.4
-    const adjustedHomeXg = homeXg * 0.6 + homeGoalsAgainstAway * 0.4;
-    const adjustedAwayXg = awayXg * 0.6 + awayGoalsAgainstHome * 0.4;
+    // Eski formül: xG = goalAvg*0.6 + opponentConceded*0.4
+    homeXgFromStats = homeGoalsForHome * 0.6 + homeGoalsAgainstAway * 0.4;
+    awayXgFromStats = awayGoalsForAway * 0.6 + awayGoalsAgainstHome * 0.4;
+  }
 
-    console.log(`[XG-REAL] Team stats xG: Home=${adjustedHomeXg.toFixed(2)}, Away=${adjustedAwayXg.toFixed(2)} (from /teams/statistics)`);
+  // === HİBRİT xG: SoT verisi varsa %60 SoT + %40 Stats, yoksa Stats kullan ===
+  let finalHomeXg: number;
+  let finalAwayXg: number;
 
-    return {
-      homeXg: Math.round(adjustedHomeXg * 100) / 100,
-      awayXg: Math.round(adjustedAwayXg * 100) / 100,
-      homeActualGoals: Math.round(homeActualGoals * 100) / 100,
-      awayActualGoals: Math.round(awayActualGoals * 100) / 100,
-      homeXgDelta: Math.round((adjustedHomeXg - homeActualGoals) * 100) / 100,
-      awayXgDelta: Math.round((adjustedAwayXg - awayActualGoals) * 100) / 100,
-    };
+  if (homeXgFromShots !== null && homeXgFromStats !== null) {
+    // Her iki kaynak da mevcut — hibrit blend
+    finalHomeXg = homeXgFromShots * 0.6 + homeXgFromStats * 0.4;
+    console.log(`[XG-HYBRID] Home: SoT(${homeXgFromShots.toFixed(2)})*0.6 + Stats(${homeXgFromStats.toFixed(2)})*0.4 = ${finalHomeXg.toFixed(2)}`);
+  } else if (homeXgFromShots !== null) {
+    finalHomeXg = homeXgFromShots;
+  } else if (homeXgFromStats !== null) {
+    finalHomeXg = homeXgFromStats;
+  } else {
+    finalHomeXg = defaults.homeXg;
+  }
+
+  if (awayXgFromShots !== null && awayXgFromStats !== null) {
+    finalAwayXg = awayXgFromShots * 0.6 + awayXgFromStats * 0.4;
+    console.log(`[XG-HYBRID] Away: SoT(${awayXgFromShots.toFixed(2)})*0.6 + Stats(${awayXgFromStats.toFixed(2)})*0.4 = ${finalAwayXg.toFixed(2)}`);
+  } else if (awayXgFromShots !== null) {
+    finalAwayXg = awayXgFromShots;
+  } else if (awayXgFromStats !== null) {
+    finalAwayXg = awayXgFromStats;
+  } else {
+    finalAwayXg = defaults.awayXg;
   }
 
   // === FALLBACK: /predictions API verisinden xG proxy ===
-  if (!prediction?.teams) {
-    console.warn("[FALLBACK] extractXgData: Ne team stats ne prediction var — varsayılan xG (H: 1.2, A: 1.0)");
-    return defaults;
+  if (finalHomeXg === defaults.homeXg && finalAwayXg === defaults.awayXg && prediction?.teams) {
+    const homeGoalsFor = parseFloat(prediction.teams.home?.last_5?.goals?.for?.average || "1.2");
+    const awayGoalsFor = parseFloat(prediction.teams.away?.last_5?.goals?.for?.average || "1.0");
+    console.log(`[XG-FALLBACK] Prediction API xG proxy: Home=${homeGoalsFor}, Away=${awayGoalsFor}`);
+    finalHomeXg = homeGoalsFor;
+    finalAwayXg = awayGoalsFor;
+    homeActualGoals = homeGoalsFor;
+    awayActualGoals = awayGoalsFor;
   }
 
-  const homeTeam = prediction.teams.home;
-  const awayTeam = prediction.teams.away;
-
-  const homeGoalsFor = parseFloat(homeTeam?.last_5?.goals?.for?.average || "1.2");
-  const awayGoalsFor = parseFloat(awayTeam?.last_5?.goals?.for?.average || "1.0");
-
-  // Son 5 maç gol ortalaması — prediction API'den gerçek veri
-  console.log(`[XG-FALLBACK] Prediction API xG proxy: Home=${homeGoalsFor}, Away=${awayGoalsFor}`);
-
   return {
-    homeXg: homeGoalsFor,
-    awayXg: awayGoalsFor,
-    homeActualGoals: homeGoalsFor,
-    awayActualGoals: awayGoalsFor,
-    homeXgDelta: 0,
-    awayXgDelta: 0,
+    homeXg: Math.round(finalHomeXg * 100) / 100,
+    awayXg: Math.round(finalAwayXg * 100) / 100,
+    homeActualGoals: Math.round(homeActualGoals * 100) / 100,
+    awayActualGoals: Math.round(awayActualGoals * 100) / 100,
+    homeXgDelta: Math.round((finalHomeXg - homeActualGoals) * 100) / 100,
+    awayXgDelta: Math.round((finalAwayXg - awayActualGoals) * 100) / 100,
+    homeSotPerGame,
+    awaySotPerGame,
+    homeShotQuality,
+    awayShotQuality,
   };
 }
 
@@ -581,18 +636,53 @@ function analyzeInjuries(
 function calculateInjuryImpact(keyMissing: KeyMissingPlayer[]): { home: number; away: number } {
   if (keyMissing.length === 0) return { home: 0, away: 0 };
 
+  // Pozisyon katsayıları: Her pozisyondaki oyuncunun takıma göreceli katkısı
+  // Mantık: 11 kişilik kadro, pozisyon başına ortalama oyuncu sayısı ile normalize
+  // GK: 1 oyuncu, değişimi çok kritik (alternatif genelde zayıf)
+  // FWD: 2-3 oyuncu, gol üretimi doğrudan etkilenir
+  // MID: 3-4 oyuncu, oyun kurgusu
+  // DEF: 3-4 oyuncu, pozisyon derinliği genellikle daha iyi
+  const POSITION_COEFFICIENTS: Record<string, number> = {
+    GK: 7,   // Kaleci eksikliği çok kritik — alternatif genelde deneyimsiz
+    FWD: 6,  // Forvet — gol üretimi direkt etkilenir
+    MID: 4,  // Orta saha — oyun kurgusu, çoğu takımda derinlik var
+    DEF: 3,  // Defans — rotasyon en fazla olan pozisyon
+  };
+
+  // İmpact level çarpanı
+  const IMPACT_MULTIPLIER: Record<string, number> = {
+    critical: 1.5,  // Yıldız oyuncu / tartışmasız ilk 11
+    high: 1.0,      // Önemli oyuncu
+    medium: 0.5,    // Yedek veya rotasyon oyuncusu
+  };
+
   let homeImpact = 0;
   let awayImpact = 0;
 
+  // Pozisyon başına eksik sayısını takip et (diminishing returns için)
+  const homePosCounts: Record<string, number> = {};
+  const awayPosCounts: Record<string, number> = {};
+
   for (const player of keyMissing) {
-    const weight = player.impactLevel === "critical" ? 5 : player.impactLevel === "high" ? 3 : 1;
+    const posCoeff = POSITION_COEFFICIENTS[player.position] ?? 2;
+    const impactMul = IMPACT_MULTIPLIER[player.impactLevel] ?? 0.5;
+
+    const counts = player.team === "home" ? homePosCounts : awayPosCounts;
+    counts[player.position] = (counts[player.position] || 0) + 1;
+
+    // Azalan getiri: Aynı pozisyondan 2. eksik %60, 3. eksik %35 etkili
+    const posCount = counts[player.position];
+    const diminishingFactor = posCount === 1 ? 1.0 : posCount === 2 ? 0.6 : 0.35;
+
+    const weight = posCoeff * impactMul * diminishingFactor;
+
     if (player.team === "home") homeImpact += weight;
     else awayImpact += weight;
   }
 
   return {
-    home: Math.min(20, homeImpact),
-    away: Math.min(20, awayImpact),
+    home: Math.min(25, Math.round(homeImpact * 10) / 10),
+    away: Math.min(25, Math.round(awayImpact * 10) / 10),
   };
 }
 
@@ -1146,6 +1236,12 @@ function buildAnalysis(
     keyMissingPlayers: advanced.keyMissingPlayers.length > 0 ? advanced.keyMissingPlayers : undefined,
     referee: fixture.fixture.referee ?? undefined,
     refereeProfile,
+    homeRestDays: advanced.homeRestDays,
+    awayRestDays: advanced.awayRestDays,
+    homeSotPerGame: advanced.xgData.homeSotPerGame,
+    awaySotPerGame: advanced.xgData.awaySotPerGame,
+    homeShotQuality: advanced.xgData.homeShotQuality,
+    awayShotQuality: advanced.xgData.awayShotQuality,
   };
 }
 

@@ -330,8 +330,24 @@ export function simulateMatch(
   const homeImportanceFactor = importance?.homeImportance ?? 1.0;
   const awayImportanceFactor = importance?.awayImportance ?? 1.0;
 
-  let homeLambda = baseHomeLambda * awayDefFactor * homeInjuryFactor * homeAdvantageFactor * refTempoFactor * homeImportanceFactor;
-  let awayLambda = baseAwayLambda * homeDefFactor * awayInjuryFactor * refTempoFactor * awayImportanceFactor;
+  // === YENİ: Dinlenme günü çarpanı ===
+  // 2 gün veya daha az → yorgunluk, lambda düşer
+  // 7+ gün → tam dinlenme, nötr
+  // 10+ gün → ritim kaybı, hafif düşüş
+  const restDaysFactor = (days?: number): number => {
+    if (days === undefined) return 1.0;
+    if (days <= 2) return 0.90;   // Çok kısa (Avrupa dönüşü, hafta içi)
+    if (days <= 3) return 0.95;   // Kısa dinlenme
+    if (days === 4) return 0.98;  // Normal-kısa
+    if (days <= 7) return 1.0;    // İdeal dinlenme
+    if (days <= 10) return 0.99;  // Hafif ritim kaybı
+    return 0.97;                  // Uzun mola — ritim kaybı
+  };
+  const homeRestFactor = restDaysFactor(analysis.homeRestDays);
+  const awayRestFactor = restDaysFactor(analysis.awayRestDays);
+
+  let homeLambda = baseHomeLambda * awayDefFactor * homeInjuryFactor * homeAdvantageFactor * refTempoFactor * homeImportanceFactor * homeRestFactor;
+  let awayLambda = baseAwayLambda * homeDefFactor * awayInjuryFactor * refTempoFactor * awayImportanceFactor * awayRestFactor;
 
   // Form Decay etkisi: Son maçların momentum çarpanı
   if (homeFormAnalysis) {

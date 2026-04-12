@@ -290,12 +290,39 @@ interface TrainingRecord {
   sim_probability: number | null;
   home_team: string;
   away_team: string;
+  // === YENİ: analysis_data'dan zengin özellikler ===
+  analysis_data?: {
+    homeAttack?: number;
+    awayAttack?: number;
+    homeDefense?: number;
+    awayDefense?: number;
+    homeForm?: number;
+    awayForm?: number;
+    homeXg?: number;
+    awayXg?: number;
+    h2hGoalAvg?: number;
+    h2hAdvantage?: string;
+    injuryImpact?: { home: number; away: number };
+    homeRestDays?: number;
+    awayRestDays?: number;
+    homeSotPerGame?: number;
+    awaySotPerGame?: number;
+    homeShotQuality?: number;
+    awayShotQuality?: number;
+    simulation?: {
+      homeWinProb?: number;
+      drawProb?: number;
+      awayWinProb?: number;
+      over25Prob?: number;
+      bttsProb?: number;
+    };
+  } | null;
 }
 
 /**
- * Geçmiş tahminlerden basit bir logistic regression modeli eğit.
- * Her market (home_win, over_25, btts_yes, vb.) için ayrı ağırlık öğrenir.
- * Modeli JSON olarak döndürür — cache'e veya DB'ye kaydedilebilir.
+ * Geçmiş tahminlerden zengin özellikli logistic regression modeli eğit.
+ * analysis_data JSONB'den maç istatistiklerini çıkarır.
+ * Her market için ayrı ağırlık öğrenir.
  */
 export async function autoTrainFromHistory(
   records: TrainingRecord[]
@@ -325,18 +352,51 @@ export async function autoTrainFromHistory(
     const marketRecords = records.filter(r => r.pick === pickType);
     if (marketRecords.length < 10) continue;
 
-    // Features: [confidence/100, 1/odds (implied prob), simProb/100, EV]
-    const featureNames = ["confidence", "implied_prob", "sim_prob", "expected_value"];
+    // === YENİ: Zengin feature seti (analysis_data varsa 16 feature, yoksa 4) ===
+    const hasAnalysisData = marketRecords.some(r => r.analysis_data?.homeAttack !== undefined);
+
+    const featureNames = hasAnalysisData
+      ? [
+          "confidence", "implied_prob", "sim_prob", "expected_value",
+          "home_attack", "away_attack", "home_defense", "away_defense",
+          "home_form", "away_form", "home_xg", "away_xg",
+          "h2h_goal_avg", "injury_diff", "rest_days_diff", "shot_quality_diff",
+        ]
+      : ["confidence", "implied_prob", "sim_prob", "expected_value"];
+
     const X: number[][] = [];
     const y: number[] = [];
 
     for (const r of marketRecords) {
-      X.push([
+      const baseFeatures = [
         r.confidence / 100,
         1 / r.odds,
         (r.sim_probability ?? r.confidence) / 100,
         Math.max(-1, Math.min(2, r.expected_value)),
-      ]);
+      ];
+
+      if (hasAnalysisData && r.analysis_data) {
+        const ad = r.analysis_data;
+        baseFeatures.push(
+          (ad.homeAttack ?? 50) / 100,
+          (ad.awayAttack ?? 50) / 100,
+          (ad.homeDefense ?? 50) / 100,
+          (ad.awayDefense ?? 50) / 100,
+          (ad.homeForm ?? 50) / 100,
+          (ad.awayForm ?? 50) / 100,
+          (ad.homeXg ?? 1.2) / 3.0,   // Normalize: max ~3 gol
+          (ad.awayXg ?? 1.0) / 3.0,
+          (ad.h2hGoalAvg ?? 2.5) / 5.0,
+          ((ad.injuryImpact?.away ?? 0) - (ad.injuryImpact?.home ?? 0)) / 20,
+          ((ad.homeRestDays ?? 5) - (ad.awayRestDays ?? 5)) / 10,
+          ((ad.homeShotQuality ?? 0.4) - (ad.awayShotQuality ?? 0.4)),
+        );
+      } else if (hasAnalysisData) {
+        // analysis_data eksik olan kayıt — nötr değerler
+        baseFeatures.push(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.4, 0.33, 0.5, 0, 0, 0);
+      }
+
+      X.push(baseFeatures);
       y.push(r.result === "won" ? 1 : 0);
     }
 

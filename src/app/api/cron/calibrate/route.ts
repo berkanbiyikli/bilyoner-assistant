@@ -46,6 +46,7 @@ export async function GET(request: Request) {
           sim_probability: r.sim_probability || null,
           home_team: r.home_team,
           away_team: r.away_team,
+          analysis_data: r.analysis_data || null,
         }));
 
         const model = await autoTrainFromHistory(trainingData);

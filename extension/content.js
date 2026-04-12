@@ -122,6 +122,44 @@ const storageClear = () => new Promise(r => chrome.storage.local.remove(["ba_que
 // ============================================
 // BÜLTEN: Scroll yaparak maç ID'lerini topla
 // ============================================
+
+/** "Saat" tab'ına tıkla → tüm maçlar kronolojik sırayla gelir */
+async function clickSaatTab() {
+  const candidates = document.querySelectorAll("span, button, div, a, li");
+  for (const el of candidates) {
+    const t = (el.textContent || "").trim();
+    if (t === "Saat" && el.offsetParent !== null) {
+      el.click();
+      await sleep(800);
+      console.log("[BA] ✓ Saat tab'ı tıklandı");
+      return true;
+    }
+  }
+  console.log("[BA] ⚠ Saat tab'ı bulunamadı");
+  return false;
+}
+
+/** Sayfadaki scroll edilebilir inner container'ı bul */
+function findScrollContainer() {
+  // Bilyoner'in bülten listesi genelde overflow:auto olan bir div içinde
+  const candidates = document.querySelectorAll("div, section, main, ul");
+  let best = null;
+  let bestHeight = 0;
+  for (const el of candidates) {
+    if (el.scrollHeight > el.clientHeight + 100 && el.clientHeight > 300) {
+      const style = window.getComputedStyle(el);
+      if (style.overflow === "auto" || style.overflow === "scroll" ||
+          style.overflowY === "auto" || style.overflowY === "scroll") {
+        if (el.scrollHeight > bestHeight) {
+          bestHeight = el.scrollHeight;
+          best = el;
+        }
+      }
+    }
+  }
+  return best;
+}
+
 async function discoverMatchIds(predictions, onProgress) {
   const collected = [];
   const seen = new Set();
@@ -136,20 +174,20 @@ async function discoverMatchIds(predictions, onProgress) {
       if (seen.has(id)) continue;
       seen.add(id);
 
-      // Link text'ini temizle
+      // Link içindeki text'i temizle
       let text = (link.textContent || "").replace(/\s+/g, " ").trim();
-      text = text.replace(/\d+[.,]\d+/g, " ");   // Oranları sil: 1.81
-      text = text.replace(/\+\d+\s*Tümü/g, " "); // "+40 Tümü" sil
-      text = text.replace(/^\d{1,2}:\d{2}\s*/, ""); // Saat sil: "12:00"
-      text = text.replace(/^\d+\s*/, "");          // Baştaki sayı sil: "3"
-      text = text.trim();
+      text = text.replace(/\d+[.,]\d+/g, " ");    // Oranları sil
+      text = text.replace(/\+\d+\s*Tümü/g, " ");  // "+40 Tümü" sil
+      text = text.replace(/\b(MS|Alt|Üst|KG|ÇŞ|İY|Tümü|Canlı|Bugün|Yarın)\b/g, " "); // Bilyoner etiketlerini sil
+      text = text.replace(/^\d{1,2}:\d{2}\s*/, ""); // Saat sil
+      text = text.replace(/^\d+\s*/, "");            // Baştaki sayı sil
+      text = text.replace(/\s{2,}/g, " ").trim();
 
-      // "Ev - Dep" veya "Ev – Dep" formatı
       const parts = text.split(/\s*[-–]\s*/);
       if (parts.length >= 2) {
         const home = parts[0].trim();
         const away = parts.slice(1).join(" - ").trim();
-        if (home.length >= 2 && away.length >= 2) {
+        if (home.length >= 2 && away.length >= 2 && home.length <= 50 && away.length <= 50) {
           collected.push({ bilyonerId: id, homeTeam: home, awayTeam: away });
           added++;
         }
@@ -162,40 +200,56 @@ async function discoverMatchIds(predictions, onProgress) {
     return predictions.every(p => !!findBestMatch(collected, p.homeTeam, p.awayTeam));
   }
 
+  // "Saat" tab'ına tıkla — tüm maçları göster
+  await clickSaatTab();
+
   // İlk tarama
   scanDOM();
+  console.log(`[BA] İlk tarama: ${collected.length} maç | İlk 5:`, collected.slice(0,5).map(m => `${m.homeTeam}-${m.awayTeam}`));
   if (allPredictionsFound()) return collected;
 
-  // Scroll ile yükle
-  const maxMs = 25000;
+  // Hem window hem de inner container'ı scroll et
+  const scrollContainer = findScrollContainer();
+  console.log(`[BA] Scroll container: ${scrollContainer ? scrollContainer.tagName + " (h:" + scrollContainer.scrollHeight + ")" : "window"}`);
+
+  const maxMs = 30000;
   const start = Date.now();
   let noNewCount = 0;
 
   while (Date.now() - start < maxMs) {
-    const before = collected.length;
-    window.scrollBy(0, 1000);
-    await sleep(500);
+    // Her ikisini de scroll et
+    window.scrollBy(0, 800);
+    if (scrollContainer) scrollContainer.scrollBy(0, 800);
+    await sleep(400);
     const added = scanDOM();
 
     if (onProgress) onProgress(collected.length, seen.size);
 
     if (added === 0) {
       noNewCount++;
-      if (noNewCount >= 4) break;
+      if (noNewCount >= 6) break; // 6 kez yeni maç gelmezse dur
     } else {
       noNewCount = 0;
     }
 
-    if (allPredictionsFound()) break;
+    if (allPredictionsFound()) {
+      console.log("[BA] ✓ Tüm tahminler bulundu, tarama tamamlandı");
+      break;
+    }
 
-    const atBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 300);
-    if (atBottom && noNewCount >= 2) break;
+    // Sayfanın en altına geldik mi?
+    const winBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 200);
+    const contBottom = scrollContainer
+      ? scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 200
+      : true;
+    if (winBottom && contBottom && noNewCount >= 2) break;
   }
 
   window.scrollTo(0, 0);
+  if (scrollContainer) scrollContainer.scrollTo(0, 0);
   await sleep(200);
 
-  console.log(`[BA] Bülten tarama tamamlandı: ${collected.length} maç bulundu`);
+  console.log(`[BA] Tarama bitti: ${collected.length} maç | Tümü:`, collected.map(m => `${m.homeTeam}-${m.awayTeam}`));
   return collected;
 }
 

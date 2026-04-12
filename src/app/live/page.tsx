@@ -176,6 +176,72 @@ function getScenarioBadge(scenario?: ScenarioType): { icon: string; label: strin
   }
 }
 
+// Match time phase helper
+type TimePhase = "1h" | "ht" | "2h" | "ended" | "not_started";
+function getMatchTimePhase(match: EnrichedLiveMatch): TimePhase {
+  const statusShort = match.fixture.fixture.status.short;
+  if (statusShort === "HT") return "ht";
+  if (statusShort === "FT" || statusShort === "AET" || statusShort === "PEN") return "ended";
+  const elapsed = match.fixture.fixture.status.elapsed || 0;
+  if (elapsed <= 0) return "not_started";
+  if (elapsed <= 45) return "1h";
+  return "2h";
+}
+
+// Context-aware bet label: transforms generic bets to time-specific ones
+function getContextAwareBetLabel(
+  market: string,
+  elapsed: number,
+  homeGoals: number,
+  awayGoals: number,
+  htHome: number | null,
+  htAway: number | null
+): { label: string; isContextual: boolean; warning?: string } {
+  const totalGoals = homeGoals + awayGoals;
+  const isFirstHalf = elapsed <= 45;
+  const isSecondHalf = elapsed > 45;
+
+  // First half: full match over/under bets that are already met or meaningless
+  if (isFirstHalf) {
+    if (market === "Over 2.5" && totalGoals >= 3) {
+      return { label: "İY 2.5 Üst", isContextual: true, warning: "MS 2.5 Üst zaten tuttu" };
+    }
+    if (market === "Over 1.5" && totalGoals >= 2) {
+      return { label: "İY 1.5 Üst", isContextual: true, warning: "MS 1.5 Üst zaten tuttu" };
+    }
+    if (market === "Over 2.5" && totalGoals === 2 && elapsed <= 30) {
+      return { label: "İY 2.5 Üst", isContextual: true };
+    }
+    if (market === "Over 1.5" && totalGoals === 1 && elapsed <= 30) {
+      return { label: "İY 1.5 Üst", isContextual: true };
+    }
+  }
+  
+  // Second half: convert to second half specific bets
+  if (isSecondHalf && htHome != null && htAway != null) {
+    const secondHalfGoals = totalGoals - (htHome + htAway);
+    if (market === "Over 2.5" && totalGoals >= 3) {
+      return { label: "2Y 1.5 Üst", isContextual: true, warning: "MS 2.5 Üst zaten tuttu" };
+    }
+    if (market === "Over 1.5" && totalGoals >= 2) {
+      return { label: "2Y 0.5 Üst", isContextual: true, warning: "MS 1.5 Üst zaten tuttu" };
+    }
+    if (market === "Under 2.5" && totalGoals >= 2 && elapsed >= 75) {
+      return { label: market, isContextual: false, warning: "Riskli: 1 gol bozar" };
+    }
+  }
+
+  // Over bets that are already won
+  if (market === "Over 2.5" && totalGoals >= 3) {
+    return { label: market, isContextual: false, warning: "✅ Zaten tuttu" };
+  }
+  if (market === "Over 1.5" && totalGoals >= 2) {
+    return { label: market, isContextual: false, warning: "✅ Zaten tuttu" };
+  }
+
+  return { label: market, isContextual: false };
+}
+
 // Match tempo / speed calculation
 function calculateMatchTempo(match: EnrichedLiveMatch): { speed: number; label: string; color: string; emoji: string } {
   const elapsed = match.fixture.fixture.status.elapsed || 0;
@@ -274,7 +340,8 @@ export default function LivePage() {
   const [expandedMatch, setExpandedMatch] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<Record<number, string>>({});
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
-  const [filter, setFilter] = useState<"all" | "hot" | "fast" | "goals">("all");
+  const [filter, setFilter] = useState<"all" | "hot" | "fast" | "goals" | "1h" | "2h">("all");
+  const [mounted, setMounted] = useState(false);
 
   const fetchLive = useCallback(async () => {
     try {
@@ -290,6 +357,7 @@ export default function LivePage() {
   }, []);
 
   useEffect(() => {
+    setMounted(true);
     fetchLive();
     const interval = setInterval(fetchLive, 30000);
     return () => clearInterval(interval);
@@ -338,6 +406,16 @@ export default function LivePage() {
       filtered = filtered.filter(m => (matchTempos.get(m.fixture.fixture.id)?.speed ?? 0) >= 50);
     } else if (filter === "goals") {
       filtered = filtered.filter(m => ((m.fixture.goals.home ?? 0) + (m.fixture.goals.away ?? 0)) >= 2);
+    } else if (filter === "1h") {
+      filtered = filtered.filter(m => {
+        const phase = getMatchTimePhase(m);
+        return phase === "1h";
+      });
+    } else if (filter === "2h") {
+      filtered = filtered.filter(m => {
+        const phase = getMatchTimePhase(m);
+        return phase === "2h";
+      });
     }
     return filtered.sort((a, b) => {
       const aHot = a.analysis?.opportunities?.filter(o => o.level === "HOT").length || 0;
@@ -390,7 +468,7 @@ export default function LivePage() {
           <div>
             <h1 className="text-xl font-bold text-white">Canlı Maçlar</h1>
             <p className="text-[11px] text-zinc-500">
-              {matches.length} maç · {lastUpdate.toLocaleTimeString("tr-TR")} güncellendi
+              {matches.length} maç · {mounted ? lastUpdate.toLocaleTimeString("tr-TR") : "--:--:--"} güncellendi
             </p>
           </div>
         </div>
@@ -465,14 +543,32 @@ export default function LivePage() {
                   </p>
                   <div className="flex items-end justify-between">
                     <div className="space-y-1">
-                      <span className={cn(
-                        "inline-flex items-center gap-1.5 text-sm font-black px-3 py-1.5 rounded-lg",
-                        opportunity.level === "HOT"
-                          ? "bg-orange-500/25 text-orange-300 border border-orange-500/30"
-                          : "bg-amber-500/20 text-amber-300 border border-amber-500/25"
-                      )}>
-                        {opportunity.level === "HOT" ? "🔥" : "⚡"} {opportunity.market}
-                      </span>
+                      {(() => {
+                        const tpElapsed = match.fixture.fixture.status.elapsed || 0;
+                        const tpHome = match.fixture.goals.home ?? 0;
+                        const tpAway = match.fixture.goals.away ?? 0;
+                        const tpHtH = match.fixture.score.halftime.home;
+                        const tpHtA = match.fixture.score.halftime.away;
+                        const ctxBet = getContextAwareBetLabel(opportunity.market, tpElapsed, tpHome, tpAway, tpHtH ?? null, tpHtA ?? null);
+                        return (
+                          <>
+                            <span className={cn(
+                              "inline-flex items-center gap-1.5 text-sm font-black px-3 py-1.5 rounded-lg",
+                              opportunity.level === "HOT"
+                                ? "bg-orange-500/25 text-orange-300 border border-orange-500/30"
+                                : "bg-amber-500/20 text-amber-300 border border-amber-500/25"
+                            )}>
+                              {opportunity.level === "HOT" ? "🔥" : "⚡"} {ctxBet.isContextual ? ctxBet.label : opportunity.market}
+                            </span>
+                            {ctxBet.isContextual && (
+                              <div className="text-[9px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full inline-flex items-center gap-1 ml-1 font-medium">⏱ Süreye özel</div>
+                            )}
+                            {ctxBet.warning && (
+                              <div className="text-[9px] text-zinc-500 ml-1">{ctxBet.warning}</div>
+                            )}
+                          </>
+                        );
+                      })()}
                       {badge && (
                         <div className={cn("text-[9px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ml-1", badge.color)}>
                           {badge.icon} {badge.label}
@@ -501,6 +597,8 @@ export default function LivePage() {
       <div className="flex items-center gap-2 overflow-x-auto pb-1">
         {([
           { key: "all" as const, label: "Tümü", icon: "📺", count: matches.length },
+          { key: "1h" as const, label: "İlk Yarı (1-45')", icon: "🥇", count: matches.filter(m => getMatchTimePhase(m) === "1h").length },
+          { key: "2h" as const, label: "İkinci Yarı (46-90')", icon: "🥈", count: matches.filter(m => getMatchTimePhase(m) === "2h").length },
           { key: "hot" as const, label: "Fırsatlar", icon: "🔥", count: matches.filter(m => m.analysis?.opportunities?.some(o => o.level === "HOT" || o.level === "WARM")).length },
           { key: "fast" as const, label: "Hızlı Maçlar", icon: "⚡", count: matches.filter(m => (matchTempos.get(m.fixture.fixture.id)?.speed ?? 0) >= 50).length },
           { key: "goals" as const, label: "Gollü", icon: "⚽", count: matches.filter(m => ((m.fixture.goals.home ?? 0) + (m.fixture.goals.away ?? 0)) >= 2).length },
@@ -530,6 +628,25 @@ export default function LivePage() {
         </div>
       ) : filteredMatches.length > 0 ? (
         <div className="space-y-4">
+          {/* Time-phase context banner */}
+          {filter === "1h" && (
+            <div className="flex items-center gap-3 bg-gradient-to-r from-blue-500/10 to-transparent border border-blue-500/20 rounded-xl px-4 py-3">
+              <span className="text-lg">🥇</span>
+              <div>
+                <p className="text-sm font-bold text-blue-300">İlk Yarı Fırsatları (1-45&apos;)</p>
+                <p className="text-[11px] text-zinc-400">İY bahisleri en verimli dönem · İY Üst/Alt, İY Sonucu, İY KG Var</p>
+              </div>
+            </div>
+          )}
+          {filter === "2h" && (
+            <div className="flex items-center gap-3 bg-gradient-to-r from-purple-500/10 to-transparent border border-purple-500/20 rounded-xl px-4 py-3">
+              <span className="text-lg">🥈</span>
+              <div>
+                <p className="text-sm font-bold text-purple-300">İkinci Yarı Fırsatları (46-90&apos;)</p>
+                <p className="text-[11px] text-zinc-400">2Y bahisleri · Geç gol, 2Y Üst/Alt, Son dakika fırsatları</p>
+              </div>
+            </div>
+          )}
           {leagueGroups.map(([league, leagueMatches]) => (
             <div key={league} className="space-y-2">
               {/* League Header */}
@@ -590,8 +707,8 @@ export default function LivePage() {
                               <span className="text-[11px] font-bold text-red-400 tabular-nums">{elapsed}&apos;</span>
                             </div>
                           ) : (
-                            <span className="text-[10px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
-                              {new Date(match.fixture.fixture.date).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                            <span className="text-[10px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full" suppressHydrationWarning>
+                              {mounted ? new Date(match.fixture.fixture.date).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : "--:--"}
                             </span>
                           )}
                           {htHome != null && htAway != null && (
@@ -670,17 +787,28 @@ export default function LivePage() {
 
                       {/* Bottom: Bet recommendation + Stats */}
                       <div className="flex items-center gap-2 flex-wrap">
-                        {bestOpp ? (
-                          <div className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border",
-                            bestOpp.level === "HOT"
-                              ? "bg-orange-500/15 text-orange-300 border-orange-500/25"
-                              : "bg-amber-500/10 text-amber-300 border-amber-500/20"
-                          )}>
-                            {bestOpp.level === "HOT" ? "🔥" : "⚡"} {bestOpp.market}
-                            <span className="text-white/60 font-normal">%{bestOpp.confidence}</span>
-                          </div>
-                        ) : bestPick ? (
+                        {bestOpp ? (() => {
+                          const ctxBet = getContextAwareBetLabel(bestOpp.market, elapsed || 0, homeGoals, awayGoals, htHome ?? null, htAway ?? null);
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <div className={cn(
+                                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border",
+                                bestOpp.level === "HOT"
+                                  ? "bg-orange-500/15 text-orange-300 border-orange-500/25"
+                                  : "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                              )}>
+                                {bestOpp.level === "HOT" ? "🔥" : "⚡"} {ctxBet.isContextual ? ctxBet.label : bestOpp.market}
+                                <span className="text-white/60 font-normal">%{bestOpp.confidence}</span>
+                              </div>
+                              {ctxBet.warning && (
+                                <span className="text-[9px] text-zinc-500 bg-zinc-800/80 px-1.5 py-0.5 rounded-full">{ctxBet.warning}</span>
+                              )}
+                              {ctxBet.isContextual && (
+                                <span className="text-[9px] text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded-full font-medium">⏱ Süreye özel</span>
+                              )}
+                            </div>
+                          );
+                        })() : bestPick ? (
                           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[11px] font-bold">
                             📊 {bestPick.type}
                             <span className="text-white/60 font-normal">%{bestPick.confidence}</span>
@@ -749,7 +877,7 @@ export default function LivePage() {
                           ))}
                         </div>
                         <div className="p-4">
-                          {getTab(fid) === "analysis" && <OpportunitiesPanel analysis={analysis} />}
+                          {getTab(fid) === "analysis" && <OpportunitiesPanel analysis={analysis} match={match} />}
                           {getTab(fid) === "stats" && <StatsPanel stats={match.statistics} match={match.fixture} />}
                           {getTab(fid) === "events" && <EventsPanel events={match.events} />}
                           {getTab(fid) === "lineups" && <LineupsPanel lineups={match.lineups} />}
@@ -1016,7 +1144,7 @@ function LiveAnalysisPanel({ analysis, match, tempo }: { analysis: LiveMatchAnal
 // Opportunities Panel
 // ============================================
 
-function OpportunitiesPanel({ analysis }: { analysis: LiveMatchAnalysis | null }) {
+function OpportunitiesPanel({ analysis, match }: { analysis: LiveMatchAnalysis | null; match?: EnrichedLiveMatch }) {
   if (!analysis || analysis.opportunities.length === 0) {
     return (
       <div className="text-center py-8 text-zinc-500 text-sm">
@@ -1044,7 +1172,14 @@ function OpportunitiesPanel({ analysis }: { analysis: LiveMatchAnalysis | null }
       })()}
 
       <div className="space-y-2">
-        {analysis.opportunities.map((opp, i) => (
+        {analysis.opportunities.map((opp, i) => {
+          const oppElapsed = match?.fixture.fixture.status.elapsed || 0;
+          const oppHomeGoals = match?.fixture.goals.home ?? 0;
+          const oppAwayGoals = match?.fixture.goals.away ?? 0;
+          const oppHtH = match?.fixture.score.halftime.home ?? null;
+          const oppHtA = match?.fixture.score.halftime.away ?? null;
+          const ctxBet = getContextAwareBetLabel(opp.market, oppElapsed, oppHomeGoals, oppAwayGoals, oppHtH, oppHtA);
+          return (
           <div
             key={i}
             className={cn(
@@ -1062,8 +1197,14 @@ function OpportunitiesPanel({ analysis }: { analysis: LiveMatchAnalysis | null }
                   "text-sm font-black px-3 py-1.5 rounded-lg",
                   opp.level === "HOT" ? "bg-orange-500/25 text-orange-300 border border-orange-500/30" : "bg-zinc-700/50 text-zinc-200"
                 )}>
-                  {opp.level === "HOT" ? "🔥 " : "⚡ "}{opp.market}
+                  {opp.level === "HOT" ? "🔥 " : "⚡ "}{ctxBet.isContextual ? ctxBet.label : opp.market}
                 </span>
+                {ctxBet.isContextual && (
+                  <span className="text-[9px] text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded-full font-medium">⏱ Süreye özel</span>
+                )}
+                {ctxBet.warning && (
+                  <span className="text-[9px] text-zinc-500 bg-zinc-800/60 px-1.5 py-0.5 rounded-full">{ctxBet.warning}</span>
+                )}
                 <span className="text-[10px] text-zinc-500 flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   {opp.timeWindow}
@@ -1086,7 +1227,8 @@ function OpportunitiesPanel({ analysis }: { analysis: LiveMatchAnalysis | null }
             <p className="text-sm text-white font-medium">{opp.message}</p>
             <p className="text-[11px] text-zinc-500 leading-relaxed">{opp.reasoning}</p>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

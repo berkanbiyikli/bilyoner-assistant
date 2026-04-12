@@ -18,11 +18,13 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
     const forceRegenerate = searchParams.get("force") === "true";
+    const allLeagues = searchParams.get("allLeagues") === "true";
+    const batchSize = parseInt(searchParams.get("batch") || "10", 10);
     const allFixtures = await getFixturesByDate(date);
 
-    // Sadece desteklenen liglerdeki NS (başlamamış) maçları filtrele
+    // NS (başlamamış) maçları filtrele — allLeagues=true ise lig filtresi yok
     const nsFixtures = allFixtures.filter(
-      (f) => f.fixture.status.short === "NS" && LEAGUE_IDS.includes(f.league.id)
+      (f) => f.fixture.status.short === "NS" && (allLeagues || LEAGUE_IDS.includes(f.league.id))
     );
 
     const apiUsage = getApiUsage();
@@ -63,8 +65,8 @@ export async function GET(req: NextRequest) {
       return 0;
     });
 
-    // Batch: max 10 maç per cron run — Vercel 60s timeout
-    const fixtures = sortedFixtures.slice(0, 10);
+    // Batch: default 10 (Vercel 60s timeout), ?batch=N ile özelleştirilebilir
+    const fixtures = sortedFixtures.slice(0, batchSize);
     console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${nsFixtures.length} NS, ${newFixtures.length} yeni, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {

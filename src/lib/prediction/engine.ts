@@ -27,7 +27,8 @@ import type {
   KeyMissingPlayer,
   DataQualityScore,
 } from "@/types";
-import { getPrediction, getH2H, getOdds, getInjuries, getTeamStatistics, getCurrentSeason } from "@/lib/api-football";
+import { getPrediction, getH2H, getOdds, getInjuries, getTeamStatistics, getCurrentSeason, getTeamRecentFixtures, getTeamRecentShotStats } from "@/lib/api-football";
+import type { TeamShotStats } from "@/lib/api-football";
 import { getCached, setCache } from "@/lib/cache";
 import { simulateMatch, getSimProbability } from "@/lib/prediction/simulator";
 import { getRefereeProfile } from "@/lib/prediction/referees";
@@ -59,9 +60,9 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
   if (cached) return cached;
 
   // Paralel veri çekimi (tüm kaynaklardan)
-  const [prediction, h2h, odds, injuries, importance, homeTeamStats, awayTeamStats, leagueRealStats] = await Promise.all([
+  const [prediction, h2h, odds, injuries, importance, homeTeamStats, awayTeamStats, leagueRealStats, homeShotStats, awayShotStats, homeRecentFixtures, awayRecentFixtures] = await Promise.all([
     getPrediction(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Prediction API hatası — null`); return null; }),
-    getH2H(homeId, awayId, 10).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: H2H API hatası — boş dizi`); return []; }),
+    getH2H(homeId, awayId, 25).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: H2H API hatası — boş dizi`); return []; }),
     getOdds(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Odds API hatası — null`); return null; }),
     getInjuries(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Injuries API hatası — boş dizi`); return []; }),
     calculateMatchImportance(fixture.league.id, homeId, awayId).catch(() => ({
@@ -74,14 +75,25 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
     getTeamStatistics(homeId, fixture.league.id, getCurrentSeason()).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home team stats hatası`); return null; }),
     getTeamStatistics(awayId, fixture.league.id, getCurrentSeason()).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away team stats hatası`); return null; }),
     getLeagueRealStats(fixture.league.id).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: League real stats hatası`); return null; }),
+    // === YENİ: Şut istatistikleri (SoT bazlı xG için) ===
+    getTeamRecentShotStats(homeId, 5).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home shot stats hatası`); return null; }),
+    getTeamRecentShotStats(awayId, 5).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away shot stats hatası`); return null; }),
+    // === YENİ: Son maç tarihi (dinlenme günü hesabı için) ===
+    getTeamRecentFixtures(homeId, 1).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home recent fixtures hatası`); return []; }),
+    getTeamRecentFixtures(awayId, 1).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away recent fixtures hatası`); return []; }),
   ]);
 
   // Analizleri oluştur
   const keyMissingPlayers = analyzeInjuries(injuries, homeId, awayId);
   const injuryImpact = calculateInjuryImpact(keyMissingPlayers);
   const goalTiming = extractGoalTiming(prediction);
-  const xgData = extractXgData(prediction, homeTeamStats, awayTeamStats);
+  const xgData = extractXgData(prediction, homeTeamStats, awayTeamStats, homeShotStats, awayShotStats);
   const similarity = findSimilarMatch(prediction, h2h);
+
+  // === YENİ: Dinlenme Günü Hesabı ===
+  const matchDate = new Date(fixture.fixture.date);
+  const homeRestDays = calculateRestDays(homeRecentFixtures, matchDate);
+  const awayRestDays = calculateRestDays(awayRecentFixtures, matchDate);
 
   // Hakem profili (async — Supabase'ten gerçek veri)
   const refereeProfile = await getRefereeProfile(fixture.fixture.referee);
@@ -114,6 +126,10 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
     homeFormAnalysis,
     awayFormAnalysis,
     h2hElo,
+    homeRestDays,
+    awayRestDays,
+    homeShotStats,
+    awayShotStats,
   }, refereeProfile);
 
   const matchOdds = extractOdds(odds);
@@ -189,6 +205,25 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
 
   setCache(cacheKey, result, CACHE_TTL);
   return result;
+}
+
+// ============================================
+// Dinlenme Günü Hesabı
+// ============================================
+
+function calculateRestDays(recentFixtures: FixtureResponse[], matchDate: Date): number | undefined {
+  if (!recentFixtures || recentFixtures.length === 0) return undefined;
+
+  const lastFixture = recentFixtures[0];
+  if (!lastFixture?.fixture?.date) return undefined;
+
+  const lastMatchDate = new Date(lastFixture.fixture.date);
+  const diffMs = matchDate.getTime() - lastMatchDate.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0 || diffDays > 30) return undefined; // Geçersiz
+  console.log(`[REST] Rest days: ${diffDays} (last match: ${lastMatchDate.toISOString().split("T")[0]})`);
+  return diffDays;
 }
 
 // ============================================
@@ -760,10 +795,12 @@ function calculateDataQuality(
 
   // 3. H2H Data
   let h2hData = 0;
-  if (h2h.length >= 5) h2hData = 100;
-  else if (h2h.length >= 3) h2hData = 70;
-  else if (h2h.length >= 2) { h2hData = 40; warnings.push("H2H sadece 2 maç — güvenilirlik düşük"); }
-  else if (h2h.length === 1) { h2hData = 15; warnings.push("H2H sadece 1 maç — çok yetersiz"); }
+  if (h2h.length >= 15) h2hData = 100;
+  else if (h2h.length >= 10) h2hData = 85;
+  else if (h2h.length >= 5) h2hData = 70;
+  else if (h2h.length >= 3) h2hData = 50;
+  else if (h2h.length >= 2) { h2hData = 30; warnings.push("H2H sadece 2 maç — güvenilirlik düşük"); }
+  else if (h2h.length === 1) { h2hData = 10; warnings.push("H2H sadece 1 maç — çok yetersiz"); }
   else warnings.push("H2H verisi yok");
 
   // 4. Odds Data
@@ -867,6 +904,10 @@ interface AdvancedData {
   homeFormAnalysis?: FormAnalysis;
   awayFormAnalysis?: FormAnalysis;
   h2hElo?: { relativeAdvantage: number; confidence: number };
+  homeRestDays?: number;
+  awayRestDays?: number;
+  homeShotStats?: TeamShotStats | null;
+  awayShotStats?: TeamShotStats | null;
 }
 
 function buildAnalysis(

@@ -261,6 +261,114 @@ export async function getFixtureEvents(fixtureId: number): Promise<FixtureEvent[
   return data.response;
 }
 
+// ---- Team Recent Fixtures (Son maçlar — şut/xG hesaplamak için) ----
+
+export async function getTeamRecentFixtures(
+  teamId: number,
+  last: number = 5
+): Promise<FixtureResponse[]> {
+  const data = await apiFetch<FixtureResponse>(
+    "/fixtures",
+    { team: teamId, last, status: "FT" },
+    { revalidate: 3600, cacheTtl: 86400 } // 24 saat cache
+  );
+  return data.response;
+}
+
+// ---- Team Recent Shot Stats Aggregation ----
+
+export interface TeamShotStats {
+  avgShotsOnGoal: number;
+  avgTotalShots: number;
+  avgShotsInsideBox: number;
+  avgShotsOutsideBox: number;
+  avgPossession: number;
+  avgPassAccuracy: number;
+  avgGoalkeeperSaves: number; // Rakibin kaleci kurtarışı (SoT proxy'si)
+  matchesAnalyzed: number;
+}
+
+/**
+ * Takımın son N maçındaki şut/topa sahip olma istatistiklerini hesapla.
+ * Her maçın fixture/statistics verisinden aggregate eder.
+ * 24 saat cache — sezon boyunca yeterli.
+ */
+export async function getTeamRecentShotStats(
+  teamId: number,
+  last: number = 5
+): Promise<TeamShotStats | null> {
+  const cacheKey = `team-shot-stats:${teamId}:${last}`;
+  const cached = getCached<TeamShotStats>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const recentFixtures = await getTeamRecentFixtures(teamId, last);
+    if (recentFixtures.length === 0) return null;
+
+    let totalShotsOnGoal = 0;
+    let totalShots = 0;
+    let totalShotsInsideBox = 0;
+    let totalShotsOutsideBox = 0;
+    let totalPossession = 0;
+    let totalPassAccuracy = 0;
+    let totalGKSaves = 0;
+    let validMatches = 0;
+
+    for (const fixture of recentFixtures.slice(0, last)) {
+      try {
+        const stats = await getFixtureStatistics(fixture.fixture.id);
+        if (!stats || stats.length === 0) continue;
+
+        // Bu takımın istatistiklerini bul
+        const teamStats = stats.find(s => s.team.id === teamId);
+        const opponentStats = stats.find(s => s.team.id !== teamId);
+        if (!teamStats) continue;
+
+        const getStat = (statistics: typeof teamStats.statistics, type: string): number => {
+          const stat = statistics.find(s => s.type === type);
+          if (!stat || stat.value == null) return 0;
+          const val = typeof stat.value === "string" ? parseFloat(stat.value.replace("%", "")) : stat.value;
+          return isNaN(val) ? 0 : val;
+        };
+
+        totalShotsOnGoal += getStat(teamStats.statistics, "Shots on Goal");
+        totalShots += getStat(teamStats.statistics, "Total Shots");
+        totalShotsInsideBox += getStat(teamStats.statistics, "Shots insidebox");
+        totalShotsOutsideBox += getStat(teamStats.statistics, "Shots outsidebox");
+        totalPossession += getStat(teamStats.statistics, "Ball Possession");
+        totalPassAccuracy += getStat(teamStats.statistics, "Passes %");
+        if (opponentStats) {
+          totalGKSaves += getStat(opponentStats.statistics, "Goalkeeper Saves");
+        }
+        validMatches++;
+      } catch {
+        // Fixture stats alınamazsa atla
+        continue;
+      }
+    }
+
+    if (validMatches === 0) return null;
+
+    const result: TeamShotStats = {
+      avgShotsOnGoal: Math.round((totalShotsOnGoal / validMatches) * 100) / 100,
+      avgTotalShots: Math.round((totalShots / validMatches) * 100) / 100,
+      avgShotsInsideBox: Math.round((totalShotsInsideBox / validMatches) * 100) / 100,
+      avgShotsOutsideBox: Math.round((totalShotsOutsideBox / validMatches) * 100) / 100,
+      avgPossession: Math.round((totalPossession / validMatches) * 100) / 100,
+      avgPassAccuracy: Math.round((totalPassAccuracy / validMatches) * 100) / 100,
+      avgGoalkeeperSaves: Math.round((totalGKSaves / validMatches) * 100) / 100,
+      matchesAnalyzed: validMatches,
+    };
+
+    setCache(cacheKey, result, 86400); // 24 saat
+    console.log(`[SHOT-STATS] Team ${teamId}: SoG=${result.avgShotsOnGoal}, Shots=${result.avgTotalShots}, InsideBox=${result.avgShotsInsideBox}, Poss=${result.avgPossession}% (${validMatches} matches)`);
+    return result;
+  } catch (error) {
+    console.warn(`[SHOT-STATS] Team ${teamId} shot stats alınamadı:`, error);
+    return null;
+  }
+}
+
 // ---- Season ----
 
 export function getCurrentSeason(): number {

@@ -66,13 +66,17 @@ export function MatchCard({ prediction }: MatchCardProps) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {prediction.league.flag && (
-              <Image
-                src={prediction.league.flag}
-                alt={prediction.league.country}
-                width={14}
-                height={10}
-                className="h-2.5 w-3.5 object-cover rounded-[1px]"
-              />
+              prediction.league.flag.startsWith('http') ? (
+                <Image
+                  src={prediction.league.flag}
+                  alt={prediction.league.country}
+                  width={14}
+                  height={10}
+                  className="h-2.5 w-3.5 object-cover rounded-[1px]"
+                />
+              ) : (
+                <span className="text-sm">{prediction.league.flag}</span>
+              )
             )}
             <span>{prediction.league.name}</span>
             <span>•</span>

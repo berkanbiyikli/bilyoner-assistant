@@ -435,7 +435,11 @@ export function LeagueFilter({ predictions }: LeagueFilterProps) {
                 {league.logo ? (
                   <Image src={league.logo} alt={league.name} width={14} height={10} className="h-2.5 w-3.5 object-cover rounded-[1px]" />
                 ) : league.flag ? (
-                  <Image src={league.flag} alt={league.country} width={14} height={10} className="h-2.5 w-3.5 object-cover rounded-[1px]" />
+                  league.flag.startsWith('http') ? (
+                    <Image src={league.flag} alt={league.country} width={14} height={10} className="h-2.5 w-3.5 object-cover rounded-[1px]" />
+                  ) : (
+                    <span className="text-sm">{league.flag}</span>
+                  )
                 ) : null}
                 <span className="text-[11px] font-medium text-primary">{league.name}</span>
                 <button

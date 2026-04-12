@@ -294,13 +294,17 @@ function TimeSlotCard({
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   {pick.leagueFlag && (
-                    <Image
-                      src={pick.leagueFlag}
-                      alt=""
-                      width={12}
-                      height={9}
-                      className="h-2 w-3 object-cover rounded-[1px] shrink-0"
-                    />
+                    pick.leagueFlag.startsWith('http') ? (
+                      <Image
+                        src={pick.leagueFlag}
+                        alt=""
+                        width={12}
+                        height={9}
+                        className="h-2 w-3 object-cover rounded-[1px] shrink-0"
+                      />
+                    ) : (
+                      <span className="text-[10px]">{pick.leagueFlag}</span>
+                    )
                   )}
                   <span className="text-[10px] text-zinc-500 truncate">{pick.league}</span>
                 </div>

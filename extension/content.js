@@ -316,21 +316,28 @@ async function fetchOddsHTML(matchId) {
     const url = `https://www.bilyoner.com/mac-karti/futbol/${matchId}/oranlar/1`;
     const resp = await fetch(url, { credentials: "include" });
     if (!resp.ok) return "";
-    const html = await resp.text();
-    console.log(`[BA] Oran HTML'i alındı: ${html.length} karakter`);
-    return html;
+    const rawHtml = await resp.text();
+    // DOMParser ile HTML entity decode + düz metin çıkar
+    // (Ham HTML'de Türkçe harfler &Ccedil; gibi entity olabilir)
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(rawHtml, "text/html");
+    const text = doc.body?.textContent || rawHtml;
+    console.log(`[BA] Oran metni alındı: ${text.length} karakter. Örnek:`, text.slice(500, 700));
+    return text;
   } catch (e) {
     console.warn("[BA] fetchOddsHTML hata:", e.message);
     return "";
   }
 }
 
-/** Bir pick'in hedef etiketleri fetch'lenen HTML'de var mı? */
-function isPickAvailableInHtml(html, pick) {
-  if (!html) return true; // fetch başarısızsa yine dene
+/** Bir pick'in hedef etiketleri fetch'lenen metinde var mı? */
+function isPickAvailableInHtml(text, pick) {
+  if (!text) return true; // fetch başarısızsa yine dene
   const targets = PICK_TO_BILYONER[pick];
   if (!targets) return false;
-  return targets.some(t => html.includes(t));
+  const found = targets.some(t => text.includes(t));
+  if (!found) console.log(`[BA] 📋 Fetch metni "${targets[0]}" içermiyor → pick mevcut değil`);
+  return found;
 }
 
 // ============================================

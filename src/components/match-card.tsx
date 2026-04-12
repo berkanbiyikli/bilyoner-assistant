@@ -10,8 +10,11 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
+  Bot,
+  Loader2,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import type { AIAnalysis } from "@/types";
 import Image from "next/image";
 import { ConfidenceGauge } from "@/components/confidence-gauge";
 import {
@@ -30,7 +33,47 @@ interface MatchCardProps {
 
 export function MatchCard({ prediction }: MatchCardProps) {
   const [detailOpen, setDetailOpen] = useState(false);
+  const [aiResult, setAiResult] = useState<AIAnalysis | null>(prediction.aiAnalysis || null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const { activeCoupon, addToCoupon } = useAppStore();
+
+  const fetchAI = useCallback(async () => {
+    if (aiLoading) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const bestPick = prediction.picks[0];
+      const res = await fetch(`/api/match/${prediction.fixtureId}/ai`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          analysis: prediction.analysis,
+          odds: prediction.odds,
+          homeTeam: prediction.homeTeam.name,
+          awayTeam: prediction.awayTeam.name,
+          league: prediction.league.name,
+          kickoff: prediction.kickoff,
+          topPick: bestPick ? {
+            type: bestPick.type,
+            confidence: bestPick.confidence,
+            odds: bestPick.odds,
+            ev: bestPick.expectedValue,
+          } : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.aiAnalysis) {
+        setAiResult(data.aiAnalysis);
+      } else {
+        setAiError(data.error || "AI analiz başarısız");
+      }
+    } catch {
+      setAiError("AI bağlantı hatası");
+    } finally {
+      setAiLoading(false);
+    }
+  }, [prediction, aiLoading]);
 
   const isInCoupon = (fixtureId: number, pickType: string) =>
     activeCoupon.some(
@@ -123,21 +166,45 @@ export function MatchCard({ prediction }: MatchCardProps) {
         </div>
 
         {/* Best Pick Reasoning / AI Headline */}
-        {prediction.aiAnalysis ? (
+        {aiResult ? (
           <div className="mt-2 space-y-1">
             <p className="text-[11px] text-zinc-300 line-clamp-1 font-medium">
               <Sparkles className="inline h-3 w-3 text-amber-400 mr-1" />
-              {prediction.aiAnalysis.headline}
+              {aiResult.headline}
             </p>
             <p className="text-[10px] text-indigo-400/90 line-clamp-1">
-              💡 {prediction.aiAnalysis.recommendation}
+              💡 {aiResult.recommendation}
             </p>
           </div>
-        ) : bestPick && (
-          <p className="text-[11px] text-muted-foreground mt-2 line-clamp-1">
-            <Sparkles className="inline h-3 w-3 text-primary mr-1" />
-            {bestPick.reasoning}
-          </p>
+        ) : (
+          <div className="mt-2 flex items-center gap-2">
+            {bestPick && (
+              <p className="text-[11px] text-muted-foreground line-clamp-1 flex-1 min-w-0">
+                <Sparkles className="inline h-3 w-3 text-primary mr-1" />
+                {bestPick.reasoning}
+              </p>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); fetchAI(); }}
+              disabled={aiLoading}
+              className={cn(
+                "shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-all border",
+                aiLoading
+                  ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400 cursor-wait"
+                  : aiError
+                    ? "border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                    : "border-indigo-500/30 bg-indigo-500/5 text-indigo-400 hover:bg-indigo-500/15 hover:border-indigo-500/50"
+              )}
+            >
+              {aiLoading ? (
+                <><Loader2 className="h-3 w-3 animate-spin" /> Analiz...</>
+              ) : aiError ? (
+                <><Bot className="h-3 w-3" /> Tekrar Dene</>
+              ) : (
+                <><Bot className="h-3 w-3" /> AI Analiz</>
+              )}
+            </button>
+          </div>
         )}
       </div>
 
@@ -315,15 +382,15 @@ export function MatchCard({ prediction }: MatchCardProps) {
             {insights && <InsightsList notes={insights.notes} />}
 
             {/* AI Analiz Detayları */}
-            {prediction.aiAnalysis && (
+            {aiResult ? (
               <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 space-y-2">
                 <div className="flex items-center gap-1.5 mb-2">
                   <Sparkles className="h-3.5 w-3.5 text-amber-400" />
                   <span className="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider">AI Analizi</span>
                 </div>
-                <p className="text-[11px] text-zinc-300 font-medium">{prediction.aiAnalysis.headline}</p>
+                <p className="text-[11px] text-zinc-300 font-medium">{aiResult.headline}</p>
                 <ul className="space-y-1">
-                  {prediction.aiAnalysis.keyFactors.map((f, i) => (
+                  {aiResult.keyFactors.map((f, i) => (
                     <li key={i} className="text-[10px] text-zinc-400 flex items-start gap-1.5">
                       <span className="text-indigo-400 mt-0.5 shrink-0">•</span>
                       {f}
@@ -332,17 +399,38 @@ export function MatchCard({ prediction }: MatchCardProps) {
                 </ul>
                 <div className="rounded-md bg-indigo-500/10 px-2.5 py-1.5 mt-1">
                   <p className="text-[11px] text-indigo-300 font-medium">
-                    💡 {prediction.aiAnalysis.recommendation}
+                    💡 {aiResult.recommendation}
                   </p>
                 </div>
-                {prediction.aiAnalysis.riskWarning && (
+                {aiResult.riskWarning && (
                   <div className="rounded-md bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1.5">
                     <p className="text-[10px] text-yellow-400">
-                      ⚠️ {prediction.aiAnalysis.riskWarning}
+                      ⚠️ {aiResult.riskWarning}
                     </p>
                   </div>
                 )}
               </div>
+            ) : (
+              <button
+                onClick={fetchAI}
+                disabled={aiLoading}
+                className={cn(
+                  "w-full rounded-lg border p-3 transition-all flex items-center justify-center gap-2 text-xs font-medium",
+                  aiLoading
+                    ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400 cursor-wait"
+                    : aiError
+                      ? "border-red-500/30 bg-red-500/5 text-red-400 hover:bg-red-500/10"
+                      : "border-indigo-500/20 bg-indigo-500/5 text-indigo-400 hover:bg-indigo-500/10 hover:border-indigo-500/40"
+                )}
+              >
+                {aiLoading ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> AI Analiz Ediliyor...</>
+                ) : aiError ? (
+                  <><Bot className="h-4 w-4" /> {aiError} — Tekrar Dene</>
+                ) : (
+                  <><Bot className="h-4 w-4" /> 🤖 AI ile Analiz Et</>
+                )}
+              </button>
             )}
 
             {/* Analiz Özeti */}

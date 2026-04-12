@@ -166,6 +166,8 @@ export interface MatchAnalysis {
   awaySotPerGame?: number;
   homeShotQuality?: number; // insideBox / totalShots ratio
   awayShotQuality?: number;
+  // ML model olasılıkları (Logistic Regression)
+  mlProbabilities?: Record<string, number>; // { "1": 45.2, "Over 2.5": 62.1, ... }
 }
 
 export interface GoalTimingData {

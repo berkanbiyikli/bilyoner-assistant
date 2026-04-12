@@ -270,6 +270,37 @@ export function MatchCard({ prediction }: MatchCardProps) {
               </div>
             )}
 
+            {/* ML Model Tahminleri */}
+            {analysis.mlProbabilities && Object.keys(analysis.mlProbabilities).length > 0 && (
+              <div className="rounded-lg bg-purple-500/5 border border-purple-500/20 p-3">
+                <p className="text-[11px] font-semibold text-purple-400 uppercase tracking-wider mb-2">
+                  🤖 ML Model (Logistic Regression)
+                </p>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  {Object.entries(analysis.mlProbabilities)
+                    .filter(([key]) => ["1", "X", "2", "Over 2.5", "Under 2.5", "BTTS Yes", "BTTS No", "Over 1.5"].includes(key))
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 8)
+                    .map(([key, val]) => {
+                      const shortLabels: Record<string, string> = {
+                        "Over 2.5": "Ü2.5", "Under 2.5": "A2.5",
+                        "Over 1.5": "Ü1.5", "Under 1.5": "A1.5",
+                        "Over 3.5": "Ü3.5", "Under 3.5": "A3.5",
+                        "BTTS Yes": "KG", "BTTS No": "KG Yok",
+                      };
+                      return (
+                        <div key={key} className="rounded bg-purple-500/10 px-1.5 py-1">
+                          <p className="text-[10px] text-purple-300/70">{shortLabels[key] || key}</p>
+                          <p className={cn("text-xs font-bold", val >= 60 ? "text-purple-300" : val >= 45 ? "text-purple-400" : "text-purple-500")}>
+                            %{val.toFixed(1)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
             {/* Hakem Profili */}
             <RefereeCard analysis={analysis} />
 

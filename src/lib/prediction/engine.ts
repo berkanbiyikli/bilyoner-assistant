@@ -1428,6 +1428,10 @@ async function generatePicks(
       const prob = await getMLProbability(mlFeatures, pick);
       if (prob !== undefined) mlProbCache.set(pick, prob);
     }
+    // ML olasılıklarını analysis'e kaydet (UI'da gösterilecek)
+    if (mlProbCache.size > 0) {
+      analysis.mlProbabilities = Object.fromEntries(mlProbCache);
+    }
   }
 
   // Hibrit confidence hesaplama: self-calibrating ağırlıklar + ML blend

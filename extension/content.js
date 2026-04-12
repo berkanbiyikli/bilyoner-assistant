@@ -54,7 +54,7 @@ const PICK_TO_BILYONER = {
   "X2":         ["ÇŞ X-2", "X-2"],
   "12":         ["ÇŞ 1-2", "1-2"],
 
-  // İlk Yarı
+  // İlk Yarı Gol
   "HT Over 0.5":   ["İY 0,5 Üst"],
   "HT Under 0.5":  ["İY 0,5 Alt"],
   "HT Over 1.5":   ["İY 1,5 Üst"],
@@ -62,12 +62,101 @@ const PICK_TO_BILYONER = {
   "HT BTTS Yes":   ["İY KG Var"],
   "HT BTTS No":    ["İY KG Yok"],
 
+  // İlk Yarı / Maç Sonucu (İY/MS) — 9 sonuç
+  "1/1":  ["1-1", "1/1", "İY 1 MS 1"],
+  "1/X":  ["1-0", "1/X", "1-X", "İY 1 MS X"],
+  "1/2":  ["1-2", "1/2", "İY 1 MS 2"],
+  "X/1":  ["0-1", "X/1", "X-1", "İY X MS 1"],
+  "X/X":  ["0-0", "X/X", "X-X", "İY X MS X"],
+  "X/2":  ["0-2", "X/2", "X-2", "İY X MS 2"],
+  "2/1":  ["2-1", "2/1", "İY 2 MS 1"],
+  "2/X":  ["2-0", "2/X", "2-X", "İY 2 MS X"],
+  "2/2":  ["2-2", "2/2", "İY 2 MS 2"],
+
   // Kombine
   "1 & Over 1.5":  ["MS 1 ve 1,5 Üst"],
   "2 & Over 1.5":  ["MS 2 ve 1,5 Üst"],
   "1 & Over 2.5":  ["MS 1 ve 2,5 Üst"],
   "2 & Over 2.5":  ["MS 2 ve 2,5 Üst"],
+
+  // Korner
+  "Over 8.5 Corners":   ["8,5 Üst", "Korner 8,5 Üst"],
+  "Under 8.5 Corners":  ["8,5 Alt", "Korner 8,5 Alt"],
+
+  // Kart
+  "Over 3.5 Cards":   ["3,5 Üst", "Kart 3,5 Üst"],
+  "Under 3.5 Cards":  ["3,5 Alt", "Kart 3,5 Alt"],
 };
+
+// ============================================
+// Bilyoner bülten sayfa sekmeleri
+// Her pick tipi hangi sekmede gösterilir?
+// Bülten sekmeleri: MS/2,5 | 1,5/3,5 | ÇŞ/KG | İY0,5/İY1,5 | Korner | İY | TG
+// ============================================
+const TAB_FOR_PICK = {
+  // Tab 0: MS / 2,5 (varsayılan)
+  "1": 0, "X": 0, "2": 0, "Home Win": 0, "Draw": 0, "Away Win": 0,
+  "Over 2.5": 0, "Under 2.5": 0,
+  // Tab 1: 1,5 / 3,5
+  "Over 1.5": 1, "Under 1.5": 1, "Over 3.5": 1, "Under 3.5": 1,
+  // Tab 2: ÇŞ / KG
+  "1X": 2, "X2": 2, "12": 2, "BTTS Yes": 2, "BTTS No": 2,
+  // Tab 3: İY 0,5 / İY 1,5
+  "HT Over 0.5": 3, "HT Under 0.5": 3, "HT Over 1.5": 3, "HT Under 1.5": 3,
+  "HT BTTS Yes": 3, "HT BTTS No": 3,
+  // Tab 4: Korner
+  "Over 8.5 Corners": 4, "Under 8.5 Corners": 4,
+  // Tab 5: İY (İY/MS)
+  "1/1": 5, "1/X": 5, "1/2": 5,
+  "X/1": 5, "X/X": 5, "X/2": 5,
+  "2/1": 5, "2/X": 5, "2/2": 5,
+  // Tab 6: TG
+  "Over 3.5 Cards": 6, "Under 3.5 Cards": 6,
+};
+
+// Aktif bülten sekmesini değiştir
+let currentTabIndex = 0;
+async function switchBultenTab(tabIndex) {
+  if (tabIndex === currentTabIndex) return true;
+
+  // Sekme header elementlerini bul
+  // Bilyoner bülten sekmeleri: metin içeren tıklanabilir elementler
+  const tabTexts = ["MS", "1,5", "ÇŞ", "İY 0,5", "Korner", "İY", "TG"];
+  const targetText = tabTexts[tabIndex];
+  if (!targetText) return false;
+
+  // Sekme header'larını tara
+  const allClickables = document.querySelectorAll(
+    'div[class*="tab"], button[class*="tab"], span[class*="tab"], ' +
+    'div[class*="column"], div[class*="header"], div[class*="market"], ' +
+    'li, a, button, span'
+  );
+
+  let tabElement = null;
+  for (const el of allClickables) {
+    const text = (el.textContent || "").trim();
+    // Tam eşleşme veya başlangıçta eşleşme (örn: "İY" ama "İY 0,5" ile karışmasın)
+    if (tabIndex === 5 && text === "İY") {
+      tabElement = el;
+      break;
+    }
+    if (tabIndex !== 5 && text.includes(targetText) && text.length < 30) {
+      tabElement = el;
+      break;
+    }
+  }
+
+  if (!tabElement) {
+    console.warn(`[BA] Bülten sekmesi bulunamadı: ${targetText} (index ${tabIndex})`);
+    return false;
+  }
+
+  tabElement.click();
+  currentTabIndex = tabIndex;
+  await sleep(600); // DOM güncellenmesini bekle
+  console.log(`[BA] Bülten sekmesi değiştirildi: ${targetText}`);
+  return true;
+}
 
 /**
  * Takım ismi normalize — Türkçe karakter, prefix temizleme, fuzzy matching
@@ -292,18 +381,29 @@ async function addBetToCoupon(prediction) {
   // 2. Oran butonunu bul
   const button = findOddsButton(container, pick);
   if (!button) {
-    // Ana sayfadaki bülten görünümünde market gösterilmiyor olabilir
-    // +N Tümü butonuna tıklamayı dene
+    // "+N Tümü" butonuna tıklamayı dene — mac-karti sayfasına gider
+    const expandLink = container.querySelector('a[href*="/mac-karti/"]');
     const expandBtn = container.querySelector('[class*="more"], [class*="all"]');
-    if (expandBtn) {
+    
+    if (expandBtn && !expandBtn.getAttribute("href")) {
+      // Inline expand butonu — tıkla ve tekrar dene
       expandBtn.click();
       await sleep(800);
-      // Tekrar dene
       const retryBtn = findOddsButton(container, pick);
       if (retryBtn) {
         retryBtn.click();
         console.log(`[BA] Kupona eklendi (expand sonrası): ${homeTeam} vs ${awayTeam} → ${pick}`);
         return { success: true };
+      }
+    }
+
+    // Mac-karti sayfasına git ve orada dene
+    if (expandLink) {
+      const macKartiUrl = expandLink.getAttribute("href");
+      if (macKartiUrl) {
+        console.log(`[BA] Mac-karti sayfasına gidiliyor: ${macKartiUrl}`);
+        const result = await tryMacKartiPage(macKartiUrl, pick, homeTeam, awayTeam);
+        if (result.success) return result;
       }
     }
 
@@ -321,30 +421,141 @@ async function addBetToCoupon(prediction) {
 }
 
 /**
+ * Mac-karti detail sayfasında butonu bulmayı dene
+ * Yeni sekme açar, butonu tıklar, sekmeyi kapatır
+ */
+async function tryMacKartiPage(url, pick, homeTeam, awayTeam) {
+  return new Promise((resolve) => {
+    // Mac-karti sayfasını yeni pencerede aç (popup)
+    const fullUrl = url.startsWith("http") ? url : `https://www.bilyoner.com${url}`;
+    const macKartiWindow = window.open(fullUrl, "_blank", "width=800,height=600");
+    
+    if (!macKartiWindow) {
+      console.warn("[BA] Mac-karti penceresi açılamadı (popup blocker?)");
+      resolve({ success: false, reason: "popup_blocked" });
+      return;
+    }
+
+    // Yeni pencerede sayfa yüklenmesini bekle
+    let attempts = 0;
+    const maxAttempts = 20;
+    const checkInterval = setInterval(() => {
+      attempts++;
+      try {
+        // Cross-origin kontrolü: aynı origin'de olmamız gerekiyor
+        const doc = macKartiWindow.document;
+        if (!doc || !doc.body) {
+          if (attempts >= maxAttempts) {
+            clearInterval(checkInterval);
+            macKartiWindow.close();
+            resolve({ success: false, reason: "mac_karti_timeout" });
+          }
+          return;
+        }
+
+        // Oran butonlarını ara
+        const allClickables = doc.querySelectorAll(
+          'button, [role="button"], [class*="odd"], [class*="bet"], [class*="rate"], [class*="selection"], [class*="outcome"], span[class], div[class]'
+        );
+
+        const bilyonerTexts = PICK_TO_BILYONER[pick];
+        if (!bilyonerTexts) {
+          clearInterval(checkInterval);
+          macKartiWindow.close();
+          resolve({ success: false, reason: "unknown_pick" });
+          return;
+        }
+
+        for (const el of allClickables) {
+          const text = (el.textContent || "").trim();
+          for (const target of bilyonerTexts) {
+            if (text.endsWith(target) || text === target) {
+              const btn = el.closest("button, [role='button']") || el;
+              btn.click();
+              console.log(`[BA] Kupona eklendi (mac-karti): ${homeTeam} vs ${awayTeam} → ${pick}`);
+              clearInterval(checkInterval);
+              setTimeout(() => macKartiWindow.close(), 500);
+              resolve({ success: true });
+              return;
+            }
+            const pattern = new RegExp(`\\d+[.,]\\d+\\s+${escapeRegex(target)}$`, "i");
+            if (pattern.test(text)) {
+              const btn = el.closest("button, [role='button']") || el;
+              btn.click();
+              console.log(`[BA] Kupona eklendi (mac-karti pattern): ${homeTeam} vs ${awayTeam} → ${pick}`);
+              clearInterval(checkInterval);
+              setTimeout(() => macKartiWindow.close(), 500);
+              resolve({ success: true });
+              return;
+            }
+          }
+        }
+
+        if (attempts >= maxAttempts) {
+          clearInterval(checkInterval);
+          macKartiWindow.close();
+          resolve({ success: false, reason: "button_not_found" });
+        }
+      } catch (e) {
+        // Cross-origin erişim hatası
+        if (attempts >= maxAttempts) {
+          clearInterval(checkInterval);
+          try { macKartiWindow.close(); } catch (_) {}
+          resolve({ success: false, reason: "cross_origin" });
+        }
+      }
+    }, 500);
+  });
+}
+
+/**
  * Bilyoner sayfasında bahisleri kupona ekle
+ * Tahminleri sekme bazında gruplar ve önce sekme değiştirir
  */
 async function handleTransfer(predictions) {
   let transferred = 0;
   const errors = [];
   const results = [];
 
+  // Tahminleri gerekli sekmeye göre grupla
+  const tabGroups = {};
   for (const pred of predictions) {
-    try {
-      const result = await addBetToCoupon(pred);
-      if (result.success) {
-        transferred++;
-        results.push({ ...pred, status: "ok" });
-      } else {
-        errors.push(`${pred.homeTeam} vs ${pred.awayTeam}: ${result.reason === "match_not_found" ? "Maç bulunamadı" : "Buton bulunamadı"}`);
-        results.push({ ...pred, status: result.reason });
+    const tabIdx = TAB_FOR_PICK[pred.pick] ?? 0;
+    if (!tabGroups[tabIdx]) tabGroups[tabIdx] = [];
+    tabGroups[tabIdx].push(pred);
+  }
+
+  // Sekme sırasına göre işle (varsayılan sekme önce)
+  const sortedTabs = Object.keys(tabGroups).map(Number).sort((a, b) => a - b);
+
+  for (const tabIdx of sortedTabs) {
+    // Sekmeyi değiştir
+    const tabSwitched = await switchBultenTab(tabIdx);
+    if (!tabSwitched && tabIdx !== 0) {
+      console.warn(`[BA] Sekme ${tabIdx} değiştirilemedi, mac-karti fallback denenecek`);
+    }
+
+    for (const pred of tabGroups[tabIdx]) {
+      try {
+        const result = await addBetToCoupon(pred);
+        if (result.success) {
+          transferred++;
+          results.push({ ...pred, status: "ok" });
+        } else {
+          errors.push(`${pred.homeTeam} vs ${pred.awayTeam}: ${result.reason === "match_not_found" ? "Maç bulunamadı" : "Buton bulunamadı"}`);
+          results.push({ ...pred, status: result.reason });
+        }
+        // Her bahis arası bekleme (DOM güncellemesi + rate limit)
+        await sleep(600);
+      } catch (err) {
+        errors.push(`${pred.homeTeam} vs ${pred.awayTeam}: ${err.message}`);
+        results.push({ ...pred, status: "error" });
       }
-      // Her bahis arası bekleme (DOM güncellemesi + rate limit)
-      await sleep(600);
-    } catch (err) {
-      errors.push(`${pred.homeTeam} vs ${pred.awayTeam}: ${err.message}`);
-      results.push({ ...pred, status: "error" });
     }
   }
+
+  // Varsayılan sekmeye geri dön
+  await switchBultenTab(0);
 
   return {
     success: transferred > 0,

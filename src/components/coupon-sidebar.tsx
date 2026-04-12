@@ -28,7 +28,7 @@ export function CouponSidebar() {
     }));
     const encoded = encodeURIComponent(JSON.stringify(couponData));
     window.open(
-      `https://www.bilyoner.com/iddaa/futbol#ba-coupon=${encoded}`,
+      `https://www.bilyoner.com/iddaa#ba-coupon=${encoded}`,
       "_blank"
     );
     toast.info("Bilyoner açılıyor — extension kuponu otomatik yükleyecek");

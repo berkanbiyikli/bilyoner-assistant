@@ -304,8 +304,33 @@ async function handleTransfer(predictions, setStatus, setProgress) {
   setProgress(90);
   await sleep(800);
 
-  window.location.href = `/mac-karti/futbol/${queue[0].matchId}/oranlar`;
+  window.location.href = `/mac-karti/futbol/${queue[0].matchId}/oranlar/1`;
   return { success: true, transferred: 0, total: predictions.length, errors };
+}
+
+// ============================================
+// MAC-KARTI: Tüm oranları fetch et (virtual scroll sorununu bypass eder)
+// ============================================
+async function fetchOddsHTML(matchId) {
+  try {
+    const url = `https://www.bilyoner.com/mac-karti/futbol/${matchId}/oranlar/1`;
+    const resp = await fetch(url, { credentials: "include" });
+    if (!resp.ok) return "";
+    const html = await resp.text();
+    console.log(`[BA] Oran HTML'i alındı: ${html.length} karakter`);
+    return html;
+  } catch (e) {
+    console.warn("[BA] fetchOddsHTML hata:", e.message);
+    return "";
+  }
+}
+
+/** Bir pick'in hedef etiketleri fetch'lenen HTML'de var mı? */
+function isPickAvailableInHtml(html, pick) {
+  if (!html) return true; // fetch başarısızsa yine dene
+  const targets = PICK_TO_BILYONER[pick];
+  if (!targets) return false;
+  return targets.some(t => html.includes(t));
 }
 
 // ============================================
@@ -432,7 +457,10 @@ async function processMacKartiQueue() {
   const setWidgetStatus = widget.setStatus;
 
   setWidgetStatus("⏳ Sayfa yükleniyor...");
-  const loaded = await waitForMacKartiOdds();
+  const [loaded, oddsHtml] = await Promise.all([
+    waitForMacKartiOdds(),
+    fetchOddsHTML(currentId),
+  ]);
 
   if (!loaded) {
     setWidgetStatus("⚠ Sayfa yüklenemedi!");
@@ -440,22 +468,31 @@ async function processMacKartiQueue() {
     await sleep(2000);
   } else {
     for (const bet of current.bets) {
+      // Fetch'lenen HTML'de bu bahis tipi var mı?
+      if (!isPickAvailableInHtml(oddsHtml, bet.pick)) {
+        const msg = `"${bet.pick}" bu maçta sunulmuyor`;
+        progress.errors.push(`${current.homeTeam} vs ${current.awayTeam}: ${msg}`);
+        setWidgetStatus(`⚠ ${bet.pick} mevcut değil`);
+        console.warn(`[BA] ⚠ ${current.homeTeam} vs ${current.awayTeam} → ${msg}`);
+        await sleep(400);
+        continue;
+      }
+
       setWidgetStatus(`🔍 "${bet.pick}" aranıyor...`);
       await sleep(400);
 
       // İlk dene — buton hemen görünür alanda olabilir
       let found = findAndClickOddsButton(bet.pick);
 
-      // Bulunamazsa: sayfayı aşağı scroll et ve tekrar dene (İY/MS gibi alt bölümler için)
+      // Bulunamazsa: sayfayı aşağı scroll et ve tekrar dene
       if (!found) {
         const scrollStep = 600;
-        const maxScrolls = 10;
+        const maxScrolls = 12;
         for (let i = 0; i < maxScrolls && !found; i++) {
           window.scrollBy(0, scrollStep);
           await sleep(350);
           found = findAndClickOddsButton(bet.pick);
         }
-        // Bulunan/bulunmadan scroll'u başa al
         window.scrollTo(0, 0);
         await sleep(200);
       }
@@ -480,7 +517,7 @@ async function processMacKartiQueue() {
     await storageSet({ ba_queue: queue, ba_progress: progress });
     setWidgetStatus(`➡ Sonraki maça gidiliyor... (${queue.length} kaldı)`);
     await sleep(1000);
-    window.location.href = `/mac-karti/futbol/${queue[0].matchId}/oranlar`;
+    window.location.href = `/mac-karti/futbol/${queue[0].matchId}/oranlar/1`;
   } else {
     await storageClear();
     setWidgetStatus("✅ Aktarım tamamlandı!");

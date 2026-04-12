@@ -69,7 +69,18 @@ function norm(name) {
     // Türkçe karakter normalize
     .replace(/ı/g, "i").replace(/ş/g, "s").replace(/ç/g, "c")
     .replace(/ğ/g, "g").replace(/ö/g, "o").replace(/ü/g, "u")
-    .replace(/á|à|â|ã/g, "a").replace(/é|è|ê|ë/g, "e")
+    // Polonyaca / Çekçe / Macarca / Romence
+    .replace(/ń/g, "n").replace(/ś/g, "s").replace(/ć/g, "c")
+    .replace(/ź|ż/g, "z").replace(/ł/g, "l").replace(/ą/g, "a")
+    .replace(/ę/g, "e").replace(/ř/g, "r").replace(/ž/g, "z")
+    .replace(/ě/g, "e").replace(/ů/g, "u").replace(/ď|đ/g, "d")
+    .replace(/ť/g, "t").replace(/ň/g, "n").replace(/ã/g, "a")
+    // Almanca
+    .replace(/ß/g, "ss").replace(/ä/g, "a")
+    // İskandinav
+    .replace(/æ/g, "ae").replace(/ø/g, "o").replace(/å/g, "a")
+    // Diğer Avrupa aksanları
+    .replace(/á|à|â/g, "a").replace(/é|è|ê|ë/g, "e")
     .replace(/í|ì|î|ï/g, "i").replace(/ó|ò|ô|õ/g, "o")
     .replace(/ú|ù|û/g, "u").replace(/ñ/g, "n").replace(/ý/g, "y")
     // Noktalama kaldır
@@ -140,24 +151,62 @@ function teamSimilarity(apiName, bilyonerName) {
 // ============================================
 function scanBilyonerMatches() {
   const matches = [];
+  const seen = new Set();
   const links = document.querySelectorAll('a[href*="/mac-karti/"]');
 
   for (const link of links) {
     const href = link.getAttribute("href") || "";
-    const idMatch = href.match(/\/mac-karti\/[^/]+\/(\d+)\//);
+    const idMatch = href.match(/\/mac-karti\/[^/]+\/(\d+)/);
     if (!idMatch) continue;
+    if (seen.has(idMatch[1])) continue;
+    seen.add(idMatch[1]);
 
-    const text = (link.textContent || "").trim();
-    const parts = text.split(/\s*[-–]\s*/);
-    if (parts.length < 2) continue;
+    // Link text'inden takım isimlerini çıkar
+    let text = (link.textContent || "").replace(/\s+/g, " ").trim();
+    // Bilyoner bazen saat/oran bilgisi de koyuyor: "19:00 Lechia Gdansk - Korona Kielce 2.10 3.40 2.80"
+    // Oran pattern'lerini temizle
+    text = text.replace(/\d+[.,]\d+/g, "").trim();
+    // Saat pattern'ini temizle
+    text = text.replace(/^\d{1,2}:\d{2}\s*/, "").trim();
+
+    const parts = text.split(/\s*[-–vs]\s*/);
+    if (parts.length < 2) {
+      // Alternatif: parent element'ten takım isimlerini çıkarmayı dene
+      const row = link.closest('[class*="event"], [class*="match"], [class*="row"], [class*="fixture"], tr, li');
+      if (row) {
+        const spans = row.querySelectorAll('span, div');
+        const teamTexts = [];
+        for (const s of spans) {
+          const t = s.textContent.trim();
+          if (t.length >= 3 && t.length <= 40 && !/\d+[.,]\d+/.test(t) && !/^\d{1,2}:\d{2}$/.test(t)) {
+            teamTexts.push({ text: t, el: s });
+          }
+        }
+        if (teamTexts.length >= 2) {
+          matches.push({
+            bilyonerId: idMatch[1],
+            homeTeam: teamTexts[0].text,
+            awayTeam: teamTexts[1].text,
+            linkElement: link,
+          });
+        }
+      }
+      continue;
+    }
+
+    const home = parts[0].trim();
+    const away = parts.slice(1).join("-").trim();
+    if (home.length < 2 || away.length < 2) continue;
 
     matches.push({
       bilyonerId: idMatch[1],
-      homeTeam: parts[0].trim(),
-      awayTeam: parts.slice(1).join("-").trim(),
+      homeTeam: home,
+      awayTeam: away,
       linkElement: link,
     });
   }
+
+  console.log(`[BA] Taranan maçlar (${matches.length}):`, matches.map(m => `${m.homeTeam} - ${m.awayTeam}`));
   return matches;
 }
 
@@ -166,30 +215,76 @@ function scanBilyonerMatches() {
  */
 function findMatch(homeTeam, awayTeam) {
   const matches = scanBilyonerMatches();
-  if (matches.length === 0) return null;
+  if (matches.length === 0) {
+    console.warn("[BA] Hiç maç bulunamadı! Sayfa bülten sayfası değil olabilir.");
+    return null;
+  }
 
   let bestMatch = null;
   let bestScore = 0;
+  let debugScores = [];
 
   for (const m of matches) {
     const homeSim = teamSimilarity(homeTeam, m.homeTeam);
     const awaySim = teamSimilarity(awayTeam, m.awayTeam);
+    const score = Math.sqrt(Math.max(0, homeSim) * Math.max(0, awaySim));
 
-    // Her iki takım en az 0.5 olmalı
+    if (score > 0.3) {
+      debugScores.push({ home: m.homeTeam, away: m.awayTeam, homeSim, awaySim, score });
+    }
+
     if (homeSim < 0.5 || awaySim < 0.5) continue;
-
-    // Geometrik ortalama (her ikisi de yüksek olmalı)
-    const score = Math.sqrt(homeSim * awaySim);
     if (score > bestScore) {
       bestScore = score;
       bestMatch = m;
     }
   }
 
+  // Fallback: sadece bir takım eşleşiyorsa, diğer takımı da kontrol et (ters sıra dahil)
+  if (bestScore < 0.6) {
+    for (const m of matches) {
+      // Ters sıra dene (ev/deplasman karışmış olabilir)
+      const homeSim = teamSimilarity(homeTeam, m.awayTeam);
+      const awaySim = teamSimilarity(awayTeam, m.homeTeam);
+      const score = Math.sqrt(Math.max(0, homeSim) * Math.max(0, awaySim));
+      if (homeSim >= 0.5 && awaySim >= 0.5 && score > bestScore) {
+        bestScore = score;
+        bestMatch = m;
+        console.log(`[BA] Ters sıra eşleşme: ${homeTeam}↔${m.awayTeam}, ${awayTeam}↔${m.homeTeam}`);
+      }
+    }
+  }
+
+  // Fallback 2: Sayfada metin araması
+  if (bestScore < 0.6) {
+    const homeNorm = norm(homeTeam);
+    const awayNorm = norm(awayTeam);
+    const homeWords = homeNorm.split(" ").filter(w => w.length >= 4);
+    const awayWords = awayNorm.split(" ").filter(w => w.length >= 4);
+
+    for (const m of matches) {
+      const rowEl = m.linkElement.closest('[class*="event"], [class*="match"], [class*="row"], [class*="fixture"], tr, li, div') || m.linkElement.parentElement;
+      if (!rowEl) continue;
+      const rowText = norm(rowEl.textContent || "");
+
+      const homeFound = homeWords.some(w => rowText.includes(w));
+      const awayFound = awayWords.some(w => rowText.includes(w));
+
+      if (homeFound && awayFound) {
+        bestMatch = m;
+        bestScore = 0.7;
+        console.log(`[BA] Metin araması eşleşme: "${homeTeam}" + "${awayTeam}" → row text'te bulundu`);
+        break;
+      }
+    }
+  }
+
   if (bestScore < 0.6) {
     console.log(`[BA] Eşleşme yok (en iyi skor: ${bestScore.toFixed(2)}): "${homeTeam}" vs "${awayTeam}"`);
-    if (bestMatch) {
-      console.log(`[BA]   En yakın: "${bestMatch.homeTeam}" vs "${bestMatch.awayTeam}"`);
+    console.log(`[BA] Sayfadaki ${matches.length} maç:`, matches.slice(0, 10).map(m => `${m.homeTeam} - ${m.awayTeam}`));
+    if (debugScores.length > 0) {
+      debugScores.sort((a, b) => b.score - a.score);
+      console.log(`[BA] En yakın eşleşmeler:`, debugScores.slice(0, 3));
     }
     return null;
   }
@@ -503,6 +598,18 @@ function showTransferOverlay(couponData) {
       errDiv.style.cssText = "margin-top:8px; font-size:11px; color:#f87171; text-align:left; max-height:100px; overflow-y:auto;";
       errDiv.innerHTML = result.errors.map((e) => `• ${e}`).join("<br>");
       statusEl.parentElement.insertBefore(errDiv, statusEl.nextSibling);
+    }
+
+    // Debug: Başarısız olursa sayfadaki maçları göster
+    if (!result.success || result.errors.length > 0) {
+      const found = scanBilyonerMatches();
+      const debugDiv = document.createElement("div");
+      debugDiv.style.cssText = "margin-top:8px; font-size:10px; color:#94a3b8; text-align:left; max-height:120px; overflow-y:auto; border-top:1px solid #334155; padding-top:8px;";
+      debugDiv.innerHTML = `<div style="color:#60a5fa; margin-bottom:4px;">📋 Sayfada bulunan ${found.length} maç:</div>` +
+        found.slice(0, 15).map(m => `<div style="padding:1px 0;">${m.homeTeam} - ${m.awayTeam}</div>`).join("") +
+        (found.length > 15 ? `<div>... ve ${found.length - 15} maç daha</div>` : "") +
+        (found.length === 0 ? '<div style="color:#fbbf24;">⚠ Hiç maç bulunamadı! Bülten sayfasında olduğunuzdan emin olun.</div>' : "");
+      statusEl.parentElement.appendChild(debugDiv);
     }
   });
 

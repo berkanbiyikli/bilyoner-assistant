@@ -63,8 +63,8 @@ export async function GET(req: NextRequest) {
       return 0;
     });
 
-    // Batch: max 15 maç per cron run
-    const fixtures = sortedFixtures.slice(0, 15);
+    // Batch: max 8 maç per cron run — her 30dk çalışır, kalan maçlar sonraki batch'te
+    const fixtures = sortedFixtures.slice(0, 8);
     console.log(`[CRON] ${date}: ${allFixtures.length} toplam, ${nsFixtures.length} NS, ${newFixtures.length} yeni, ${fixtures.length} analiz edilecek (API: ${apiUsage.used}/${apiUsage.limit})`);
 
     if (fixtures.length === 0) {

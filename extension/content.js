@@ -676,4 +676,4 @@ function showTransferOverlay(couponData) {
   });
 
   document.getElementById("ba-close").addEventListener("click", () => overlay.remove());
-}
+}

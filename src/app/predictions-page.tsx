@@ -745,10 +745,10 @@ export function PredictionsPage() {
                           <div key={groupKey} className="rounded-xl border border-zinc-800 overflow-hidden">
                             {/* League Header */}
                             <div className="flex items-center gap-2.5 bg-zinc-900 px-4 py-2 border-b border-zinc-800/50">
-                              {leagueLogo ? (
+                              {leagueLogo && leagueLogo.startsWith("http") ? (
                                 <Image src={leagueLogo} alt="" width={16} height={16} className="w-4 h-4 object-contain" />
                               ) : leagueFlag ? (
-                                <Image src={leagueFlag} alt="" width={16} height={12} className="rounded-sm" />
+                                <span className="text-sm leading-none">{leagueFlag}</span>
                               ) : (
                                 <Trophy className="h-3.5 w-3.5 text-zinc-600" />
                               )}

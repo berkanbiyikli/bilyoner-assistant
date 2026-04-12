@@ -35,7 +35,7 @@ export async function GET(request: Request) {
         filters: [{ method: "in", args: ["result", ["won", "lost"]] }],
       });
 
-      if (records.length >= 30) {
+      if (records.length >= 20) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const trainingData = records.map((r: any) => ({
           confidence: r.confidence,

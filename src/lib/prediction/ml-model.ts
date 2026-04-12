@@ -327,7 +327,7 @@ interface TrainingRecord {
 export async function autoTrainFromHistory(
   records: TrainingRecord[]
 ): Promise<LogisticRegressionModel | null> {
-  if (records.length < 30) {
+  if (records.length < 20) {
     console.log("[ML] Eğitim için yeterli veri yok:", records.length);
     return null;
   }

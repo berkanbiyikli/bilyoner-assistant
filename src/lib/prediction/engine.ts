@@ -98,7 +98,7 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
   // Hakem profili (async — Supabase'ten gerçek veri)
   const refereeProfile = await getRefereeProfile(fixture.fixture.referee);
 
-  const cornerData = extractCornerData(prediction, h2h, homeTeamStats, awayTeamStats);
+  const cornerData = extractCornerData(prediction, h2h, homeTeamStats, awayTeamStats, homeShotStats, awayShotStats);
   const cardData = extractCardData(prediction, h2h, refereeProfile, homeTeamStats, awayTeamStats);
 
   // === YENİ: Form Decay Analizi ===
@@ -421,18 +421,53 @@ function extractCornerData(
   prediction: PredictionResponse | null,
   h2hMatches?: H2HResponse[],
   homeTeamStats?: TeamStatisticsResponse | null,
-  awayTeamStats?: TeamStatisticsResponse | null
+  awayTeamStats?: TeamStatisticsResponse | null,
+  homeShotStats?: TeamShotStats | null,
+  awayShotStats?: TeamShotStats | null
 ): CornerCardData {
-  // === GERÇEK VERİ: /teams/statistics'te korner verisi yoksa ===
-  // API-Football /teams/statistics korner ortalaması dönmüyor.
-  // Bu yüzden korner tahmini için H2H ve gol verisi kullanmak zorundayız.
-  // Korner pick'leri zaten devre dışı — bu veri sadece insight için.
+  // === GERÇEK VERİ: fixtures/statistics → "Corner Kicks" ===
+  // API-Football her maçın istatistiklerinde gerçek korner sayısını döner.
+  // getTeamRecentShotStats zaten avgCornersWon/avgCornersAgainst topluyor.
 
+  const hasRealCornerData = (homeShotStats?.avgCornersWon != null && homeShotStats.avgCornersWon > 0)
+    || (awayShotStats?.avgCornersWon != null && awayShotStats.avgCornersWon > 0);
+
+  if (hasRealCornerData) {
+    // Gerçek korner verileri mevcut → doğrudan kullan
+    const homeCornerAvg = homeShotStats?.avgCornersWon ?? 4.5;
+    const awayCornerAvg = awayShotStats?.avgCornersWon ?? 4.0;
+
+    // H2H korner korelasyonu (varsa ağırlık ver)
+    let h2hCornerEstimate = 0;
+    if (h2hMatches && h2hMatches.length >= 2) {
+      const totalGoals = h2hMatches.reduce((sum, m) => sum + (m.goals?.home ?? 0) + (m.goals?.away ?? 0), 0);
+      const avgGoals = totalGoals / h2hMatches.length;
+      h2hCornerEstimate = 5.0 + avgGoals * 1.3;
+    }
+
+    // Gerçek veri %75, H2H korelasyon %25
+    let totalAvg: number;
+    if (h2hCornerEstimate > 0) {
+      totalAvg = (homeCornerAvg + awayCornerAvg) * 0.75 + h2hCornerEstimate * 0.25;
+    } else {
+      totalAvg = homeCornerAvg + awayCornerAvg;
+    }
+
+    const overProb = Math.min(85, Math.max(15, (totalAvg - 8.5) * 12 + 50));
+
+    return {
+      homeAvg: Math.round(homeCornerAvg * 10) / 10,
+      awayAvg: Math.round(awayCornerAvg * 10) / 10,
+      totalAvg: Math.round(totalAvg * 10) / 10,
+      overProb: Math.round(overProb),
+    };
+  }
+
+  // === FALLBACK: Gerçek korner verisi yoksa gol korelasyonundan tahmin ===
   if (!prediction?.teams && !homeTeamStats && !awayTeamStats) {
     return { homeAvg: 4.5, awayAvg: 4.0, totalAvg: 8.5, overProb: 50 };
   }
 
-  // H2H gol ortalamasından korner korelasyonu (%0.6 korelasyon)
   let h2hCornerEstimate = 0;
   if (h2hMatches && h2hMatches.length >= 2) {
     const totalGoals = h2hMatches.reduce((sum, m) => sum + (m.goals?.home ?? 0) + (m.goals?.away ?? 0), 0);
@@ -440,7 +475,6 @@ function extractCornerData(
     h2hCornerEstimate = 5.0 + avgGoals * 1.3;
   }
 
-  // Gerçek gol ortalamasından korner tahmini: /teams/statistics veya /predictions
   let homeGoalAvg = 1.2;
   let awayGoalAvg = 1.0;
 

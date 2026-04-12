@@ -285,6 +285,8 @@ export interface TeamShotStats {
   avgPossession: number;
   avgPassAccuracy: number;
   avgGoalkeeperSaves: number; // Rakibin kaleci kurtarışı (SoT proxy'si)
+  avgCornersWon: number;      // Takımın maç başı ortalama korner sayısı
+  avgCornersAgainst: number;  // Rakibin maç başı ortalama korner sayısı
   matchesAnalyzed: number;
 }
 
@@ -312,6 +314,8 @@ export async function getTeamRecentShotStats(
     let totalPossession = 0;
     let totalPassAccuracy = 0;
     let totalGKSaves = 0;
+    let totalCornersWon = 0;
+    let totalCornersAgainst = 0;
     let validMatches = 0;
 
     for (const fixture of recentFixtures.slice(0, last)) {
@@ -337,8 +341,10 @@ export async function getTeamRecentShotStats(
         totalShotsOutsideBox += getStat(teamStats.statistics, "Shots outsidebox");
         totalPossession += getStat(teamStats.statistics, "Ball Possession");
         totalPassAccuracy += getStat(teamStats.statistics, "Passes %");
+        totalCornersWon += getStat(teamStats.statistics, "Corner Kicks");
         if (opponentStats) {
           totalGKSaves += getStat(opponentStats.statistics, "Goalkeeper Saves");
+          totalCornersAgainst += getStat(opponentStats.statistics, "Corner Kicks");
         }
         validMatches++;
       } catch {
@@ -357,6 +363,8 @@ export async function getTeamRecentShotStats(
       avgPossession: Math.round((totalPossession / validMatches) * 100) / 100,
       avgPassAccuracy: Math.round((totalPassAccuracy / validMatches) * 100) / 100,
       avgGoalkeeperSaves: Math.round((totalGKSaves / validMatches) * 100) / 100,
+      avgCornersWon: Math.round((totalCornersWon / validMatches) * 100) / 100,
+      avgCornersAgainst: Math.round((totalCornersAgainst / validMatches) * 100) / 100,
       matchesAnalyzed: validMatches,
     };
 

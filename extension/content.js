@@ -311,21 +311,34 @@ async function handleTransfer(predictions, setStatus, setProgress) {
 // ============================================
 // MAC-KARTI: Sayfanın yüklenmesini bekle
 // ============================================
-async function waitForMacKartiOdds(timeoutMs = 15000) {
+async function waitForMacKartiOdds(timeoutMs = 25000) {
+  // Bilyoner'in bilinen market etiketleri — bunlardan biri görününce sayfa hazırdır
+  const SIGNALS = ["MS 1", "MS X", "MS 2", "2,5 Üst", "2,5 Alt", "KG Var", "KG Yok", "ÇŞ 1-X", "İY 0,5"];
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    // Oran butonları yüklendi mi?
-    const els = document.querySelectorAll('button, [role="button"]');
-    const hasOdds = Array.from(els).some(el => {
-      const t = (el.textContent || "").trim();
-      return /^\d+[.,]\d+/.test(t) && t.length < 35;
-    });
-    if (hasOdds) {
-      await sleep(300); // DOM stabilize
+    const bodyText = document.body?.textContent || "";
+    const found = SIGNALS.find(s => bodyText.includes(s));
+    if (found) {
+      console.log(`[BA] ✓ Oran sayfası hazır ("${found}" bulundu)`);
+      await sleep(600);
       return true;
+    }
+    // Fallback: 10'dan fazla buton + herhangi birinde decimal sayı varsa
+    const btns = document.querySelectorAll('button, [role="button"]');
+    if (btns.length > 10) {
+      const hasNums = Array.from(btns).some(b => {
+        const t = (b.textContent || "").replace(/\s+/g, " ").trim();
+        return t.length < 40 && /\d+[.,]\d+/.test(t);
+      });
+      if (hasNums) {
+        console.log("[BA] ✓ Oran sayfası hazır (butonlarda sayılar bulundu)");
+        await sleep(600);
+        return true;
+      }
     }
     await sleep(400);
   }
+  console.warn("[BA] ✗ waitForMacKartiOdds timeout. Başlık:", document.title, "| body:", (document.body?.textContent || "").slice(0, 200));
   return false;
 }
 
@@ -339,35 +352,59 @@ function findAndClickOddsButton(pick) {
     return false;
   }
 
-  // Tüm tıklanabilir elementleri tara
   const els = document.querySelectorAll(
     'button, [role="button"], [class*="odd"], [class*="rate"], [class*="selection"], [class*="bet-button"], [class*="betButton"]'
   );
 
   for (const el of els) {
-    const rawText = (el.textContent || "").trim();
-    if (!rawText || rawText.startsWith("—") || rawText === "-") continue;
-    if (rawText.length > 40) continue; // container değil buton olmalı
+    // Whitespace'i normalleştir
+    const rawText = (el.textContent || "").replace(/\s+/g, " ").trim();
+    if (!rawText || rawText === "-" || rawText === "—") continue;
+    if (rawText.length > 60) continue;
 
     for (const target of targets) {
-      // Tam eşleşme: "KG Var"
+      const esc = escapeRegex(target);
+      // 1. Tam eşleşme: "KG Var"
       if (rawText === target) {
         (el.closest("button, [role='button']") || el).click();
+        console.log(`[BA] ✓ Click (exact): "${pick}" → "${rawText}"`);
         return true;
       }
-      // Oran + etiket: "1.67 KG Var"
-      if (new RegExp(`^\\d+[.,]\\d+\\s+${escapeRegex(target)}$`, "i").test(rawText)) {
+      // 2. Oran önce: "1.82 MS 1" veya "1,82 KG Var"
+      if (new RegExp(`^\\d+[.,]\\d+\\s+${esc}$`, "i").test(rawText)) {
         (el.closest("button, [role='button']") || el).click();
+        console.log(`[BA] ✓ Click (odds-first): "${pick}" → "${rawText}"`);
         return true;
       }
-      // Etiket alt elemanda: kontrol et
-      const inner = el.querySelector('[class*="label"], [class*="name"], [class*="market"], span, div');
-      if (inner && inner.textContent.trim() === target) {
+      // 3. Oran sonra: "MS 1 1.82" veya "KG Var 1,82"
+      if (new RegExp(`^${esc}\\s+\\d+[.,]\\d+$`, "i").test(rawText)) {
         (el.closest("button, [role='button']") || el).click();
+        console.log(`[BA] ✓ Click (label-first): "${pick}" → "${rawText}"`);
         return true;
+      }
+      // 4. Kelime sınırıyla içinde geçiyor: "MS 1" in "Bugün MS 1 1.82"
+      if (new RegExp(`(^|\\s)${esc}(\\s|$)`, "i").test(rawText)) {
+        (el.closest("button, [role='button']") || el).click();
+        console.log(`[BA] ✓ Click (contains): "${pick}" → "${rawText}"`);
+        return true;
+      }
+      // 5. Çocuk elementlerde etiket ara
+      for (const child of el.querySelectorAll("span, div, p")) {
+        if ((child.textContent || "").trim() === target) {
+          (el.closest("button, [role='button']") || el).click();
+          console.log(`[BA] ✓ Click (child): "${pick}" → "${target}"`);
+          return true;
+        }
       }
     }
   }
+
+  // Debug: hangi butonlar var?
+  console.warn(
+    `[BA] ✗ "${pick}" için buton bulunamadı. Targets: ${JSON.stringify(targets)}`,
+    "\nİlk 20 buton:",
+    Array.from(els).slice(0, 20).map(e => (e.textContent || "").replace(/\s+/g, " ").trim().slice(0, 30))
+  );
   return false;
 }
 

@@ -107,6 +107,7 @@ export async function GET(req: NextRequest) {
             expected_value: 0,
             is_value_bet: false,
             analysis_summary: "Yeterli veri yok veya güvenilir tahmin üretilemedi",
+            analysis_data: null,
           });
         }
         continue;

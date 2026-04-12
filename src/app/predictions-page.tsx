@@ -160,10 +160,12 @@ export function PredictionsPage() {
   const [apiMessage, setApiMessage] = useState<string | null>(null);
 
   const redirectRef = useRef(false);
+  const [isRedirected, setIsRedirected] = useState(false);
 
   const fetchPredictions = async () => {
     setLoading(true);
     setApiMessage(null);
+    setIsRedirected(false);
     try {
       const url = selectedDates.length === 1
         ? `/api/predictions?date=${selectedDates[0]}`
@@ -174,7 +176,9 @@ export function PredictionsPage() {
       if (data.source === "redirect" && data.redirectDates) {
         // Tarih seçiciyi güncelle ama tekrar fetch tetikleme
         redirectRef.current = true;
+        setIsRedirected(true);
         setSelectedDates(data.redirectDates);
+        if (data.message) setApiMessage(data.message);
       }
       if (data.source === "fallback" && data.message) setApiMessage(data.message);
     } catch (error) {
@@ -320,10 +324,10 @@ export function PredictionsPage() {
       .filter(Boolean) as typeof filteredPredictions;
   }, [filteredPredictions, quickFilters]);
 
-  // Filter: sadece başlamamış maçları göster
+  // Filter: sadece başlamamış maçları göster (redirect durumunda tüm maçları göster — eski tarih)
   const upcomingPredictions = useMemo(
-    () => quickFiltered.filter(isMatchUpcoming),
-    [quickFiltered]
+    () => isRedirected ? quickFiltered : quickFiltered.filter(isMatchUpcoming),
+    [quickFiltered, isRedirected]
   );
 
   // Sort: önce saate göre, sonra secondary sort

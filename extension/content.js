@@ -374,7 +374,143 @@ function injectIndicator() {
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", injectIndicator);
+  document.addEventListener("DOMContentLoaded", () => {
+    injectIndicator();
+    checkHashCoupon();
+  });
 } else {
   injectIndicator();
+  checkHashCoupon();
+}
+
+// ============================================
+// Hash-based Coupon Auto-Transfer
+// Site'den gelen #ba-coupon={json} hash'ini okur
+// ve otomatik olarak Bilyoner kuponuna ekler
+// ============================================
+
+function checkHashCoupon() {
+  const hash = window.location.hash;
+  if (!hash.startsWith("#ba-coupon=")) return;
+
+  try {
+    const encoded = hash.replace("#ba-coupon=", "");
+    const couponData = JSON.parse(decodeURIComponent(encoded));
+
+    if (!Array.isArray(couponData) || couponData.length === 0) return;
+
+    // Hash'i temizle (tekrar tetiklemesin)
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+
+    // Sayfa yüklenene kadar bekle, sonra kuponu aktar
+    console.log(`[BA] Hash kupon algılandı: ${couponData.length} bahis`);
+    showTransferOverlay(couponData);
+  } catch (err) {
+    console.error("[BA] Hash kupon parse hatası:", err);
+  }
+}
+
+/**
+ * Bilyoner sayfasında overlay göster ve kuponu aktar
+ */
+function showTransferOverlay(couponData) {
+  const overlay = document.createElement("div");
+  overlay.id = "ba-transfer-overlay";
+  overlay.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7); z-index: 99999;
+    display: flex; align-items: center; justify-content: center;
+  `;
+  overlay.innerHTML = `
+    <div style="background:#1e293b; border-radius:16px; padding:24px 32px; max-width:400px; width:90%; color:#e2e8f0; font-family:-apple-system,sans-serif; text-align:center;">
+      <div style="font-size:32px; margin-bottom:12px;">⚽</div>
+      <h2 style="font-size:18px; font-weight:700; margin-bottom:8px;">Bilyoner Assistant</h2>
+      <p style="font-size:14px; color:#94a3b8; margin-bottom:16px;">${couponData.length} bahis kupona aktarılacak</p>
+      <div id="ba-transfer-list" style="text-align:left; max-height:200px; overflow-y:auto; margin-bottom:16px;"></div>
+      <div id="ba-transfer-status" style="font-size:13px; color:#60a5fa; margin-bottom:12px;">Sayfa yükleniyor...</div>
+      <div style="display:flex; gap:8px;">
+        <button id="ba-transfer-start" style="flex:1; padding:10px; border:none; border-radius:8px; background:linear-gradient(135deg,#059669,#10b981); color:white; font-weight:600; font-size:14px; cursor:pointer;">Aktarımı Başlat</button>
+        <button id="ba-transfer-close" style="padding:10px 16px; border:1px solid #334155; border-radius:8px; background:transparent; color:#94a3b8; cursor:pointer; font-size:14px;">Kapat</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Kupon listesini göster
+  const listEl = document.getElementById("ba-transfer-list");
+  for (const item of couponData) {
+    const div = document.createElement("div");
+    div.style.cssText = "padding:6px 8px; margin-bottom:4px; background:#0f172a; border-radius:6px; font-size:12px;";
+    div.innerHTML = `
+      <div style="font-weight:600; color:#f1f5f9;">${item.h} - ${item.a}</div>
+      <div style="color:#a78bfa; font-weight:500;">${item.p} <span style="color:#34d399;">@${item.o}</span></div>
+    `;
+    listEl.appendChild(div);
+  }
+
+  // Sayfa yüklenmesini bekle (Bilyoner SPA, maçlar geç yükleniyor)
+  const statusEl = document.getElementById("ba-transfer-status");
+  let ready = false;
+
+  const waitForMatches = setInterval(() => {
+    const matchLinks = document.querySelectorAll('a[href*="/mac-karti/"]');
+    if (matchLinks.length > 0) {
+      ready = true;
+      clearInterval(waitForMatches);
+      statusEl.textContent = `✓ ${matchLinks.length} maç bulundu — aktarıma hazır`;
+      statusEl.style.color = "#34d399";
+    }
+  }, 500);
+
+  // 15 saniye timeout
+  setTimeout(() => {
+    if (!ready) {
+      clearInterval(waitForMatches);
+      statusEl.textContent = "⚠ Maçlar yüklenemedi — bülten sayfasında olduğunuzdan emin olun";
+      statusEl.style.color = "#fbbf24";
+    }
+  }, 15000);
+
+  // Aktarım butonu
+  document.getElementById("ba-transfer-start").addEventListener("click", async () => {
+    if (!ready) {
+      statusEl.textContent = "⚠ Maçlar henüz yüklenmedi, bekleyin...";
+      statusEl.style.color = "#fbbf24";
+      return;
+    }
+
+    const startBtn = document.getElementById("ba-transfer-start");
+    startBtn.disabled = true;
+    startBtn.textContent = "Aktarılıyor...";
+    startBtn.style.opacity = "0.6";
+
+    const predictions = couponData.map((item) => ({
+      homeTeam: item.h,
+      awayTeam: item.a,
+      pick: item.p,
+      odds: item.o,
+    }));
+
+    const result = await handleTransfer(predictions);
+
+    statusEl.textContent = result.success
+      ? `✓ ${result.transferred}/${result.total} bahis kupona eklendi!`
+      : "✗ Aktarım başarısız — maçlar bülten sayfasında bulunamadı";
+    statusEl.style.color = result.success ? "#34d399" : "#f87171";
+
+    startBtn.textContent = "Tamamlandı";
+
+    if (result.errors.length > 0) {
+      const errDiv = document.createElement("div");
+      errDiv.style.cssText = "margin-top:8px; font-size:11px; color:#f87171; text-align:left;";
+      errDiv.innerHTML = result.errors.map((e) => `• ${e}`).join("<br>");
+      statusEl.parentElement.insertBefore(errDiv, statusEl.nextSibling);
+    }
+  });
+
+  // Kapat butonu
+  document.getElementById("ba-transfer-close").addEventListener("click", () => {
+    overlay.remove();
+  });
 }

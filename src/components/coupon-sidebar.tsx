@@ -2,7 +2,7 @@
 
 import { useAppStore } from "@/lib/store";
 import { cn, formatOdds, formatCurrency, calculateTotalOdds } from "@/lib/utils";
-import { Ticket, Trash2, X, ChevronRight } from "lucide-react";
+import { Ticket, Trash2, X, ChevronRight, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -17,6 +17,21 @@ export function CouponSidebar() {
   const handleSave = async () => {
     toast.success("Kupon kaydedildi!");
     // TODO: Supabase'e kaydet
+  };
+
+  const handleBilyonerTransfer = () => {
+    const couponData = activeCoupon.map((item) => ({
+      h: item.homeTeam,
+      a: item.awayTeam,
+      p: item.pick,
+      o: item.odds,
+    }));
+    const encoded = encodeURIComponent(JSON.stringify(couponData));
+    window.open(
+      `https://www.bilyoner.com/iddaa/futbol#ba-coupon=${encoded}`,
+      "_blank"
+    );
+    toast.info("Bilyoner açılıyor — extension kuponu otomatik yükleyecek");
   };
 
   if (activeCoupon.length === 0) return null;
@@ -128,6 +143,14 @@ export function CouponSidebar() {
             >
               Kuponu Kaydet
               <ChevronRight className="h-4 w-4" />
+            </button>
+
+            <button
+              onClick={handleBilyonerTransfer}
+              className="w-full rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors flex items-center justify-center gap-2"
+            >
+              Bilyoner&apos;e Aktar
+              <ExternalLink className="h-4 w-4" />
             </button>
           </div>
         </div>

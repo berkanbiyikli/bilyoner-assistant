@@ -1391,16 +1391,16 @@ function AITab({ prediction: p }: { prediction: MatchPrediction }) {
       if (data.aiAnalysis) {
         setAiResult(data.aiAnalysis);
       } else {
-        setAiError(data.error || "AI analiz ba\u015far\u0131s\u0131z");
+        setAiError(data.error || "AI analiz başarısız");
       }
     } catch {
-      setAiError("AI ba\u011flant\u0131 hatas\u0131");
+      setAiError("AI bağlantı hatası");
     } finally {
       setAiLoading(false);
     }
   };
 
-  // Tab a\u00e7\u0131ld\u0131\u011f\u0131nda AI yoksa otomatik ba\u015flat
+  // Tab açıldığında AI yoksa otomatik başlat
   useEffect(() => {
     if (!aiResult && !aiLoading && !aiError && !autoStarted) {
       setAutoStarted(true);
@@ -1444,52 +1444,132 @@ function AITab({ prediction: p }: { prediction: MatchPrediction }) {
           onClick={fetchAI}
           className="flex items-center gap-2 px-5 py-2.5 bg-indigo-500/10 border border-indigo-500/30 rounded-lg text-sm font-medium text-indigo-400 hover:bg-indigo-500/20 transition-colors"
         >
-          <Bot className="h-4 w-4" /> \uD83E\uDD16 AI ile Analiz Et
+          <Bot className="h-4 w-4" /> AI ile Analiz Et
         </button>
       </div>
     );
   }
 
+  const tempColors: Record<string, { bg: string; text: string; label: string }> = {
+    low: { bg: "bg-blue-500/10 border-blue-500/25", text: "text-blue-400", label: "Düşük Tempolu" },
+    medium: { bg: "bg-yellow-500/10 border-yellow-500/25", text: "text-yellow-400", label: "Orta Tempolu" },
+    high: { bg: "bg-orange-500/10 border-orange-500/25", text: "text-orange-400", label: "Yüksek Tempolu" },
+    explosive: { bg: "bg-red-500/10 border-red-500/25", text: "text-red-400", label: "Patlayıcı" },
+  };
+  const temp = tempColors[aiResult.matchTemperature || "medium"] || tempColors.medium;
+
   return (
     <div className="space-y-3">
-      {/* Headline */}
+      {/* Header: Headline + Temperature */}
       <div className="rounded-lg bg-indigo-500/5 border border-indigo-500/20 p-3">
-        <div className="flex items-center gap-1.5 mb-2">
-          <Sparkles className="h-4 w-4 text-amber-400" />
-          <span className="text-xs font-bold text-indigo-400">AI MA\u00c7 ANAL\u0130Z\u0130</span>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="h-4 w-4 text-amber-400" />
+            <span className="text-xs font-bold text-indigo-400">AI MAÇ ANALİZİ</span>
+          </div>
+          {aiResult.matchTemperature && (
+            <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full border", temp.bg, temp.text)}>
+              {temp.label}
+            </span>
+          )}
         </div>
         <p className="text-sm text-zinc-200 font-medium leading-relaxed">{aiResult.headline}</p>
       </div>
 
+      {/* Tactical Analysis */}
+      {aiResult.tacticalAnalysis && (
+        <div className="rounded-lg bg-zinc-800/30 p-3">
+          <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+            <Swords className="h-3 w-3" /> Taktiksel Analiz
+          </p>
+          <p className="text-[12px] text-zinc-300 leading-relaxed">{aiResult.tacticalAnalysis}</p>
+        </div>
+      )}
+
       {/* Key Factors */}
       <div className="space-y-1.5">
-        <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">\u00d6ne \u00c7\u0131kan Fakt\u00f6rler</p>
+        <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+          <Target className="h-3 w-3" /> Öne Çıkan Faktörler
+        </p>
         {aiResult.keyFactors.map((f, i) => (
           <div key={i} className="flex items-start gap-2 bg-zinc-800/30 rounded-lg px-3 py-2">
-            <span className="text-indigo-400 mt-0.5 shrink-0 text-xs">\u2022</span>
+            <span className="text-indigo-400 mt-0.5 shrink-0 text-xs font-bold">{i + 1}.</span>
             <p className="text-[11px] text-zinc-300 leading-relaxed">{f}</p>
           </div>
         ))}
       </div>
 
+      {/* Scoring Scenarios */}
+      {aiResult.scoringScenarios && aiResult.scoringScenarios.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+            <BarChart3 className="h-3 w-3" /> Skor Senaryoları
+          </p>
+          <div className="grid gap-1.5">
+            {aiResult.scoringScenarios.map((s, i) => (
+              <div key={i} className={cn(
+                "rounded-lg px-3 py-2 border text-[11px] leading-relaxed",
+                i === 0 ? "bg-green-500/5 border-green-500/20 text-green-300" :
+                i === 1 ? "bg-yellow-500/5 border-yellow-500/20 text-yellow-300" :
+                "bg-zinc-800/30 border-zinc-700/40 text-zinc-400"
+              )}>
+                <span className="font-bold text-[10px] mr-1.5">
+                  {i === 0 ? "En Olası:" : i === 1 ? "Alternatif:" : "Sürpriz:"}
+                </span>
+                {s}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Recommendation */}
       <div className="rounded-lg bg-indigo-500/10 border border-indigo-500/25 p-3">
-        <p className="text-[10px] font-semibold text-indigo-400 mb-1">\uD83D\uDCA1 \u00d6NER\u0130</p>
-        <p className="text-sm text-indigo-300 font-medium leading-relaxed">{aiResult.recommendation}</p>
+        <p className="text-[10px] font-semibold text-indigo-400 mb-1 flex items-center gap-1">
+          <Star className="h-3 w-3" /> ÖNERİ
+        </p>
+        <p className="text-[13px] text-indigo-300 font-medium leading-relaxed">{aiResult.recommendation}</p>
       </div>
+
+      {/* Value Picks */}
+      {aiResult.valuePicks && aiResult.valuePicks.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+            <TrendingUp className="h-3 w-3" /> Değer Bahisleri
+          </p>
+          {aiResult.valuePicks.map((vp, i) => (
+            <div key={i} className="flex items-start gap-2 bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-3 py-2">
+              <span className="text-[11px] font-bold text-emerald-400 shrink-0 bg-emerald-500/15 px-2 py-0.5 rounded">{vp.pick}</span>
+              <p className="text-[11px] text-emerald-300/80 leading-relaxed">{vp.reasoning}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Risk Warning */}
       {aiResult.riskWarning && (
         <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/25 p-3">
-          <p className="text-[10px] font-semibold text-yellow-400 mb-1">\u26a0\ufe0f R\u0130SK</p>
+          <p className="text-[10px] font-semibold text-yellow-400 mb-1 flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" /> RİSK
+          </p>
           <p className="text-[11px] text-yellow-300 leading-relaxed">{aiResult.riskWarning}</p>
+        </div>
+      )}
+
+      {/* Verdict */}
+      {aiResult.verdict && (
+        <div className="rounded-lg bg-zinc-800/40 border border-zinc-700/40 p-3">
+          <p className="text-[10px] font-semibold text-zinc-400 mb-1 flex items-center gap-1">
+            <Shield className="h-3 w-3" /> KARAR
+          </p>
+          <p className="text-[12px] text-zinc-200 leading-relaxed font-medium">{aiResult.verdict}</p>
         </div>
       )}
 
       {/* Confidence Adjustment */}
       {aiResult.confidenceAdjustment !== 0 && (
         <div className="flex items-center gap-2 text-xs bg-zinc-800/40 rounded-lg px-3 py-2">
-          <span className="text-zinc-500">G\u00fcven D\u00fczeltmesi:</span>
+          <span className="text-zinc-500">Güven Düzeltmesi:</span>
           <span className={aiResult.confidenceAdjustment > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>
             {aiResult.confidenceAdjustment > 0 ? "+" : ""}{aiResult.confidenceAdjustment}
           </span>

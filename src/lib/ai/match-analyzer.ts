@@ -54,8 +54,17 @@ export async function analyzeMatchWithAI(data: MatchDataForAI): Promise<AIAnalys
       // Confidence adjustment clamp
       parsed.confidenceAdjustment = Math.max(-10, Math.min(10, parsed.confidenceAdjustment || 0));
 
-      // keyFactors max 5
-      if (parsed.keyFactors.length > 5) parsed.keyFactors = parsed.keyFactors.slice(0, 5);
+      // keyFactors max 7
+      if (parsed.keyFactors.length > 7) parsed.keyFactors = parsed.keyFactors.slice(0, 7);
+
+      // scoringScenarios max 3
+      if (parsed.scoringScenarios && parsed.scoringScenarios.length > 3) parsed.scoringScenarios = parsed.scoringScenarios.slice(0, 3);
+
+      // matchTemperature validation
+      const validTemps = ["low", "medium", "high", "explosive"];
+      if (parsed.matchTemperature && !validTemps.includes(parsed.matchTemperature)) {
+        parsed.matchTemperature = "medium";
+      }
 
       return parsed;
     } catch (err) {
@@ -137,12 +146,12 @@ function buildMatchPrompt(data: MatchDataForAI): string {
     ? `Hakem: ${analysis.referee} (${analysis.refereeProfile.cardTendency}, ort ${analysis.refereeProfile.avgCardsPerMatch.toFixed(1)} kart/maç)`
     : "";
 
-  return `Sen profesyonel bir futbol analisti ve bahis danışmanısın. Akıllı, net, analitik bir tonda yaz. Türkçe cevap ver.
+  return `Sen dünya çapında bir futbol analisti, bahis stratejisti ve veri bilimcisin. Derin, kapsamlı, profesyonel analizler üret. Türkçe cevap ver.
 
 ## Maç: ${homeTeam} vs ${awayTeam}
 Lig: ${league}
 
-## İstatistikler
+## Temel İstatistikler
 ${stats}
 
 ## Monte Carlo Simülasyon
@@ -157,20 +166,44 @@ ${refInfo}
 ${topPickInfo}
 
 ## Görev
-Bu maçı analiz et ve aşağıdaki JSON formatında yanıt ver:
+Bu maçı derinlemesine analiz et. Profesyonel bir bahis analisti gibi düşün. Her veri noktasını yorumla, trendleri bul, rakamların arkasındaki hikayeyi anlat.
+
+Aşağıdaki JSON formatında yanıt ver:
 
 {
-  "headline": "Maçı 1 cümlede özetle. Kısa, net, etkili olsun. Örnek: 'City evinde dominant ama Liverpool savunması sağlam'",
-  "keyFactors": ["En önemli 3-5 istatistiksel faktör. Her biri 1 cümle. Sadece verideki gerçek sayıları kullan, uydurma."],
-  "recommendation": "Net, direktif bir tahmin önerisi. Örnek: 'Over 2.5 oyna — xG toplamı 3.1 ve her iki takım da atak oynuyor'. Hangi pick'in neden güçlü olduğunu açıkla.",
-  "riskWarning": "Varsa risk faktörü. Yoksa null. Örnek: 'Son 3 H2H düşük skorlu bitmiş, dikkatli ol'",
+  "headline": "Maçı 1 güçlü cümlede özetle. Dikkat çekici, net, analitik. Örnek: 'Forest'ın çelik savunması Villa'nın atak gücünü söndürebilir — düşük tempolu maç bekleniyor'",
+  "tacticalAnalysis": "2-3 cümlelik taktiksel analiz paragrafı. Takımların güçlü/zayıf yönlerini karşılaştır. Form, atak-savunma dengesi, ev sahibi avantajı, taktiksel uyum gibi konuları detaylı ele al. Verideki somut rakamları kullanarak yorumla.",
+  "keyFactors": [
+    "5-7 kritik faktör. Her biri detaylı bir cümle olsun. Rakamlarla destekle.",
+    "Örnek: 'Ev sahibinin savunma puanı 67/100 ile ligin üst çeyreğinde — son maçlarda az gol yiyor'",
+    "Örnek: 'xG farkı (1.20 vs 1.00) minimal — iki takım da aynı gol beklentisinde'",
+    "Örnek: 'Simülasyon %39.3 olasılıkla Üst 2.5 gösteriyor — istatistiksel olarak düşük skorlu maç'",
+    "Örnek: 'H2H gol ortalaması 3.4 — tarihsel olarak golcü seri ama güncel form aksini söylüyor'"
+  ],
+  "scoringScenarios": [
+    "Senaryo 1: En olası — Açıklama ile birlikte (ör: '1-0 veya 0-0 — savunma odaklı iki takım')",
+    "Senaryo 2: Alternatif — (ör: '2-1 — Villa'nın atak potansiyeli devreye girerse')",
+    "Senaryo 3: Sürpriz — (ör: '0-2 — Forest savunması çökerse deplasman fırtınası')"
+  ],
+  "recommendation": "Net ve cesur tahmin önerisi. Neden bu pick'i seçtiğini 2-3 cümleyle açıkla. Sayısal dayanaklar sun. Örnek: 'Under 2.5 oyna — xG toplamı sadece 2.20, simülasyon %60.7 düşük skor gösteriyor, ev sahibi savunma puanı 67/100 ile maçı kontrol edecek.'",
+  "valuePicks": [
+    { "pick": "Under 2.5", "reasoning": "Sim %60.7, oran 1.85 ile gerçek olasılığa göre değerli" },
+    { "pick": "1X", "reasoning": "Ev sahibi form 58/100 + simülasyon ev %41.2 + beraberlik %30.5 = toplam %71.7" }
+  ],
+  "matchTemperature": "low | medium | high | explosive — maçın beklenen temposunu belirle. low=düşük skorlu taktik mücadele, medium=dengeli, high=golcü, explosive=kaotik maç",
+  "riskWarning": "Gerçek risk faktörleri varsa detaylıca açıkla. Hangi durumda tahmin ters gidebilir? Yoksa null.",
+  "verdict": "2-3 cümlelik genel sonuç paragrafı. Tüm verileri bir araya getirip final kararını ver. Bu maça nasıl yaklaşılmalı? Hangi bahis stratejisi uygulanmalı?",
   "confidenceAdjustment": 0
 }
 
 Kurallar:
 - Sadece verilen istatistiklere dayan, istatistik uydurmak YASAK
-- confidenceAdjustment: Motor güvenini ne kadar düzeltmeli? (-10 ile +10). 0 = değişiklik yok. Sadece güçlü bir neden varsa ≠0 yap
-- keyFactors dizisi minimum 3, maximum 5 eleman
-- riskWarning gerçek bir risk yoksa null olsun
-- recommendation kısa ve direktif olsun, "belki, olabilir" gibi belirsiz ifadeler kullanma`;
+- Her faktörde somut rakam kullan (form puanı, xG, simülasyon olasılığı vb.)
+- confidenceAdjustment: Motor güvenini ne kadar düzeltmeli? (-10 ile +10). 0 = değişiklik yok
+- keyFactors minimum 5, maximum 7 eleman
+- scoringScenarios tam 3 eleman
+- valuePicks 1-3 eleman (en değerli bahisleri seç)
+- matchTemperature: sadece "low", "medium", "high", "explosive" değerlerinden biri
+- Belirsiz ifadeler kullanma: 'belki, olabilir, muhtemelen' YASAK — cesur ve net ol
+- Türkçe yaz, akıcı ve profesyonel bir dil kullan`;
 }

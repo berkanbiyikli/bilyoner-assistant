@@ -48,6 +48,12 @@ export interface AIAnalysis {
   recommendation: string;     // Direktif tahmin önerisi
   riskWarning?: string;       // Varsa risk uyarısı
   confidenceAdjustment: number; // AI'ın önerdiği güven düzeltmesi (-10 ile +10)
+  // Genişletilmiş analiz
+  tacticalAnalysis?: string;    // Taktiksel analiz paragrafı
+  scoringScenarios?: string[];  // 3 olası skor senaryosu
+  valuePicks?: { pick: string; reasoning: string }[]; // Değer bahisleri
+  matchTemperature?: "low" | "medium" | "high" | "explosive"; // Maç sıcaklığı
+  verdict?: string;             // Genel karar / sonuç paragrafı
 }
 
 export interface MatchPrediction {

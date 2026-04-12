@@ -198,22 +198,48 @@ function getContextAwareBetLabel(
   htAway: number | null
 ): { label: string; isContextual: boolean; warning?: string } {
   const totalGoals = homeGoals + awayGoals;
-  const isFirstHalf = elapsed <= 45;
+  const isFirstHalf = elapsed > 0 && elapsed <= 45;
   const isSecondHalf = elapsed > 45;
 
-  // First half: full match over/under bets that are already met or meaningless
+  // Already a half-specific market from backend — no transformation needed
+  if (market.startsWith("İY") || market.startsWith("2Y")) {
+    return { label: market, isContextual: false };
+  }
+
+  // First half: convert full-match bets to first-half equivalents
   if (isFirstHalf) {
+    // Over that's already won → suggest next İY target
     if (market === "Over 2.5" && totalGoals >= 3) {
-      return { label: "İY 2.5 Üst", isContextual: true, warning: "MS 2.5 Üst zaten tuttu" };
+      return { label: `İY ${totalGoals + 0.5} Üst`, isContextual: true, warning: "MS 2.5 Üst zaten tuttu" };
     }
     if (market === "Over 1.5" && totalGoals >= 2) {
-      return { label: "İY 1.5 Üst", isContextual: true, warning: "MS 1.5 Üst zaten tuttu" };
+      return { label: "İY 2.5 Üst", isContextual: true, warning: "MS 1.5 Üst zaten tuttu" };
     }
-    if (market === "Over 2.5" && totalGoals === 2 && elapsed <= 30) {
-      return { label: "İY 2.5 Üst", isContextual: true };
+    // Over 2.5 in first half with 1 or 0 goals → İY 1.5 Üst more actionable
+    if (market === "Over 2.5" && totalGoals <= 1 && elapsed >= 15 && elapsed <= 35) {
+      return { label: "İY 1.5 Üst", isContextual: true, warning: "İY'de daha değerli" };
     }
-    if (market === "Over 1.5" && totalGoals === 1 && elapsed <= 30) {
-      return { label: "İY 1.5 Üst", isContextual: true };
+    // Over 3.5 in first half → practically İY 2.5 Üst for first half value
+    if (market.startsWith("Over") && elapsed <= 40) {
+      const lineParts = market.match(/(\d+\.\d+)/);
+      const line = lineParts ? parseFloat(lineParts[1]) : 0;
+      if (line >= 3.5 && totalGoals >= 2) {
+        return { label: `İY ${totalGoals + 0.5} Üst`, isContextual: true, warning: `MS ${market.split(" ")[1]} uzak, İY daha değerli` };
+      }
+    }
+    // MS result in first half with short time left → İY Sonucu more relevant
+    if ((market === "MS 1" || market === "MS 2") && elapsed >= 30) {
+      const iyLabel = market === "MS 1" ? "İY 1" : "İY 2";
+      return { label: iyLabel, isContextual: true, warning: `İY sonucu daha erişilebilir` };
+    }
+    // BTTS in first half → İY KG Var
+    if (market === "BTTS Var" && elapsed >= 20) {
+      if (homeGoals > 0 && awayGoals > 0) {
+        return { label: "İY KG Var", isContextual: true, warning: "✅ Zaten tuttu" };
+      }
+      if (homeGoals > 0 || awayGoals > 0) {
+        return { label: "İY KG Var", isContextual: true, warning: "1 takım attı, İY KG yakın" };
+      }
     }
   }
   
@@ -221,22 +247,31 @@ function getContextAwareBetLabel(
   if (isSecondHalf && htHome != null && htAway != null) {
     const secondHalfGoals = totalGoals - (htHome + htAway);
     if (market === "Over 2.5" && totalGoals >= 3) {
-      return { label: "2Y 1.5 Üst", isContextual: true, warning: "MS 2.5 Üst zaten tuttu" };
+      return { label: `2Y ${secondHalfGoals + 0.5} Üst`, isContextual: true, warning: "MS 2.5 Üst zaten tuttu" };
     }
     if (market === "Over 1.5" && totalGoals >= 2) {
       return { label: "2Y 0.5 Üst", isContextual: true, warning: "MS 1.5 Üst zaten tuttu" };
     }
+    if (market.startsWith("Over")) {
+      const lineParts = market.match(/(\d+\.\d+)/);
+      const line = lineParts ? parseFloat(lineParts[1]) : 0;
+      const goalsNeeded = Math.ceil(line) - totalGoals;
+      if (goalsNeeded <= 0) {
+        return { label: `2Y ${secondHalfGoals + 0.5} Üst`, isContextual: true, warning: `MS ${market.split(" ")[1]} zaten tuttu` };
+      }
+      if (goalsNeeded >= 2 && elapsed >= 70) {
+        return { label: market, isContextual: false, warning: `⚠️ ${goalsNeeded} gol lazım, zor` };
+      }
+    }
     if (market === "Under 2.5" && totalGoals >= 2 && elapsed >= 75) {
       return { label: market, isContextual: false, warning: "Riskli: 1 gol bozar" };
     }
-  }
-
-  // Over bets that are already won
-  if (market === "Over 2.5" && totalGoals >= 3) {
-    return { label: market, isContextual: false, warning: "✅ Zaten tuttu" };
-  }
-  if (market === "Over 1.5" && totalGoals >= 2) {
-    return { label: market, isContextual: false, warning: "✅ Zaten tuttu" };
+    // BTTS in second half → check if already happened
+    if (market === "BTTS Var") {
+      if (homeGoals > 0 && awayGoals > 0) {
+        return { label: market, isContextual: false, warning: "✅ Zaten tuttu" };
+      }
+    }
   }
 
   return { label: market, isContextual: false };

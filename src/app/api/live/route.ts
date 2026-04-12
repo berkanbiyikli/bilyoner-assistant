@@ -1445,7 +1445,11 @@ function detectOpportunities(
   const scenario = enriched.scenarioType;
 
   // Market Under/Alt olup olmadığını kontrol eden helper
-  const isUnderMarket = (market: string) => market.toLowerCase().includes("under") || market.toLowerCase().includes("alt");
+  const isUnderMarket = (market: string) => {
+    // İY/2Y Alt marketleri kendi zaman dilimlerine göre değerlendirilmeli, genel Under kurallarından muaf
+    if (market.startsWith("İY") || market.startsWith("2Y")) return false;
+    return market.toLowerCase().includes("under") || market.toLowerCase().includes("alt");
+  };
 
   // ============================================
   // FAZ 3: SENARYO BAZLI ÖNERİLER (Hikayeler)
@@ -1602,6 +1606,149 @@ function detectOpportunities(
         timeWindow: `Son ${90 - elapsed}dk`,
         scenario: "SON_DAKIKA_HEYECANI",
       });
+    }
+  }
+
+  // ============================================
+  // FAZ 5: YARI-SPESİFİK MARKETLER (İY / 2Y)
+  // İlk yarı ve ikinci yarı bazlı akıllı öneriler
+  // ============================================
+
+  const isFirstHalf = elapsed > 0 && elapsed <= 45 && !isHT;
+  const isSecondHalf = elapsed > 45 && !isHT;
+  const minutesLeftInHalf = isFirstHalf ? 45 - elapsed : isSecondHalf ? 90 - elapsed : 0;
+
+  if (isFirstHalf && elapsed >= 15) {
+    // İlk yarı gol temposu
+    const firstHalfGoalRate = totalGoals / Math.max(elapsed, 1);
+    const projectedFirstHalfGoals = firstHalfGoalRate * 45;
+
+    // İlk yarı gollü maç — İY Üst/Alt önerileri
+    if (totalGoals >= 2 && elapsed <= 35) {
+      rawOpps.push({
+        level: "HOT",
+        market: `İY ${totalGoals + 0.5} Üst`,
+        message: `${elapsed}'de ${totalGoals} gol! Devre bitmeden bir gol daha gelebilir`,
+        reasoning: `İlk yarıda yüksek tempo. Gol hızı: ${(firstHalfGoalRate * 45).toFixed(1)} gol/İY projeksiyon.`,
+        confidence: Math.min(75, 45 + totalGoals * 12),
+        timeWindow: `${minutesLeftInHalf}dk (devre sonu)`,
+        scenario,
+      });
+    }
+    if (totalGoals >= 1 && elapsed >= 15 && elapsed <= 35) {
+      rawOpps.push({
+        level: totalGoals >= 2 ? "HOT" : "WARM",
+        market: "İY 1.5 Üst",
+        message: `${elapsed}'de ${totalGoals} gol — İlk yarı 1.5 Üst değerli`,
+        reasoning: `Erken goller oyun planını bozdu. Geri kalan takım açılmak zorunda, ${minutesLeftInHalf}dk da yeterli.`,
+        confidence: Math.min(72, 40 + totalGoals * 15 + (elapsed <= 25 ? 5 : 0)),
+        timeWindow: `${minutesLeftInHalf}dk (devre sonu)`,
+        scenario,
+      });
+    }
+
+    // İY KG Var — iki takım da atak
+    if (stats && stats.length >= 2) {
+      const hSoG = getStat(stats, 0, "Shots on Goal");
+      const aSoG = getStat(stats, 1, "Shots on Goal");
+      if (hSoG >= 2 && aSoG >= 2 && homeGoals === 0 && awayGoals === 0 && elapsed >= 20) {
+        rawOpps.push({
+          level: "WARM",
+          market: "İY KG Var",
+          message: `İki takım da isabetli şut buluyor (${hSoG}-${aSoG}) — İY KG Var muhtemel`,
+          reasoning: `İlk yarıda karşılıklı pozisyonlar. Her iki takım da gol arıyor.`,
+          confidence: Math.min(60, 35 + (hSoG + aSoG) * 3),
+          timeWindow: `${minutesLeftInHalf}dk (devre sonu)`,
+          scenario,
+        });
+      }
+      if (homeGoals > 0 && awayGoals > 0) {
+        rawOpps.push({
+          level: "HOT",
+          market: "İY KG Var",
+          message: `✅ İY KG Var zaten tuttu! (${homeGoals}-${awayGoals})`,
+          reasoning: `İki takım da ilk yarıda gol attı. İY KG Var marketi kazananlar arasında.`,
+          confidence: 95,
+          timeWindow: "Tuttu",
+          scenario,
+        });
+      }
+    }
+
+    // İY Sonucu — dominant takım varsa
+    if (goalDiff >= 1 && elapsed >= 25) {
+      const iyMarket = leadingTeam === "home" ? "İY 1" : "İY 2";
+      rawOpps.push({
+        level: elapsed >= 35 ? "HOT" : "WARM",
+        market: iyMarket,
+        message: `${elapsed}'de ${homeGoals}-${awayGoals} — ${leadingName} ilk yarıyı önde bitirebilir`,
+        reasoning: `Kalan ${minutesLeftInHalf}dk'da skor değişmezse İY ${leadingTeam === "home" ? "1" : "2"} tutar. ${leadingName} kontrollü.`,
+        confidence: Math.min(75, 45 + (elapsed >= 35 ? 15 : 0) + goalDiff * 5),
+        timeWindow: `${minutesLeftInHalf}dk (devre sonu)`,
+        scenario,
+      });
+    }
+
+    // 0-0 ve 30+ dakika — İY 0.5 Alt
+    if (totalGoals === 0 && elapsed >= 30) {
+      rawOpps.push({
+        level: elapsed >= 38 ? "HOT" : "WARM",
+        market: "İY 0.5 Alt",
+        message: `${elapsed}' ve hâlâ 0-0 — İlk yarı golsüz bitebilir`,
+        reasoning: `${minutesLeftInHalf}dk kaldı devreye. Tempo düşükse İY 0.5 Alt güçlü.`,
+        confidence: Math.min(75, 45 + (elapsed >= 38 ? 15 : 0) + (elapsed >= 42 ? 10 : 0)),
+        timeWindow: `${minutesLeftInHalf}dk (devre sonu)`,
+        scenario,
+      });
+    }
+  }
+
+  if (isSecondHalf && elapsed >= 50) {
+    const secondHalfGoals = totalGoals - (htHome + htAway);
+    const secondHalfElapsed = elapsed - 45;
+    const secondHalfGoalRate = secondHalfGoals / Math.max(secondHalfElapsed, 1);
+
+    // 2Y gol temposu
+    if (secondHalfGoals >= 1 && elapsed <= 75) {
+      rawOpps.push({
+        level: secondHalfGoals >= 2 ? "HOT" : "WARM",
+        market: `2Y ${secondHalfGoals + 0.5} Üst`,
+        message: `2. yarıda ${secondHalfGoals} gol — tempo devam ederse bir daha gelir`,
+        reasoning: `2. yarı gol hızı: ${(secondHalfGoalRate * 45).toFixed(1)} gol/yarı projeksiyon. Süre yeterli.`,
+        confidence: Math.min(70, 40 + secondHalfGoals * 12),
+        timeWindow: `Son ${90 - elapsed}dk`,
+        scenario,
+      });
+    }
+
+    // 2Y golsüz ve süre azalıyor
+    if (secondHalfGoals === 0 && elapsed >= 70) {
+      rawOpps.push({
+        level: elapsed >= 80 ? "HOT" : "WARM",
+        market: "2Y 0.5 Alt",
+        message: `${elapsed}' ve 2. yarıda hâlâ gol yok — 2Y 0.5 Alt güçleniyor`,
+        reasoning: `2. yarıda ${secondHalfElapsed}dk geçti, gol yok. Kalan süre: ${90 - elapsed}dk`,
+        confidence: Math.min(78, 45 + (elapsed >= 75 ? 12 : 0) + (elapsed >= 80 ? 10 : 0)),
+        timeWindow: `Son ${90 - elapsed}dk`,
+        scenario,
+      });
+    }
+
+    // 2Y KG Var
+    if (stats && stats.length >= 2) {
+      const homeScored2H = homeGoals > (htHome || 0);
+      const awayScored2H = awayGoals > (htAway || 0);
+      if (homeScored2H && awayScored2H) {
+        rawOpps.push({
+          level: "HOT",
+          market: "2Y KG Var",
+          message: `✅ 2Y KG Var zaten tuttu! İki takım da 2. yarıda gol attı`,
+          reasoning: `İY: ${htHome}-${htAway} → Şu an: ${homeGoals}-${awayGoals}. İki takım da 2. yarıda attı.`,
+          confidence: 95,
+          timeWindow: "Tuttu",
+          scenario,
+        });
+      }
     }
   }
 
@@ -1992,8 +2139,21 @@ function detectOpportunities(
     if (opp.market.startsWith("Over") || opp.market.includes("Üst")) {
       const lineParts = opp.market.match(/(\d+\.\d+)/);
       const line = lineParts ? parseFloat(lineParts[1]) : 0;
-      const goalsNeeded = Math.max(0, Math.ceil(line) - totalGoals);
-      const minutesLeft = Math.max(1, 90 - elapsed);
+
+      // İY ve 2Y marketlerinden gol karşılaştırma
+      const isHalfMarket = opp.market.startsWith("İY") || opp.market.startsWith("2Y");
+      let relevantGoals = totalGoals;
+      if (opp.market.startsWith("İY")) {
+        relevantGoals = elapsed <= 45 ? totalGoals : (htHome + htAway);
+      } else if (opp.market.startsWith("2Y")) {
+        relevantGoals = totalGoals - (htHome + htAway);
+      }
+      
+      const goalsNeeded = Math.max(0, Math.ceil(line) - relevantGoals);
+      const minutesLeft = isHalfMarket
+        ? (opp.market.startsWith("İY") ? Math.max(1, 45 - elapsed) : Math.max(1, 90 - elapsed))
+        : Math.max(1, 90 - elapsed);
+      
       if (goalsNeeded === 0) return 0;               // Zaten tutmuş → bahis kapanmış
       if (goalsNeeded === 1 && minutesLeft > 30) {
         value *= 0.35;                                // Kolay hedef → oran 1.05-1.15, değersiz
@@ -2003,6 +2163,10 @@ function detectOpportunities(
       }
       if (goalsNeeded >= 2) {
         value *= 1.3;                                 // Zor hedef = yüksek oran potansiyeli
+      }
+      // Yarı-spesifik marketler bonus (daha niş = daha yüksek oran)
+      if (isHalfMarket) {
+        value *= 1.15;
       }
     }
 

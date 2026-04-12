@@ -25,6 +25,19 @@ const BASE_URL = process.env.API_FOOTBALL_BASE_URL || "https://v3.football.api-s
 let dailyRequestCount = 0;
 let lastResetDate = new Date().toISOString().split("T")[0];
 
+// ---- Global Throttle: API rate limit koruması ----
+let lastRequestTime = 0;
+const MIN_REQUEST_INTERVAL = 350; // ms — dakikada max ~170 istek
+
+async function throttle() {
+  const now = Date.now();
+  const elapsed = now - lastRequestTime;
+  if (elapsed < MIN_REQUEST_INTERVAL) {
+    await new Promise((r) => setTimeout(r, MIN_REQUEST_INTERVAL - elapsed));
+  }
+  lastRequestTime = Date.now();
+}
+
 function checkAndResetCounter() {
   const today = new Date().toISOString().split("T")[0];
   if (today !== lastResetDate) {
@@ -72,6 +85,9 @@ async function apiFetch<T>(
       console.log(`[API-FOOTBALL] Rate limit retry ${attempt}/${MAX_RETRIES}, waiting ${waitMs}ms...`);
       await new Promise((r) => setTimeout(r, waitMs));
     }
+
+    // Global throttle — rate limit koruma
+    await throttle();
 
     const res = await fetch(url.toString(), {
       headers: {

@@ -84,8 +84,8 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Maçları analiz et
-    const predictions = await analyzeMatches(fixtures);
+    // Maçları analiz et — maxConcurrent=1 ile rate limit'e takılmayı önle
+    const predictions = await analyzeMatches(fixtures, 1);
     let savedCount = 0;
 
     // existingPreds'ten pick bazlı set oluştur

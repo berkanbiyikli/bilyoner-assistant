@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
     const forceRegenerate = searchParams.get("force") === "true";
     const allLeagues = searchParams.get("allLeagues") === "true";
-    const batchSize = parseInt(searchParams.get("batch") || "20", 10);
+    const batchSize = parseInt(searchParams.get("batch") || "2", 10);
     const allFixtures = await getFixturesByDate(date);
 
     // NS (başlamamış) maçları filtrele — allLeagues=true ise lig filtresi yok
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Maçları analiz et — AI atlanır, lightweight mod (shot stats yok = hızlı)
-    const predictions = await analyzeMatches(fixtures, 3, { skipAI: true, lightweight: true });
+    const predictions = await analyzeMatches(fixtures, 2, { skipAI: true, lightweight: true });
     let savedCount = 0;
 
     // existingPreds'ten pick bazlı set oluştur

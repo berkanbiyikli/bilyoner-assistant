@@ -67,7 +67,7 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
 
   const [prediction, h2h, odds, injuries, importance, homeTeamStats, awayTeamStats, leagueRealStats, homeShotStats, awayShotStats, homeRecentFixtures, awayRecentFixtures, refereeProfile] = await Promise.all([
     getPrediction(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Prediction API hatası — null`); return null; }),
-    getH2H(homeId, awayId, 25).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: H2H API hatası — boş dizi`); return []; }),
+    getH2H(homeId, awayId, isLightweight ? 10 : 25).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: H2H API hatası — boş dizi`); return []; }),
     getOdds(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Odds API hatası — null`); return null; }),
     getInjuries(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Injuries API hatası — boş dizi`); return []; }),
     calculateMatchImportance(fixture.league.id, homeId, awayId).catch(() => ({

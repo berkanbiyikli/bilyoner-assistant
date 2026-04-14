@@ -84,7 +84,7 @@ async function apiFetch<T>(
     url.searchParams.set(key, String(value));
   });
 
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 2;
   let lastError: Error | null = null;
 
   // Semaphore: max 8 eşzamanlı API çağrısı
@@ -92,11 +92,15 @@ async function apiFetch<T>(
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       if (attempt > 0) {
-        // Rate limit backoff: 2s, 4s (serverless timeout dostu)
-        const waitMs = attempt * 2000;
+        // Rate limit backoff: 1s (serverless timeout dostu)
+        const waitMs = 1000;
         console.log(`[API-FOOTBALL] Rate limit retry ${attempt}/${MAX_RETRIES}, waiting ${waitMs}ms...`);
         await new Promise((r) => setTimeout(r, waitMs));
       }
+
+      // AbortController: tek istek max 10s — yavaş çağrılar kesilir
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
       const res = await fetch(url.toString(), {
         headers: {
@@ -104,7 +108,10 @@ async function apiFetch<T>(
         },
         next: options.revalidate ? { revalidate: options.revalidate } : undefined,
         cache: options.cache,
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       dailyRequestCount++;
 

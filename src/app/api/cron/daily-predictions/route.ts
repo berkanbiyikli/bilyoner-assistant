@@ -22,27 +22,33 @@ export async function GET(req: NextRequest) {
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
     const forceRegenerate = searchParams.get("force") === "true";
     const allLeagues = searchParams.get("allLeagues") === "true";
-    const allFixtures = await getFixturesByDate(date);
+
+    // Tüm başlangıç verilerini PARALEL çek — sıralı beklemeden
+    const [allFixtures, existingPredsResult] = await Promise.all([
+      getFixturesByDate(date),
+      forceRegenerate
+        ? supabase.from("predictions").delete()
+            .gte("kickoff", `${date}T00:00:00.000Z`)
+            .lte("kickoff", `${date}T23:59:59.999Z`)
+            .then(() => supabase.from("predictions").select("fixture_id, pick")
+              .gte("kickoff", `${date}T00:00:00.000Z`)
+              .lte("kickoff", `${date}T23:59:59.999Z`))
+        : supabase.from("predictions").select("fixture_id, pick")
+            .gte("kickoff", `${date}T00:00:00.000Z`)
+            .lte("kickoff", `${date}T23:59:59.999Z`),
+      // Pre-warm shared resources — paralel Supabase çağrıları
+      getOptimalWeights().catch(() => ({ heuristic: 0.4, sim: 0.6 })),
+      getCalibrationAdjustments().catch(() => ({})),
+      isMLModelAvailable().catch(() => false),
+    ]);
+
+    const existingPreds = existingPredsResult.data;
 
     const nsFixtures = allFixtures.filter(
       (f) => f.fixture.status.short === "NS" && (allLeagues || LEAGUE_IDS.includes(f.league.id))
     );
 
     const apiUsage = getApiUsage();
-
-    if (forceRegenerate) {
-      await supabase
-        .from("predictions")
-        .delete()
-        .gte("kickoff", `${date}T00:00:00.000Z`)
-        .lte("kickoff", `${date}T23:59:59.999Z`);
-    }
-    
-    const { data: existingPreds } = await supabase
-      .from("predictions")
-      .select("fixture_id, pick")
-      .gte("kickoff", `${date}T00:00:00.000Z`)
-      .lte("kickoff", `${date}T23:59:59.999Z`);
     
     const fixturesWithAnyRecord = new Set(
       (existingPreds || []).map((p) => p.fixture_id)
@@ -81,14 +87,7 @@ export async function GET(req: NextRequest) {
     const pickInserts: Array<Record<string, unknown>> = [];
     const noPickDeleteIds: number[] = [];
 
-    // Pre-warm shared resources — tek seferlik Supabase çağrıları
-    // Bu sayede analyzeMatch içindeki cache hit olur, her maç için tekrarlanmaz
-    await Promise.all([
-      getOptimalWeights().catch(() => ({ heuristic: 0.4, sim: 0.6 })),
-      getCalibrationAdjustments().catch(() => ({})),
-      isMLModelAvailable().catch(() => false),
-    ]);
-    console.log(`[CRON] Pre-warm tamamlandı (${Math.round((Date.now() - startTime) / 1000)}s)`);
+    console.log(`[CRON] Init tamamlandı (${Math.round((Date.now() - startTime) / 1000)}s)`);
 
     // Seri olarak maç analiz et, zaman limitine yaklaşınca dur
     for (const fixture of sortedFixtures) {

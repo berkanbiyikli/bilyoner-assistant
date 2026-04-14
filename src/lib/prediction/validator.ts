@@ -368,10 +368,15 @@ export async function calculateCalibration(): Promise<CalibrationData> {
   if (cached) return cached;
 
   const supabase = createAdminSupabase();
-  const all = await fetchAllRows<ValidationRecordRow>(supabase, "validation_records", {
-    order: { column: "kickoff", ascending: false },
-    filters: [{ method: "in", args: ["result", ["won", "lost"]] }],
-  });
+  // Son 500 kayıt yeterli — tüm tabloyu çekmek serverless'ta çok yavaş
+  const { data: rawData, error } = await supabase
+    .from("validation_records")
+    .select("confidence, result, is_value_bet")
+    .in("result", ["won", "lost"])
+    .order("kickoff", { ascending: false })
+    .limit(500);
+  if (error) throw error;
+  const all = (rawData || []) as ValidationRecordRow[];
   if (all.length < 30) {
     // Yeterli veri yok, default weights
     return {

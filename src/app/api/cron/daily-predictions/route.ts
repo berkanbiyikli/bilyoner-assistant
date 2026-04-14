@@ -5,11 +5,11 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getOptimalWeights, getCalibrationAdjustments } from "@/lib/prediction/validator";
 import { isMLModelAvailable } from "@/lib/prediction/ml-model";
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const startTime = Date.now();
-  const TIME_LIMIT = 280_000; // 280 saniye — 20s margin bırak
+  const TIME_LIMIT = 50_000; // 50 saniye — 10s margin bırak
   
   try {
     const authHeader = req.headers.get("authorization");

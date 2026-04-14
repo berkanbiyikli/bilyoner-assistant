@@ -65,7 +65,7 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
   // lightweight=true: shot stats + recent fixtures atlanır (Vercel serverless timeout önlemi)
   const isLightweight = options?.lightweight === true;
 
-  const [prediction, h2h, odds, injuries, importance, homeTeamStats, awayTeamStats, leagueRealStats, homeShotStats, awayShotStats, homeRecentFixtures, awayRecentFixtures] = await Promise.all([
+  const [prediction, h2h, odds, injuries, importance, homeTeamStats, awayTeamStats, leagueRealStats, homeShotStats, awayShotStats, homeRecentFixtures, awayRecentFixtures, refereeProfile] = await Promise.all([
     getPrediction(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Prediction API hatası — null`); return null; }),
     getH2H(homeId, awayId, 25).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: H2H API hatası — boş dizi`); return []; }),
     getOdds(fixtureId).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Odds API hatası — null`); return null; }),
@@ -86,6 +86,8 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
     // Son maç tarihi (dinlenme günü hesabı) — lightweight modda atlanır
     isLightweight ? Promise.resolve([]) : getTeamRecentFixtures(homeId, 1).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Home recent fixtures hatası`); return []; }),
     isLightweight ? Promise.resolve([]) : getTeamRecentFixtures(awayId, 1).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Away recent fixtures hatası`); return []; }),
+    // Hakem profili (Supabase) — paralel çalışır
+    getRefereeProfile(fixture.fixture.referee).catch(() => { console.warn(`[FALLBACK] Fixture ${fixtureId}: Referee profili hatası`); return undefined; }),
   ]);
 
   // Analizleri oluştur
@@ -99,9 +101,6 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
   const matchDate = new Date(fixture.fixture.date);
   const homeRestDays = calculateRestDays(homeRecentFixtures, matchDate);
   const awayRestDays = calculateRestDays(awayRecentFixtures, matchDate);
-
-  // Hakem profili (async — Supabase'ten gerçek veri)
-  const refereeProfile = await getRefereeProfile(fixture.fixture.referee);
 
   const cornerData = extractCornerData(prediction, h2h, homeTeamStats, awayTeamStats, homeShotStats, awayShotStats);
   const cardData = extractCardData(prediction, h2h, refereeProfile, homeTeamStats, awayTeamStats);

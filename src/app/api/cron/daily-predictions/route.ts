@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById } from "@/lib/api-football";
 import { analyzeMatch } from "@/lib/prediction/engine";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { getOptimalWeights, getCalibrationAdjustments } from "@/lib/prediction/validator";
+import { isMLModelAvailable } from "@/lib/prediction/ml-model";
 
 export const maxDuration = 300;
 
@@ -78,6 +80,15 @@ export async function GET(req: NextRequest) {
     const noPickInserts: Array<Record<string, unknown>> = [];
     const pickInserts: Array<Record<string, unknown>> = [];
     const noPickDeleteIds: number[] = [];
+
+    // Pre-warm shared resources — tek seferlik Supabase çağrıları
+    // Bu sayede analyzeMatch içindeki cache hit olur, her maç için tekrarlanmaz
+    await Promise.all([
+      getOptimalWeights().catch(() => ({ heuristic: 0.4, sim: 0.6 })),
+      getCalibrationAdjustments().catch(() => ({})),
+      isMLModelAvailable().catch(() => false),
+    ]);
+    console.log(`[CRON] Pre-warm tamamlandı (${Math.round((Date.now() - startTime) / 1000)}s)`);
 
     // Seri olarak maç analiz et, zaman limitine yaklaşınca dur
     for (const fixture of sortedFixtures) {

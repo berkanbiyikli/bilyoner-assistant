@@ -1347,9 +1347,9 @@ async function generatePicks(
   const picks: Pick[] = [];
   if (!odds) return picks;
 
-  // === VERİ KALİTESİ KAPISI: Düşük kaliteli veriyle pick üretme ===
-  if (dataQuality && dataQuality.overall < 40) {
-    console.warn(`[QUALITY-GATE] Pick üretimi iptal — veri kalitesi düşük: ${dataQuality.overall}/100`);
+  // === VERİ KALİTESİ KAPISI: Sadece tamamen veri olmayan maçları engelle ===
+  if (dataQuality && dataQuality.overall < 15) {
+    console.warn(`[QUALITY-GATE] Pick üretimi iptal — veri kalitesi çok düşük: ${dataQuality.overall}/100`);
     return picks;
   }
 
@@ -2380,7 +2380,7 @@ function adjustByForm(base: number, form: string): number {
   return Math.max(10, Math.min(95, base + bonus));
 }
 
-export async function analyzeMatches(fixtures: FixtureResponse[], maxConcurrent = 3, options?: AnalyzeOptions): Promise<MatchPrediction[]> {
+export async function analyzeMatches(fixtures: FixtureResponse[], maxConcurrent = 5, options?: AnalyzeOptions): Promise<MatchPrediction[]> {
   const results: MatchPrediction[] = [];
 
   for (let i = 0; i < fixtures.length; i += maxConcurrent) {
@@ -2393,7 +2393,7 @@ export async function analyzeMatches(fixtures: FixtureResponse[], maxConcurrent 
     }
 
     if (i + maxConcurrent < fixtures.length) {
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 

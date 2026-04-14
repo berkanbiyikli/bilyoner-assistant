@@ -25,17 +25,26 @@ const BASE_URL = process.env.API_FOOTBALL_BASE_URL || "https://v3.football.api-s
 let dailyRequestCount = 0;
 let lastResetDate = new Date().toISOString().split("T")[0];
 
-// ---- Global Throttle: API rate limit koruması ----
-let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 350; // ms — dakikada max ~170 istek
+// ---- Concurrency Semaphore: max 8 eşzamanlı API isteği ----
+const MAX_CONCURRENT = 8;
+let activeRequests = 0;
+const waitQueue: (() => void)[] = [];
 
-async function throttle() {
-  const now = Date.now();
-  const elapsed = now - lastRequestTime;
-  if (elapsed < MIN_REQUEST_INTERVAL) {
-    await new Promise((r) => setTimeout(r, MIN_REQUEST_INTERVAL - elapsed));
+async function acquireSlot() {
+  if (activeRequests < MAX_CONCURRENT) {
+    activeRequests++;
+    return;
   }
-  lastRequestTime = Date.now();
+  await new Promise<void>((resolve) => waitQueue.push(resolve));
+  activeRequests++;
+}
+
+function releaseSlot() {
+  activeRequests--;
+  if (waitQueue.length > 0) {
+    const next = waitQueue.shift()!;
+    next();
+  }
 }
 
 function checkAndResetCounter() {
@@ -78,57 +87,60 @@ async function apiFetch<T>(
   const MAX_RETRIES = 3;
   let lastError: Error | null = null;
 
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    if (attempt > 0) {
-      // Rate limit backoff: 5s, 10s
-      const waitMs = attempt * 5000;
-      console.log(`[API-FOOTBALL] Rate limit retry ${attempt}/${MAX_RETRIES}, waiting ${waitMs}ms...`);
-      await new Promise((r) => setTimeout(r, waitMs));
-    }
-
-    // Global throttle — rate limit koruma
-    await throttle();
-
-    const res = await fetch(url.toString(), {
-      headers: {
-        "x-apisports-key": API_KEY,
-      },
-      next: options.revalidate ? { revalidate: options.revalidate } : undefined,
-      cache: options.cache,
-    });
-
-    dailyRequestCount++;
-
-    if (!res.ok) {
-      throw new Error(`API-Football error: ${res.status} ${res.statusText}`);
-    }
-
-    const data: ApiResponse<T> = await res.json();
-
-    // Rate limit hatası — retry
-    if (data.errors && typeof data.errors === "object") {
-      const errObj = data.errors as Record<string, string>;
-      if (errObj.rateLimit) {
-        console.warn(`[API-FOOTBALL] Rate limited on ${endpoint}, attempt ${attempt + 1}/${MAX_RETRIES}`);
-        lastError = new Error(errObj.rateLimit);
-        continue;
+  // Semaphore: max 8 eşzamanlı API çağrısı
+  await acquireSlot();
+  try {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        // Rate limit backoff: 2s, 4s (serverless timeout dostu)
+        const waitMs = attempt * 2000;
+        console.log(`[API-FOOTBALL] Rate limit retry ${attempt}/${MAX_RETRIES}, waiting ${waitMs}ms...`);
+        await new Promise((r) => setTimeout(r, waitMs));
       }
-      // Diğer API hataları — log'la ama devam et
-      if (Object.keys(errObj).length > 0) {
-        console.warn(`[API-FOOTBALL] API error for ${endpoint}:`, data.errors);
+
+      const res = await fetch(url.toString(), {
+        headers: {
+          "x-apisports-key": API_KEY,
+        },
+        next: options.revalidate ? { revalidate: options.revalidate } : undefined,
+        cache: options.cache,
+      });
+
+      dailyRequestCount++;
+
+      if (!res.ok) {
+        throw new Error(`API-Football error: ${res.status} ${res.statusText}`);
       }
+
+      const data: ApiResponse<T> = await res.json();
+
+      // Rate limit hatası — retry
+      if (data.errors && typeof data.errors === "object") {
+        const errObj = data.errors as Record<string, string>;
+        if (errObj.rateLimit) {
+          console.warn(`[API-FOOTBALL] Rate limited on ${endpoint}, attempt ${attempt + 1}/${MAX_RETRIES}`);
+          lastError = new Error(errObj.rateLimit);
+          continue;
+        }
+        // Diğer API hataları — log'la ama devam et
+        if (Object.keys(errObj).length > 0) {
+          console.warn(`[API-FOOTBALL] API error for ${endpoint}:`, data.errors);
+        }
+      }
+
+      // Cache'e kaydet
+      if (cacheTtl > 0 && data.response && (Array.isArray(data.response) ? data.response.length > 0 : true)) {
+        setCache(cacheKey, data, cacheTtl);
+      }
+
+      return data;
     }
 
-    // Cache'e kaydet
-    if (cacheTtl > 0 && data.response && (Array.isArray(data.response) ? data.response.length > 0 : true)) {
-      setCache(cacheKey, data, cacheTtl);
-    }
-
-    return data;
+    // Tüm retry'lar tükendi
+    throw lastError || new Error(`API-Football rate limit exceeded after ${MAX_RETRIES} retries`);
+  } finally {
+    releaseSlot();
   }
-
-  // Tüm retry'lar tükendi
-  throw lastError || new Error(`API-Football rate limit exceeded after ${MAX_RETRIES} retries`);
 }
 
 // ---- Fixtures ----

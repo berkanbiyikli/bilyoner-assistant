@@ -3,7 +3,7 @@ import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById } from "@/lib
 import { analyzeMatches } from "@/lib/prediction";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
     const forceRegenerate = searchParams.get("force") === "true";
     const allLeagues = searchParams.get("allLeagues") === "true";
-    const batchSize = parseInt(searchParams.get("batch") || "10", 10);
+    const batchSize = parseInt(searchParams.get("batch") || "5", 10);
     const allFixtures = await getFixturesByDate(date);
 
     // NS (başlamamış) maçları filtrele — allLeagues=true ise lig filtresi yok
@@ -84,19 +84,23 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Maçları analiz et — maxConcurrent=1 ile rate limit'e takılmayı önle
-    const predictions = await analyzeMatches(fixtures, 1);
+    // Maçları analiz et — AI atlanır, lightweight mod (shot stats yok = hızlı)
+    const predictions = await analyzeMatches(fixtures, 3, { skipAI: true, lightweight: true });
     let savedCount = 0;
 
     // existingPreds'ten pick bazlı set oluştur
     const existingPickKeys = new Set((existingPreds || []).map((e) => `${e.fixture_id}_${e.pick}`));
 
+    // Toplu insert için kayıtları biriktir
+    const noPickInserts: Array<Record<string, unknown>> = [];
+    const pickInserts: Array<Record<string, unknown>> = [];
+    const noPickDeleteIds: number[] = [];
+
     for (const pred of predictions) {
       if (pred.picks.length === 0) {
-        // Pick üretilmeyen maç — no_pick marker yaz, sonraki cron atlasın
         const existsNoPickKey = existingPickKeys.has(`${pred.fixtureId}_no_pick`);
         if (!existsNoPickKey) {
-          await supabase.from("predictions").insert({
+          noPickInserts.push({
             fixture_id: pred.fixtureId,
             home_team: pred.homeTeam.name,
             away_team: pred.awayTeam.name,
@@ -116,14 +120,8 @@ export async function GET(req: NextRequest) {
       }
 
       // Daha önce no_pick varsa temizle (yeniden analiz başarılı oldu)
-      await supabase
-        .from("predictions")
-        .delete()
-        .eq("fixture_id", pred.fixtureId)
-        .eq("pick", "no_pick");
+      noPickDeleteIds.push(pred.fixtureId);
 
-      // Analiz verisini JSON olarak hazırla (tüm sekmeler için)
-      // realMarkets Set → Array dönüşümü (JSON serialize edilemez)
       const oddsForJson = pred.odds ? {
         ...pred.odds,
         realMarkets: pred.odds.realMarkets ? Array.from(pred.odds.realMarkets) : [],
@@ -139,7 +137,7 @@ export async function GET(req: NextRequest) {
         const key = `${pred.fixtureId}_${pick.type}`;
         if (existingPickKeys.has(key)) continue;
 
-        const { error } = await supabase.from("predictions").insert({
+        pickInserts.push({
           fixture_id: pred.fixtureId,
           home_team: pred.homeTeam.name,
           away_team: pred.awayTeam.name,
@@ -154,10 +152,28 @@ export async function GET(req: NextRequest) {
           analysis_summary: pick.reasoning || pred.analysis.summary,
           analysis_data: analysisData,
         });
-
-        if (!error) savedCount++;
-        else console.error(`[CRON] Prediction save error (${pred.fixtureId}/${pick.type}):`, error.message);
       }
+    }
+
+    // Toplu DB işlemleri — tek seferde (sequential insert yerine)
+    if (noPickDeleteIds.length > 0) {
+      await supabase
+        .from("predictions")
+        .delete()
+        .in("fixture_id", noPickDeleteIds)
+        .eq("pick", "no_pick");
+    }
+
+    if (noPickInserts.length > 0) {
+      const { error } = await supabase.from("predictions").insert(noPickInserts);
+      if (error) console.error(`[CRON] no_pick batch insert error:`, error.message);
+      else savedCount += noPickInserts.length;
+    }
+
+    if (pickInserts.length > 0) {
+      const { error } = await supabase.from("predictions").insert(pickInserts);
+      if (error) console.error(`[CRON] pick batch insert error:`, error.message);
+      else savedCount += pickInserts.length;
     }
 
     const totalPicks = predictions.reduce((sum, p) => sum + p.picks.length, 0);

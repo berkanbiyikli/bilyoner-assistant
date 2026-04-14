@@ -161,12 +161,14 @@ export async function GET(req: NextRequest) {
         .in("fixture_id", noPickDeleteIds).eq("pick", "no_pick");
     }
     if (noPickInserts.length > 0) {
-      const { error } = await supabase.from("predictions").insert(noPickInserts);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await supabase.from("predictions").insert(noPickInserts as any);
       if (error) console.error(`[CRON] no_pick insert error:`, error.message);
       else savedCount += noPickInserts.length;
     }
     if (pickInserts.length > 0) {
-      const { error } = await supabase.from("predictions").insert(pickInserts);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await supabase.from("predictions").insert(pickInserts as any);
       if (error) console.error(`[CRON] pick insert error:`, error.message);
       else savedCount += pickInserts.length;
     }

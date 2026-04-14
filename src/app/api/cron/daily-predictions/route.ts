@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
     const forceRegenerate = searchParams.get("force") === "true";
     const allLeagues = searchParams.get("allLeagues") === "true";
-    const batchSize = parseInt(searchParams.get("batch") || "5", 10);
+    const batchSize = parseInt(searchParams.get("batch") || "20", 10);
     const allFixtures = await getFixturesByDate(date);
 
     // NS (başlamamış) maçları filtrele — allLeagues=true ise lig filtresi yok

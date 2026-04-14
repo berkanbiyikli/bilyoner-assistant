@@ -3,11 +3,11 @@ import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById } from "@/lib
 import { analyzeMatch } from "@/lib/prediction/engine";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   const startTime = Date.now();
-  const TIME_LIMIT = 50_000; // 50 saniye — 10s margin bırak
+  const TIME_LIMIT = 280_000; // 280 saniye — 20s margin bırak
   
   try {
     const authHeader = req.headers.get("authorization");

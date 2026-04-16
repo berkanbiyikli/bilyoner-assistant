@@ -80,6 +80,8 @@ export interface Pick {
   expectedValue: number; // Kelly EV
   isValueBet: boolean;
   simProbability?: number; // Monte Carlo simülasyondan gelen olasılık %
+  modelProbability?: number; // EV hesaplamasında kullanılan olasılık (0-1)
+  impliedProbability?: number; // Orandan türetilen olasılık (0-1)
 }
 
 export interface MonteCarloResult {
@@ -283,6 +285,8 @@ export interface CouponItem {
   pick: PickType;
   odds: number;
   confidence: number;
+  kellyPercent?: number;
+  recommendedStake?: number;
   result?: "won" | "lost" | "void" | "pending";
   score?: Goals;
 }

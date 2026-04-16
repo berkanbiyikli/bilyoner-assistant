@@ -6,6 +6,7 @@ import {
   Trophy,
   TrendingUp,
   Radio,
+  Brain,
   Menu,
   X,
 } from "lucide-react";
@@ -16,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Tahminler", icon: Trophy },
   { href: "/live", label: "Canlı", icon: Radio },
   { href: "/stats", label: "İstatistik", icon: TrendingUp },
+  { href: "/ml-lab", label: "ML Lab", icon: Brain },
 ];
 
 export function Navbar() {

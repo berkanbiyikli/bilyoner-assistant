@@ -5,6 +5,13 @@
 
 import type { BankrollEntry, BankrollStats } from "@/types";
 
+export interface DrawdownProtectionState {
+  drawdownPercent: number;
+  stakeMultiplier: number;
+  shouldPause: boolean;
+  reason: string;
+}
+
 export function calculateBankrollStats(entries: BankrollEntry[]): BankrollStats {
   const deposits = entries.filter((e) => e.type === "deposit");
   const withdrawals = entries.filter((e) => e.type === "withdrawal");
@@ -69,6 +76,14 @@ export function kellyBet(
   bankroll: number,
   fraction: number = 0.25
 ): { stake: number; unitSize: number; recommendation: string } {
+  if (odds <= 1 || probability <= 0 || probability >= 1 || bankroll <= 0) {
+    return {
+      stake: 0,
+      unitSize: 0,
+      recommendation: "❌ Geçersiz parametreler — bahis hesaplanamadı",
+    };
+  }
+
   const b = odds - 1;
   const q = 1 - probability;
   const kelly = (b * probability - q) / b;
@@ -81,7 +96,7 @@ export function kellyBet(
     };
   }
 
-  const stake = Math.round(bankroll * kelly * fraction);
+  const stake = Math.max(0, Math.round(bankroll * kelly * fraction));
   const unitSize = Math.round((kelly * fraction) * 100 * 10) / 10;
 
   let recommendation: string;
@@ -96,6 +111,61 @@ export function kellyBet(
   }
 
   return { stake, unitSize, recommendation };
+}
+
+export function getDrawdownProtectionState(
+  currentBankroll: number,
+  peakBankroll: number,
+  lossStreak: number
+): DrawdownProtectionState {
+  if (peakBankroll <= 0 || currentBankroll <= 0) {
+    return {
+      drawdownPercent: 0,
+      stakeMultiplier: 1,
+      shouldPause: false,
+      reason: "Yeterli bankroll geçmişi yok",
+    };
+  }
+
+  const drawdownPercent = Math.max(0, ((peakBankroll - currentBankroll) / peakBankroll) * 100);
+
+  if (drawdownPercent >= 25 || lossStreak >= 6) {
+    return {
+      drawdownPercent: Math.round(drawdownPercent * 10) / 10,
+      stakeMultiplier: 0,
+      shouldPause: true,
+      reason: "Kritik drawdown/loss streak — bahisleri durdur",
+    };
+  }
+
+  if (drawdownPercent >= 15 || lossStreak >= 4) {
+    return {
+      drawdownPercent: Math.round(drawdownPercent * 10) / 10,
+      stakeMultiplier: 0.25,
+      shouldPause: false,
+      reason: "Yuksek risk modu — stake %75 azalt",
+    };
+  }
+
+  if (drawdownPercent >= 10 || lossStreak >= 3) {
+    return {
+      drawdownPercent: Math.round(drawdownPercent * 10) / 10,
+      stakeMultiplier: 0.5,
+      shouldPause: false,
+      reason: "Koruma modu — stake %50 azalt",
+    };
+  }
+
+  return {
+    drawdownPercent: Math.round(drawdownPercent * 10) / 10,
+    stakeMultiplier: 1,
+    shouldPause: false,
+    reason: "Normal risk modu",
+  };
+}
+
+export function applyStakeMultiplier(stake: number, multiplier: number): number {
+  return Math.max(0, Math.round(stake * Math.max(0, multiplier)));
 }
 
 export function calculateDailyBudget(

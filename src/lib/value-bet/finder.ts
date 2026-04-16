@@ -132,8 +132,10 @@ export function findValueBets(predictions: MatchPrediction[]): ValueBet[] {
 
     // Korner & Kart pazarları devre dışı — sentetik veri güvenilir değil
 
-    // FAZ 1.1: Minimum oran eşiği — düşük oranlı bahisler value bet olarak önerilmez
+    // Daha konservatif filtre: düşük oranlı bahisleri dışarıda tut.
     const MIN_VALUE_BET_ODDS = 1.40;
+    const MIN_EDGE_WITH_SIM = 10;
+    const MIN_EDGE_NO_SIM = 12;
 
     for (const m of markets) {
       if (m.bookmakerOdds < MIN_VALUE_BET_ODDS) continue; // Düşük oranlı market'leri atla
@@ -167,15 +169,12 @@ export function findValueBets(predictions: MatchPrediction[]): ValueBet[] {
         }
       }
 
-      if (edge > 8) { // %8'den fazla edge varsa value bet (daha sıkı filtre)
+      const minEdge = sim ? MIN_EDGE_WITH_SIM : MIN_EDGE_NO_SIM;
+      if (edge >= minEdge) {
         const kellyFraction = (m.bookmakerOdds * m.probability - 1) / (m.bookmakerOdds - 1);
 
         // Kelly çok yüksekse şüpheli — muhtemelen olasılık hesabı yanlış
         if (kellyFraction > 0.4) continue;
-
-        // Sim varsa güvenilirlik daha yüksek → daha düşük edge kabul edilebilir
-        const minEdge = sim ? 6 : 8;
-        if (edge < minEdge) continue;
 
         valueBets.push({
           fixtureId: prediction.fixtureId,

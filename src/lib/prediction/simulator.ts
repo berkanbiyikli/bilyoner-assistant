@@ -365,8 +365,25 @@ export function simulateMatch(
   const marketAdj = getMarketCalibrationAdjustment();
   if (marketAdj) {
     // Over pazarları over-confident ise lambda'yı düşür
-    homeLambda *= (1 + (marketAdj.goalLambdaAdjustment ?? 0));
-    awayLambda *= (1 + (marketAdj.goalLambdaAdjustment ?? 0));
+    const goalAdj = 1 + (marketAdj.goalLambdaAdjustment ?? 0);
+    const homeAdj = 1 + (marketAdj.homeWinAdjustment ?? 0);
+    const bttsAdj = 1 + (marketAdj.bttsAdjustment ?? 0);
+
+    homeLambda *= goalAdj;
+    awayLambda *= goalAdj;
+
+    // Ev galibiyeti taraflı over/under hatalarını doğrudan home lambda'ya uygula.
+    homeLambda *= homeAdj;
+
+    // BTTS sapmalarında iki tarafı ters yönde ayarlayarak gol dağılımını dengede tut.
+    if (marketAdj.bttsAdjustment > 0) {
+      homeLambda *= bttsAdj;
+      awayLambda *= bttsAdj;
+    } else if (marketAdj.bttsAdjustment < 0) {
+      const damp = Math.max(0.9, bttsAdj);
+      homeLambda *= damp;
+      awayLambda *= damp;
+    }
   }
 
   // Lambda aralığını sınırla (0.25 – 3.8 arası mantıklı)

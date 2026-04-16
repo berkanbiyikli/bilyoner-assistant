@@ -255,6 +255,24 @@
   DROP POLICY IF EXISTS referee_profiles_update ON referee_profiles;
   CREATE POLICY referee_profiles_update ON referee_profiles FOR UPDATE USING (true);
 
+  -- Optimizer Calibration State (restart sonrası kalıcı kalibrasyon)
+  CREATE TABLE IF NOT EXISTS optimizer_calibration_state (
+    id TEXT PRIMARY KEY DEFAULT 'current',
+    home_factors JSONB NOT NULL DEFAULT '{}'::jsonb,
+    market_adjustment JSONB NOT NULL DEFAULT '{}'::jsonb,
+    league_calibrations JSONB NOT NULL DEFAULT '[]'::jsonb,
+    market_calibrations JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  ALTER TABLE optimizer_calibration_state ENABLE ROW LEVEL SECURITY;
+  DROP POLICY IF EXISTS optimizer_calibration_state_select ON optimizer_calibration_state;
+  CREATE POLICY optimizer_calibration_state_select ON optimizer_calibration_state FOR SELECT USING (true);
+  DROP POLICY IF EXISTS optimizer_calibration_state_insert ON optimizer_calibration_state;
+  CREATE POLICY optimizer_calibration_state_insert ON optimizer_calibration_state FOR INSERT WITH CHECK (true);
+  DROP POLICY IF EXISTS optimizer_calibration_state_update ON optimizer_calibration_state;
+  CREATE POLICY optimizer_calibration_state_update ON optimizer_calibration_state FOR UPDATE USING (true);
+
   -- ============================================
   -- RPC: Reset All Stats (SECURITY DEFINER = bypass RLS)
   -- ============================================

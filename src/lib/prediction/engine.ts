@@ -1346,8 +1346,9 @@ async function generatePicks(
   const picks: Pick[] = [];
   if (!odds) return picks;
 
-  // === VERİ KALİTESİ KAPISI: Sadece tamamen veri olmayan maçları engelle ===
-  if (dataQuality && dataQuality.overall < 15) {
+  // === VERİ KALİTESİ KAPISI ===
+  // 45 altı kalite artık üretim için yetersiz kabul edilir.
+  if (dataQuality && dataQuality.overall < 45) {
     console.warn(`[QUALITY-GATE] Pick üretimi iptal — veri kalitesi çok düşük: ${dataQuality.overall}/100`);
     return picks;
   }
@@ -1355,6 +1356,10 @@ async function generatePicks(
   const sim = analysis.simulation;
   const refProfile = analysis.refereeProfile;
   const qualityPenalty = dataQuality?.confidencePenalty ?? 0;
+  const roundLabel = fixture.league.round || "";
+  const roundMatch = roundLabel.match(/(\d+)/);
+  const leagueWeek = roundMatch ? Number(roundMatch[1]) : null;
+  const isLateSeason = leagueWeek !== null && leagueWeek >= 24;
 
   // === OLASI PROBLEM: Form skoru ≠ Kazanma olasılığı ===
   // analysis.homeForm: güç göstergesi (0-100), olasılık DEĞİL
@@ -1495,7 +1500,7 @@ async function generatePicks(
     impliedProb: number,
     oddsValue: number,
     extraSignal: boolean,
-    minConf: number = 45
+    minConf: number = 58
   ) => {
     // Gerçek oran yoksa veya çok düşükse pick üretme
     // 1.0 altı = veri yok, 1.15 altı = bahis oynamaya değmez
@@ -1505,11 +1510,35 @@ async function generatePicks(
     conf = hybridConfidence(conf, type);
     conf = applyH2HFilter(conf, type);
 
-    // EV hesabı: blended olasılık vs piyasa implied olasılığı
-    // conf/100 değil, modelProb ve impliedProb'un ortalamasını kullan (daha gerçekçi)
-    // conf doğrudan olasılık değil — güven seviyesidir
-    const effectiveProb = Math.min(0.92, (modelProb * 0.6 + (conf / 100) * 0.4));
-    const ev = effectiveProb * oddsValue - 1;
+    // Sürpriz filtreleme: underdog 1/2 ile HT BTTS Yes pazarlarını lig haftası + oran profili ile ayarla.
+    let surpriseBoost = 0;
+    let surpriseNote = "";
+    if (type === "1" && oddsValue >= 2.8) {
+      if (isLateSeason) surpriseBoost += 2;
+      if (analysis.injuryImpact.away - analysis.injuryImpact.home >= 4) surpriseBoost += 2;
+      if (sim && sim.simHomeWinProb - (impliedProb * 100) >= 6) surpriseBoost += 2;
+      if (surpriseBoost >= 4) surpriseNote = " | Surpriz sinyali: oran + hafta profili";
+    }
+    if (type === "2" && oddsValue >= 2.8) {
+      if (isLateSeason) surpriseBoost += 2;
+      if (analysis.injuryImpact.home - analysis.injuryImpact.away >= 4) surpriseBoost += 2;
+      if (sim && sim.simAwayWinProb - (impliedProb * 100) >= 6) surpriseBoost += 2;
+      if (surpriseBoost >= 4) surpriseNote = " | Surpriz sinyali: oran + hafta profili";
+    }
+    if (type === "HT BTTS Yes") {
+      const highTempo = (analysis.homeAttack + analysis.awayAttack) >= 122;
+      const shotQuality = (analysis.homeShotQuality ?? 0.4) + (analysis.awayShotQuality ?? 0.4);
+      if (highTempo) surpriseBoost += 2;
+      if (shotQuality >= 0.9) surpriseBoost += 1;
+      if (isLateSeason) surpriseBoost += 1;
+      if (surpriseBoost >= 3) surpriseNote = " | IY surpriz filtresi: tempo + hafta";
+    }
+    conf = Math.min(90, conf + surpriseBoost);
+
+    // EV hesabı confidence'tan bağımsız olmalı.
+    // Sadece model olasılığı ile hesapla (confidence bir sıralama metriğidir).
+    const pricingProb = Math.max(0.05, Math.min(0.92, modelProb));
+    const ev = pricingProb * oddsValue - 1;
     // EV sağduyu limiti: %50'den fazla EV gerçekçi değil
     const cappedEv = Math.min(0.50, ev);
     const simProb = sim ? getSimProbability(sim, type) : undefined;
@@ -1519,18 +1548,20 @@ async function generatePicks(
         type,
         confidence: conf,
         odds: oddsValue,
-        reasoning: getPickReasoning(type, conf, prediction, analysis),
+        reasoning: `${getPickReasoning(type, conf, prediction, analysis)}${surpriseNote}`,
         expectedValue: Math.round(cappedEv * 100) / 100,
-        isValueBet: cappedEv > 0.05,
+        isValueBet: cappedEv > 0.08,
         simProbability: simProb,
+        modelProbability: pricingProb,
+        impliedProbability: Math.max(0.01, Math.min(0.99, impliedProb)),
       });
     }
   };
 
   // --- 1X2 ---
-  if (homeProbability >= 0.35) addPick("1", homeProbability, impliedHome, odds.home, analysis.h2hAdvantage === "home");
-  if (drawProbability >= 0.25) addPick("X", drawProbability, impliedDraw, odds.draw, false);
-  if (awayProbability >= 0.35) addPick("2", awayProbability, impliedAway, odds.away, analysis.h2hAdvantage === "away");
+  if (homeProbability >= 0.40) addPick("1", homeProbability, impliedHome, odds.home, analysis.h2hAdvantage === "home", 58);
+  if (drawProbability >= 0.30) addPick("X", drawProbability, impliedDraw, odds.draw, false, 56);
+  if (awayProbability >= 0.40) addPick("2", awayProbability, impliedAway, odds.away, analysis.h2hAdvantage === "away", 58);
 
   // --- Üst/Alt 2.5 --- (SIM-DRIVEN: simülasyon olasılığı birincil kaynak)
   const avgAttack = (analysis.homeAttack + analysis.awayAttack) / 2;
@@ -1548,20 +1579,20 @@ async function generatePicks(
     const gap = Math.abs(sim.simOver25Prob - 50);
     if (isOverStronger && sim.simOver25Prob > 53) {
       const overProb = sim.simOver25Prob / 100;
-      addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0 || xgTotal > 3.0, 48);
+      addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0 || xgTotal > 3.0, 58);
     } else if (!isOverStronger && sim.simOver25Prob < 47) {
       const underProb = (100 - sim.simOver25Prob) / 100;
-      addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8 || xgTotal < 1.8, 48);
+      addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8 || xgTotal < 1.8, 58);
     }
     // %47-53 arası: belirsiz alan, pick üretme
   } else {
     // Sim yok → heuristic fallback (tek yönlü)
     if (goalIndicator > 5 || (goalIndicator > 0 && h2hGoalAvg > 2.5) || xgTotal > 2.8) {
       const overProb = Math.min(0.72, (avgAttack / 100) * 0.6 + (h2hGoalAvg > 2.5 ? 0.12 : 0) + xgBonus + (xgTotal > 2.8 ? 0.08 : 0));
-      addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0, 48);
+      addPick("Over 2.5", overProb, 1 / odds.over25, odds.over25, h2hGoalAvg > 3.0, 58);
     } else if (goalIndicator < -5 || (goalIndicator < 0 && h2hGoalAvg < 2.2) || xgTotal < 1.8) {
       const underProb = Math.min(0.72, (avgDefense / 100) * 0.6 + (h2hGoalAvg < 2.0 ? 0.12 : 0) + (xgTotal < 1.8 ? 0.08 : 0));
-      addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8, 48);
+      addPick("Under 2.5", underProb, 1 / odds.under25, odds.under25, h2hGoalAvg < 1.8, 58);
     }
   }
 
@@ -1597,16 +1628,16 @@ async function generatePicks(
     const isBttsStronger = sim.simBttsProb >= 50;
     if (isBttsStronger && sim.simBttsProb > 53) {
       const bttsProb = sim.simBttsProb / 100;
-      addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, xgTotal > 2.5, 50);
+      addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, xgTotal > 2.5, 60);
     } else if (!isBttsStronger && sim.simBttsProb < 47) {
       const bttsNoProb = (100 - sim.simBttsProb) / 100;
       const weakAttack = analysis.homeAttack < 45 || analysis.awayAttack < 45;
-      addPick("BTTS No", bttsNoProb, 1 / odds.bttsNo, odds.bttsNo, weakAttack, 50);
+      addPick("BTTS No", bttsNoProb, 1 / odds.bttsNo, odds.bttsNo, weakAttack, 60);
     }
     // %47-53 arası: belirsiz → pick üretme
   } else if (analysis.homeAttack > 55 && analysis.awayAttack > 50 && xgTotal > 2.2) {
     const bttsProb = Math.min(0.72, ((analysis.homeAttack + analysis.awayAttack) / 200) * 0.80 + (xgTotal > 2.6 ? 0.05 : 0));
-    addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, false, 50);
+    addPick("BTTS Yes", bttsProb, 1 / odds.bttsYes, odds.bttsYes, false, 60);
   }
 
   // --- İY KG Var (HT BTTS Yes) ---
@@ -1755,21 +1786,21 @@ async function generatePicks(
     const dc12Odds = 1 / (impliedHome + impliedAway);
 
     // 1X: Ev sahibi kazanır veya berabere
-    if (prob1x > 0.60 && dc1xOdds > 1.05) {
+    if (prob1x > 0.64 && dc1xOdds > 1.05) {
       addPick("1X", prob1x, impliedHome + impliedDraw, dc1xOdds,
-        analysis.h2hAdvantage === "home" || analysis.homeForm > 60, 55);
+        analysis.h2hAdvantage === "home" || analysis.homeForm > 60, 62);
     }
 
     // X2: Deplasman kazanır veya berabere
-    if (probX2 > 0.60 && dcX2Odds > 1.05) {
+    if (probX2 > 0.64 && dcX2Odds > 1.05) {
       addPick("X2", probX2, impliedAway + impliedDraw, dcX2Odds,
-        analysis.h2hAdvantage === "away" || analysis.awayForm > 60, 55);
+        analysis.h2hAdvantage === "away" || analysis.awayForm > 60, 62);
     }
 
     // 12: Berabere bitmez
-    if (prob12 > 0.72 && dc12Odds > 1.05) {
+    if (prob12 > 0.75 && dc12Odds > 1.05) {
       addPick("12", prob12, impliedHome + impliedAway, dc12Odds,
-        xgTotal > 2.8, 55);
+        xgTotal > 2.8, 62);
     }
   }
 
@@ -1781,7 +1812,7 @@ async function generatePicks(
       const realComboOdds = Math.max(odds.home * 1.05, comboOdds); // En az %5 prim
       const prob = sim.simHomeAndOver15Prob / 100;
       addPick("1 & Over 1.5", prob, 1 / realComboOdds, realComboOdds,
-        homeProbability > 0.50 && xgTotal > 2.3, 50);
+        homeProbability > 0.50 && xgTotal > 2.3, 60);
     }
 
     // 2 & Ü1.5: Deplasman kazanır ve 2+ gol
@@ -1789,7 +1820,7 @@ async function generatePicks(
       const realComboOdds = odds.away * 1.08;
       const prob = sim.simAwayAndOver15Prob / 100;
       addPick("2 & Over 1.5", prob, 1 / realComboOdds, realComboOdds,
-        awayProbability > 0.45 && xgTotal > 2.3, 50);
+        awayProbability > 0.45 && xgTotal > 2.3, 60);
     }
   }
 

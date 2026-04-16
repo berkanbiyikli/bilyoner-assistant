@@ -5,6 +5,7 @@
 
 import type { MatchPrediction, Coupon, CouponItem, CouponCategory, Pick } from "@/types";
 import { calculateTotalOdds } from "@/lib/utils";
+import { applyStakeMultiplier, getDrawdownProtectionState, kellyBet } from "@/lib/bankroll";
 
 interface CouponBuildOptions {
   category: CouponCategory;
@@ -14,33 +15,36 @@ interface CouponBuildOptions {
   maxOdds?: number;
   targetTotalOdds?: number;
   stake?: number;
+  bankroll?: number;
+  peakBankroll?: number;
+  lossStreak?: number;
 }
 
 const CATEGORY_DEFAULTS: Record<CouponCategory, Partial<CouponBuildOptions>> = {
   safe: {
     maxItems: 3,
-    minConfidence: 70,
+    minConfidence: 75,
     minOdds: 1.25,
     maxOdds: 1.70,
     targetTotalOdds: 3.5,
   },
   balanced: {
     maxItems: 4,
-    minConfidence: 60,
+    minConfidence: 65,
     minOdds: 1.40,
     maxOdds: 2.20,
     targetTotalOdds: 8,
   },
   risky: {
     maxItems: 5,
-    minConfidence: 50,
+    minConfidence: 58,
     minOdds: 1.60,
     maxOdds: 3.50,
     targetTotalOdds: 25,
   },
   value: {
     maxItems: 4,
-    minConfidence: 55,
+    minConfidence: 62,
     minOdds: 1.50,
     maxOdds: 3.00,
     targetTotalOdds: 12,
@@ -64,6 +68,11 @@ export function buildCoupon(
   options: CouponBuildOptions
 ): Coupon {
   const config = { ...CATEGORY_DEFAULTS[options.category], ...options };
+  const baseStake = options.stake || 100;
+  const bankroll = Math.max(100, options.bankroll ?? baseStake * 20);
+  const peakBankroll = Math.max(bankroll, options.peakBankroll ?? bankroll);
+  const lossStreak = Math.max(0, options.lossStreak ?? 0);
+  const drawdownControl = getDrawdownProtectionState(bankroll, peakBankroll, lossStreak);
 
   let eligiblePicks: Array<{ prediction: MatchPrediction; pick: Pick }> = [];
 
@@ -104,20 +113,31 @@ export function buildCoupon(
     if (config.targetTotalOdds && currentOdds >= config.targetTotalOdds) break;
   }
 
-  const items: CouponItem[] = selected.map(({ prediction, pick }) => ({
-    fixtureId: prediction.fixtureId,
-    homeTeam: prediction.homeTeam.name,
-    awayTeam: prediction.awayTeam.name,
-    league: prediction.league.name,
-    kickoff: prediction.kickoff,
-    pick: pick.type,
-    odds: pick.odds,
-    confidence: pick.confidence,
-    result: "pending",
-  }));
+  const items: CouponItem[] = selected.map(({ prediction, pick }) => {
+    const probability = Math.max(
+      0.05,
+      Math.min(0.92, pick.modelProbability ?? (pick.simProbability ? pick.simProbability / 100 : pick.confidence / 100))
+    );
+    const kelly = kellyBet(pick.odds, probability, bankroll, 0.25);
+    const recommendedStake = applyStakeMultiplier(kelly.stake, drawdownControl.stakeMultiplier);
+
+    return {
+      fixtureId: prediction.fixtureId,
+      homeTeam: prediction.homeTeam.name,
+      awayTeam: prediction.awayTeam.name,
+      league: prediction.league.name,
+      kickoff: prediction.kickoff,
+      pick: pick.type,
+      odds: pick.odds,
+      confidence: pick.confidence,
+      kellyPercent: kelly.unitSize,
+      recommendedStake,
+      result: "pending",
+    };
+  });
 
   const totalOdds = calculateTotalOdds(items);
-  const stake = options.stake || 100;
+  const stake = drawdownControl.shouldPause ? 0 : applyStakeMultiplier(baseStake, drawdownControl.stakeMultiplier);
 
   return {
     id: crypto.randomUUID(),
@@ -148,6 +168,8 @@ export function addToCoupon(
     pick: pick.type,
     odds: pick.odds,
     confidence: pick.confidence,
+    kellyPercent: undefined,
+    recommendedStake: undefined,
     result: "pending",
   };
 

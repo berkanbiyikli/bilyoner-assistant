@@ -85,6 +85,11 @@ const OPTIMIZATION_CACHE_KEY = "optimizer-result";
 const OPTIMIZATION_CACHE_TTL = 12 * 3600; // 12 saat
 const CALIBRATED_FACTORS_KEY = "calibrated-home-factors";
 const CALIBRATED_FACTORS_TTL = 7 * 24 * 3600; // 1 hafta
+const CALIBRATION_STATE_ROW_ID = "current";
+
+let persistedFactors: Record<number, number> | null = null;
+let persistedMarketAdjustment: MarketCalibrationAdjustment | null = null;
+let stateLoadInProgress = false;
 
 // ---- Ana Optimizasyon Fonksiyonu ----
 
@@ -174,10 +179,10 @@ export async function runOptimization(): Promise<OptimizationResult> {
 
   if (Object.keys(calibratedFactors).length > 0) {
     setCache(CALIBRATED_FACTORS_KEY, calibratedFactors, CALIBRATED_FACTORS_TTL);
-
-    // DB'ye de kaydet (kalıcı)
-    await saveCalibrationToDB(calibratedFactors, leagueCalibrations, marketCalibrations);
   }
+
+  // DB'ye de kaydet (kalıcı)
+  await saveCalibrationToDB(calibratedFactors, leagueCalibrations, marketCalibrations);
 
   const result: OptimizationResult = {
     timestamp: new Date().toISOString(),
@@ -414,6 +419,19 @@ async function saveCalibrationToDB(
 ): Promise<void> {
   const supabase = createAdminSupabase();
 
+  const marketAdjustment = buildMarketAdjustmentFromCalibrations(marketCals);
+  persistedFactors = factors;
+  persistedMarketAdjustment = marketAdjustment;
+
+  await supabase.from("optimizer_calibration_state").upsert({
+    id: CALIBRATION_STATE_ROW_ID,
+    home_factors: factors,
+    market_adjustment: marketAdjustment,
+    league_calibrations: leagueCals,
+    market_calibrations: marketCals,
+    updated_at: new Date().toISOString(),
+  } as unknown as never, { onConflict: "id" });
+
   // calibration_logs tablosu yoksa predictions'a summary olarak kaydet
   // İlk iterasyon: tweets tablosu üzerinden "analytic" tip ile log bırak
   const logContent = [
@@ -442,10 +460,16 @@ async function saveCalibrationToDB(
 export function getCalibratedHomeAdvantage(leagueId?: number): number {
   if (!leagueId) return DEFAULT_HOME_ADVANTAGE;
 
+  ensureCalibrationStateLoaded();
+
   // Önce cache'ten kalibre edilmiş değeri kontrol et
   const calibrated = getCached<Record<number, number>>(CALIBRATED_FACTORS_KEY);
   if (calibrated && calibrated[leagueId] !== undefined) {
     return calibrated[leagueId];
+  }
+
+  if (persistedFactors && persistedFactors[leagueId] !== undefined) {
+    return persistedFactors[leagueId];
   }
 
   // Yoksa base değeri döndür
@@ -518,18 +542,34 @@ export interface MarketCalibrationAdjustment {
  * Son optimization sonucuna bakarak pazar bazlı lambda düzeltmeleri üretir
  */
 export function getMarketCalibrationAdjustment(): MarketCalibrationAdjustment | null {
+  ensureCalibrationStateLoaded();
+
   const cached = getCached<MarketCalibrationAdjustment>(MARKET_CALIBRATION_KEY);
   if (cached) return cached;
+
+  if (persistedMarketAdjustment) {
+    setCache(MARKET_CALIBRATION_KEY, persistedMarketAdjustment, MARKET_CALIBRATION_TTL);
+    return persistedMarketAdjustment;
+  }
 
   // Son optimization sonucunu al
   const lastResult = getLastOptimizationResult();
   if (!lastResult || lastResult.marketCalibrations.length === 0) return null;
 
+  const result = buildMarketAdjustmentFromCalibrations(lastResult.marketCalibrations);
+
+  setCache(MARKET_CALIBRATION_KEY, result, MARKET_CALIBRATION_TTL);
+  return result;
+}
+
+function buildMarketAdjustmentFromCalibrations(
+  calibrations: MarketCalibration[]
+): MarketCalibrationAdjustment {
   let goalAdj = 0;
   let homeAdj = 0;
   let bttsAdj = 0;
 
-  for (const mc of lastResult.marketCalibrations) {
+  for (const mc of calibrations) {
     if (mc.market.includes("Over") && mc.lambdaAdjustment !== 0) {
       goalAdj += mc.lambdaAdjustment;
     }
@@ -541,18 +581,61 @@ export function getMarketCalibrationAdjustment(): MarketCalibrationAdjustment | 
     }
   }
 
-  // Sınırla: max ±5%
   goalAdj = Math.max(-0.05, Math.min(0.05, goalAdj));
   homeAdj = Math.max(-0.05, Math.min(0.05, homeAdj));
   bttsAdj = Math.max(-0.05, Math.min(0.05, bttsAdj));
 
-  const result: MarketCalibrationAdjustment = {
+  return {
     goalLambdaAdjustment: Math.round(goalAdj * 1000) / 1000,
     homeWinAdjustment: Math.round(homeAdj * 1000) / 1000,
     bttsAdjustment: Math.round(bttsAdj * 1000) / 1000,
     updatedAt: new Date().toISOString(),
   };
+}
 
-  setCache(MARKET_CALIBRATION_KEY, result, MARKET_CALIBRATION_TTL);
-  return result;
+function ensureCalibrationStateLoaded(): void {
+  if (stateLoadInProgress || persistedFactors || persistedMarketAdjustment) return;
+  stateLoadInProgress = true;
+
+  const supabase = createAdminSupabase();
+  void (async () => {
+    try {
+      const { data } = await supabase
+        .from("optimizer_calibration_state")
+        .select("home_factors, market_adjustment")
+        .eq("id", CALIBRATION_STATE_ROW_ID)
+        .single();
+
+      if (!data) return;
+
+      const homeFactors = (data.home_factors ?? {}) as Record<string, number>;
+      const parsedFactors: Record<number, number> = {};
+      for (const [k, v] of Object.entries(homeFactors)) {
+        const key = Number(k);
+        if (!Number.isNaN(key) && typeof v === "number") parsedFactors[key] = v;
+      }
+
+      persistedFactors = parsedFactors;
+      setCache(CALIBRATED_FACTORS_KEY, parsedFactors, CALIBRATED_FACTORS_TTL);
+
+      const rawMarketAdj = data.market_adjustment as unknown;
+      const marketAdj =
+        rawMarketAdj &&
+        typeof rawMarketAdj === "object" &&
+        "goalLambdaAdjustment" in rawMarketAdj &&
+        "homeWinAdjustment" in rawMarketAdj &&
+        "bttsAdjustment" in rawMarketAdj
+          ? (rawMarketAdj as MarketCalibrationAdjustment)
+          : null;
+
+      if (marketAdj) {
+        persistedMarketAdjustment = marketAdj;
+        setCache(MARKET_CALIBRATION_KEY, marketAdj, MARKET_CALIBRATION_TTL);
+      }
+    } catch (err) {
+      console.warn("[OPTIMIZER] Calibration state load failed:", err);
+    } finally {
+      stateLoadInProgress = false;
+    }
+  })();
 }

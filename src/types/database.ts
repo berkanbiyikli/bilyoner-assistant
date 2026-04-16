@@ -127,6 +127,15 @@ type RefereeProfileRow = {
   updated_at: string;
 }
 
+type OptimizerCalibrationStateRow = {
+  id: string;
+  home_factors: Record<string, number>;
+  market_adjustment: Record<string, unknown>;
+  league_calibrations: Record<string, unknown>[];
+  market_calibrations: Record<string, unknown>[];
+  updated_at: string;
+}
+
 // ---- Database Type ----
 export type Database = {
   public: {
@@ -183,6 +192,12 @@ export type Database = {
         Row: RefereeProfileRow;
         Insert: Omit<RefereeProfileRow, "id" | "created_at" | "updated_at"> & { id?: number; created_at?: string; updated_at?: string };
         Update: Partial<Omit<RefereeProfileRow, "id">>;
+        Relationships: [];
+      };
+      optimizer_calibration_state: {
+        Row: OptimizerCalibrationStateRow;
+        Insert: Omit<OptimizerCalibrationStateRow, "updated_at"> & { updated_at?: string };
+        Update: Partial<Omit<OptimizerCalibrationStateRow, "id">>;
         Relationships: [];
       };
     };

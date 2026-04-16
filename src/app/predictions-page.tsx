@@ -167,10 +167,11 @@ export function PredictionsPage() {
     setApiMessage(null);
     setIsRedirected(false);
     try {
-      const url = selectedDates.length === 1
+      const base = selectedDates.length === 1
         ? `/api/predictions?date=${selectedDates[0]}`
         : `/api/predictions?dates=${selectedDates.join(",")}`;
-      const res = await fetch(url);
+      const url = `${base}&refresh=true`;
+      const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       setPredictions(data.predictions || []);
       if (data.source === "redirect" && data.redirectDates) {

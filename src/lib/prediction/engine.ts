@@ -1563,6 +1563,18 @@ async function generatePicks(
   if (drawProbability >= 0.30) addPick("X", drawProbability, impliedDraw, odds.draw, false, 56);
   if (awayProbability >= 0.40) addPick("2", awayProbability, impliedAway, odds.away, analysis.h2hAdvantage === "away", 58);
 
+  // Underdog/surpriz filtresi: oran yüksekse normal eşik yerine edge-temelli yakala.
+  if (sim) {
+    const homeEdge = homeProbability - impliedHome;
+    const awayEdge = awayProbability - impliedAway;
+    if (odds.home >= 2.4 && homeProbability >= 0.33 && homeEdge >= 0.05 && sim.simHomeWinProb >= impliedHome * 100 + 5) {
+      addPick("1", homeProbability, impliedHome, odds.home, true, 54);
+    }
+    if (odds.away >= 2.4 && awayProbability >= 0.33 && awayEdge >= 0.05 && sim.simAwayWinProb >= impliedAway * 100 + 5) {
+      addPick("2", awayProbability, impliedAway, odds.away, true, 54);
+    }
+  }
+
   // --- Üst/Alt 2.5 --- (SIM-DRIVEN: simülasyon olasılığı birincil kaynak)
   const avgAttack = (analysis.homeAttack + analysis.awayAttack) / 2;
   const avgDefense = (analysis.homeDefense + analysis.awayDefense) / 2;
@@ -1650,6 +1662,14 @@ async function generatePicks(
       const impliedHtBtts = 1 / htBttsOdds;
       addPick("HT BTTS Yes", htBttsProb, impliedHtBtts, htBttsOdds, 
         analysis.homeAttack > 65 && analysis.awayAttack > 60, 50);
+    }
+
+    // IY KG Var özel kapı: tempo + erken gol sinyali + piyasa edge varsa daha erken dahil et.
+    const tempoStrong = analysis.homeAttack + analysis.awayAttack >= 118;
+    const earlyGoalStrong = (analysis.goalTiming?.firstHalfGoalProb ?? 50) >= 60;
+    const hasValueEdge = htBttsProb - (1 / Math.max(1.01, htBttsOdds)) >= 0.04;
+    if (htBttsOdds >= 1.9 && sim.simHtBttsProb >= 22 && tempoStrong && earlyGoalStrong && hasValueEdge) {
+      addPick("HT BTTS Yes", htBttsProb, 1 / htBttsOdds, htBttsOdds, true, 46);
     }
   }
 

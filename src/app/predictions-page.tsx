@@ -84,7 +84,16 @@ export function PredictionsPage() {
   // Cascade Strategy state
   const [cascadeStrategies, setCascadeStrategies] = useState<Record<CascadeRiskLevel, CascadeStrategy> | null>(null);
   const [cascadeLoading, setCascadeLoading] = useState(false);
-  const [heroTab, setHeroTab] = useState<"cascade" | "top-picks">("top-picks");
+  const [heroTab, setHeroTab] = useState<"cascade" | "top-picks" | "sim-summary">("top-picks");
+
+  // Geçmiş value bet & genel performans (her gün için tek seferlik fetch)
+  const [perfStats, setPerfStats] = useState<{
+    valueBetHitRate: number;
+    valueBetSettled: number;
+    valueBetWon: number;
+    overallHitRate: number;
+    overallRoi: number;
+  } | null>(null);
 
   // Coupon
   const { activeCoupon, addToCoupon } = useAppStore();
@@ -224,6 +233,24 @@ export function PredictionsPage() {
     fetchPredictions();
     fetchCascade();
   }, [selectedDates]);
+
+  // Geçmiş performans (sayfa açılışında 1 kez)
+  useEffect(() => {
+    fetch("/api/stats")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.valueBets && d?.overview) {
+          setPerfStats({
+            valueBetHitRate: d.valueBets.hitRate ?? 0,
+            valueBetSettled: d.valueBets.settled ?? 0,
+            valueBetWon: d.valueBets.won ?? 0,
+            overallHitRate: d.overview.hitRate ?? 0,
+            overallRoi: d.overview.roi ?? 0,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     if (activeTab === "crazy-picks" && crazyPicks.length === 0 && !crazyLoading && !crazyError) fetchCrazyPicks();
   }, [activeTab]);
@@ -406,6 +433,48 @@ export function PredictionsPage() {
     return result;
   }, [sortedPredictions]);
 
+  // Sim-tabanlı günlük özet — kalibrasyondan etkilenmeyen "ham" simülasyon olasılıkları
+  // Bu yüzdeler 10K Monte Carlo'dan gelir; engine'in confidence inflation'ından bağımsız.
+  type SimSummaryItem = { prediction: MatchPrediction; pickType: string; pickLabelText: string; simProb: number; pick?: PickT };
+  const simSummary = useMemo(() => {
+    type Section = { key: string; icon: string; label: string; threshold: number; items: SimSummaryItem[] };
+    const sections: Section[] = [
+      { key: "1", icon: "🏠", label: "Ev Sahibi (1)", threshold: 60, items: [] },
+      { key: "2", icon: "✈️", label: "Deplasman (2)", threshold: 60, items: [] },
+      { key: "X", icon: "🤝", label: "Berabere (X)", threshold: 35, items: [] },
+      { key: "over25", icon: "⚽", label: "2.5 Üst", threshold: 60, items: [] },
+      { key: "under25", icon: "🛡", label: "2.5 Alt", threshold: 60, items: [] },
+      { key: "btts_yes", icon: "🥅", label: "KG Var", threshold: 60, items: [] },
+      { key: "btts_no", icon: "🚫", label: "KG Yok", threshold: 60, items: [] },
+      { key: "over15", icon: "🔥", label: "Banker — 1.5 Üst", threshold: 80, items: [] },
+      { key: "ht_over05", icon: "🕐", label: "İY 0.5 Üst", threshold: 70, items: [] },
+    ];
+    const findPick = (p: MatchPrediction, type: string) => p.picks.find((pk) => pk.type === type);
+    for (const p of sortedPredictions) {
+      const sim = p.analysis?.simulation;
+      if (!sim) continue;
+      // 1/X/2
+      if (sim.simHomeWinProb >= 60) sections[0].items.push({ prediction: p, pickType: "1", pickLabelText: "1", simProb: sim.simHomeWinProb, pick: findPick(p, "1") });
+      if (sim.simAwayWinProb >= 60) sections[1].items.push({ prediction: p, pickType: "2", pickLabelText: "2", simProb: sim.simAwayWinProb, pick: findPick(p, "2") });
+      if (sim.simDrawProb >= 35) sections[2].items.push({ prediction: p, pickType: "X", pickLabelText: "X", simProb: sim.simDrawProb, pick: findPick(p, "X") });
+      // Goller
+      if (sim.simOver25Prob >= 60) sections[3].items.push({ prediction: p, pickType: "Over 2.5", pickLabelText: "Ü2.5", simProb: sim.simOver25Prob, pick: findPick(p, "Over 2.5") });
+      if (100 - sim.simOver25Prob >= 60) sections[4].items.push({ prediction: p, pickType: "Under 2.5", pickLabelText: "A2.5", simProb: 100 - sim.simOver25Prob, pick: findPick(p, "Under 2.5") });
+      // BTTS
+      if (sim.simBttsProb >= 60) sections[5].items.push({ prediction: p, pickType: "BTTS Yes", pickLabelText: "KG+", simProb: sim.simBttsProb, pick: findPick(p, "BTTS Yes") });
+      if (100 - sim.simBttsProb >= 60) sections[6].items.push({ prediction: p, pickType: "BTTS No", pickLabelText: "KG-", simProb: 100 - sim.simBttsProb, pick: findPick(p, "BTTS No") });
+      // Banker (1.5 Ü)
+      if (sim.simOver15Prob >= 80) sections[7].items.push({ prediction: p, pickType: "Over 1.5", pickLabelText: "Ü1.5", simProb: sim.simOver15Prob, pick: findPick(p, "Over 1.5") });
+      // İY 0.5 Ü
+      if (sim.simHtOver05Prob >= 70) sections[8].items.push({ prediction: p, pickType: "HT Over 0.5", pickLabelText: "İY Ü0.5", simProb: sim.simHtOver05Prob, pick: findPick(p, "HT Over 0.5") });
+    }
+    // Her section'ı sim olasılığına göre sırala
+    for (const s of sections) s.items.sort((a, b) => b.simProb - a.simProb);
+    return sections;
+  }, [sortedPredictions]);
+
+  const simSummaryTotalCount = useMemo(() => simSummary.reduce((s, sec) => s + sec.items.length, 0), [simSummary]);
+
   const [showFilters, setShowFilters] = useState(false);
 
   return (
@@ -558,6 +627,21 @@ export function PredictionsPage() {
                       <span className="text-[10px] font-bold text-zinc-600">{topPicks.length}</span>
                     )}
                   </button>
+                  <button
+                    onClick={() => setHeroTab("sim-summary")}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all border",
+                      heroTab === "sim-summary"
+                        ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-400"
+                        : "border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700"
+                    )}
+                  >
+                    <BarChart3 className="h-3.5 w-3.5" />
+                    Sim Özeti
+                    {simSummaryTotalCount > 0 && (
+                      <span className="text-[10px] font-bold text-zinc-600">{simSummaryTotalCount}</span>
+                    )}
+                  </button>
                 </div>
 
                 {/* Cascade Strategy */}
@@ -580,9 +664,19 @@ export function PredictionsPage() {
                           En yüksek güven + EV skoruna göre · Karta tıkla, kupona ekle
                         </p>
                       </div>
-                      <span className="text-[10px] text-zinc-600">
-                        {topPicks.filter(t => t.pick.isValueBet).length} value bet
-                      </span>
+                      <div className="flex items-center gap-2 text-[10px]">
+                        {perfStats && perfStats.valueBetSettled >= 5 && (
+                          <span
+                            title={`Geçmiş value bet performansı: ${perfStats.valueBetWon}/${perfStats.valueBetSettled}`}
+                            className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 text-emerald-400"
+                          >
+                            VB tutturma: <b>%{perfStats.valueBetHitRate.toFixed(0)}</b>
+                          </span>
+                        )}
+                        <span className="text-zinc-600">
+                          {topPicks.filter(t => t.pick.isValueBet).length} value bet
+                        </span>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
                       {topPicks.map(({ prediction: tp, pick: tpick }, i) => (
@@ -638,6 +732,108 @@ export function PredictionsPage() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Sim Summary Hero — kalibrasyondan etkilenmeyen ham simülasyon olasılıkları */}
+                {heroTab === "sim-summary" && (
+                  <div>
+                    <div className="mb-2 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-zinc-200">
+                          📊 Simülasyon Özeti — Yüksek Olasılıklı Pazarlar
+                        </p>
+                        <p className="text-[11px] text-zinc-500">
+                          10K Monte Carlo iterasyonundan ham olasılıklar · Pick güven inflation&apos;ından bağımsız
+                        </p>
+                      </div>
+                      {perfStats && (
+                        <div className="flex items-center gap-2 text-[10px] flex-wrap">
+                          <span className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-1 text-emerald-400">
+                            Geçmiş Value Bet: <b>%{perfStats.valueBetHitRate.toFixed(1)}</b>
+                            <span className="text-emerald-500/60 ml-1">({perfStats.valueBetWon}/{perfStats.valueBetSettled})</span>
+                          </span>
+                          <span className="rounded-md border border-zinc-700 bg-zinc-800/50 px-2 py-1 text-zinc-400">
+                            Genel: <b>%{perfStats.overallHitRate.toFixed(1)}</b>
+                            <span className={cn("ml-1", perfStats.overallRoi >= 0 ? "text-emerald-400" : "text-red-400")}>
+                              ROI {perfStats.overallRoi >= 0 ? "+" : ""}{perfStats.overallRoi.toFixed(1)}%
+                            </span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {simSummaryTotalCount === 0 ? (
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
+                        <p className="text-xs text-zinc-500">
+                          Bu eşiklerde maç bulunamadı. Belki başka tarih dene?
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {simSummary.filter((sec) => sec.items.length > 0).map((sec) => (
+                          <div key={sec.key} className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+                            <div className="flex items-center gap-2 px-3 py-2 bg-zinc-900/80 border-b border-zinc-800">
+                              <span className="text-base">{sec.icon}</span>
+                              <span className="text-xs font-semibold text-zinc-200">{sec.label}</span>
+                              <span className="text-[10px] text-zinc-500">sim ≥ %{sec.threshold}</span>
+                              <div className="flex-1 h-px bg-zinc-800" />
+                              <span className="text-[10px] font-bold text-cyan-400">{sec.items.length} maç</span>
+                            </div>
+                            <div className="divide-y divide-zinc-800/60">
+                              {sec.items.slice(0, 8).map((item, i) => {
+                                const inCoupon = item.pick ? isInCoupon(item.prediction.fixtureId, item.pickType) : false;
+                                return (
+                                  <div
+                                    key={`${item.prediction.fixtureId}-${i}`}
+                                    className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-800/30 transition-colors"
+                                  >
+                                    <span className="text-[10px] text-zinc-600 tabular-nums w-[42px] shrink-0">
+                                      {new Date(item.prediction.kickoff).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                                    </span>
+                                    <button
+                                      onClick={() => setExpandedMatch(expandedMatch === item.prediction.fixtureId ? null : item.prediction.fixtureId)}
+                                      className="flex-1 min-w-0 text-left"
+                                    >
+                                      <p className="text-[11px] text-zinc-200 font-medium truncate">
+                                        {item.prediction.homeTeam.name} <span className="text-zinc-600">vs</span> {item.prediction.awayTeam.name}
+                                      </p>
+                                      <p className="text-[10px] text-zinc-600 truncate">{item.prediction.league.name}</p>
+                                    </button>
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 shrink-0 tabular-nums">
+                                      Sim %{item.simProb.toFixed(1)}
+                                    </span>
+                                    {item.pick && (
+                                      <>
+                                        <span className="text-[10px] font-bold text-yellow-500 shrink-0 tabular-nums w-[36px] text-right">
+                                          {item.pick.odds.toFixed(2)}
+                                        </span>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); handleAddToCoupon(item.prediction, item.pick!); }}
+                                          className={cn(
+                                            "p-1 rounded transition-all shrink-0",
+                                            inCoupon
+                                              ? "bg-indigo-500 text-white"
+                                              : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                                          )}
+                                        >
+                                          {inCoupon ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {sec.items.length > 8 && (
+                                <div className="px-3 py-1.5 text-center text-[10px] text-zinc-600">
+                                  +{sec.items.length - 8} maç daha (filtreyi kullan)
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

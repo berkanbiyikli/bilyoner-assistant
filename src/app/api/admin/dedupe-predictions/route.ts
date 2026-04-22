@@ -31,24 +31,24 @@ export async function GET(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // (fixture_id, pick) -> en iyi kayıt
-  const bestByKey = new Map<string, { id: number; confidence: number; created_at: string }>();
-  const allByKey = new Map<string, number[]>();
+  const bestByKey = new Map<string, { id: string; confidence: number; created_at: string }>();
+  const allByKey = new Map<string, string[]>();
 
   for (const r of rows || []) {
     const key = `${r.fixture_id}_${r.pick}`;
     const conf = r.confidence ?? 0;
     if (!allByKey.has(key)) allByKey.set(key, []);
-    allByKey.get(key)!.push(r.id as number);
+    allByKey.get(key)!.push(r.id as string);
 
     const current = bestByKey.get(key);
     if (!current || conf > current.confidence ||
         (conf === current.confidence && (r.created_at as string) > current.created_at)) {
-      bestByKey.set(key, { id: r.id as number, confidence: conf, created_at: r.created_at as string });
+      bestByKey.set(key, { id: r.id as string, confidence: conf, created_at: r.created_at as string });
     }
   }
 
   // Silinecek ID'ler: best olmayanlar
-  const idsToDelete: number[] = [];
+  const idsToDelete: string[] = [];
   let duplicateGroups = 0;
   for (const [key, ids] of allByKey.entries()) {
     if (ids.length <= 1) continue;

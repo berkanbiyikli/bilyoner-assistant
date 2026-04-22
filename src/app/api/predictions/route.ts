@@ -3,6 +3,7 @@ import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById, getLeagueByN
 import { getSimProbability, simulateMatch } from "@/lib/prediction/simulator";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { getCached, setCache } from "@/lib/cache";
+import { getMarketDeviations } from "@/lib/prediction/validator";
 import type { FixtureResponse } from "@/types/api-football";
 import type { MatchAnalysis, MatchInsights, MatchOdds, AIAnalysis } from "@/types";
 
@@ -27,16 +28,20 @@ export async function GET(req: NextRequest) {
     // Cache key tüm tarihleri kapsar
     const cacheKey = `predictions:${dates.join(",")}`;
     if (!forceRefresh) {
-      const cached = getCached<{ predictions: unknown[] }>(cacheKey);
+      const cached = getCached<{ predictions: unknown[]; marketDeviations?: Record<string, number> }>(cacheKey);
       if (cached) {
         return NextResponse.json({
           dates,
           source: "cache",
           analyzed: cached.predictions.length,
           predictions: cached.predictions,
+          marketDeviations: cached.marketDeviations ?? {},
         });
       }
     }
+
+    // Market sapmaları — UI calibration warning badge için (cache'li)
+    const marketDeviations = await getMarketDeviations().catch(() => ({} as Record<string, number>));
 
     const supabase = createAdminSupabase();
     let allDbEnriched: unknown[] = [];
@@ -331,13 +336,14 @@ export async function GET(req: NextRequest) {
           fromLive: 0,
           analyzed: fallbackPredictions.length,
           predictions: fallbackPredictions,
+          marketDeviations,
         });
       }
     }
 
     // Cache'e kaydet
     if (allPredictions.length > 0) {
-      setCache(cacheKey, { predictions: allPredictions }, 300);
+      setCache(cacheKey, { predictions: allPredictions, marketDeviations }, 300);
     }
 
     return NextResponse.json({
@@ -348,6 +354,7 @@ export async function GET(req: NextRequest) {
       fromLive: allLiveAnalyzed.length,
       analyzed: allPredictions.length,
       predictions: allPredictions,
+      marketDeviations,
     });
   } catch (error) {
     console.error("Predictions API error:", error);

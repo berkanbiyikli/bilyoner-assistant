@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFixturesByDate, getApiUsage, LEAGUE_IDS, getLeagueById } from "@/lib/api-football";
 import { analyzeMatch } from "@/lib/prediction/engine";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { getOptimalWeights, getCalibrationAdjustments } from "@/lib/prediction/validator";
+import { getOptimalWeights, getCalibrationAdjustments, getMarketDeviations } from "@/lib/prediction/validator";
 import { isMLModelAvailable } from "@/lib/prediction/ml-model";
 
 export const maxDuration = 60;
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     const allLeagues = searchParams.get("allLeagues") === "true";
 
     // Tüm başlangıç verilerini PARALEL çek — sıralı beklemeden
-    const [allFixtures, existingPredsResult, optimalWeights, calibrationAdjustments, mlAvailable] = await Promise.all([
+    const [allFixtures, existingPredsResult, optimalWeights, calibrationAdjustments, marketDeviations, mlAvailable] = await Promise.all([
       getFixturesByDate(date),
       forceRegenerate
         ? supabase.from("predictions").delete()
@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
       // Pre-warm shared resources — paralel Supabase çağrıları, sonuçlar tüm fixture'lara dağıtılacak
       getOptimalWeights().catch(() => ({ heuristic: 0.4, sim: 0.6 })),
       getCalibrationAdjustments().catch(() => ({} as Record<string, number>)),
+      getMarketDeviations().catch(() => ({} as Record<string, number>)),
       isMLModelAvailable().catch(() => false),
     ]);
 
@@ -106,6 +107,7 @@ export async function GET(req: NextRequest) {
           lightweight: true,
           weights: optimalWeights,
           calibrationAdjustments,
+          marketDeviations,
           mlAvailable,
         });
         analyzedCount++;

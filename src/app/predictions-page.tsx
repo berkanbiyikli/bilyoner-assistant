@@ -54,6 +54,7 @@ export function PredictionsPage() {
     searchParams.get("tab") === "crazy" ? "crazy-picks" : "predictions"
   );
   const [predictions, setPredictions] = useState<MatchPrediction[]>([]);
+  const [marketDeviations, setMarketDeviations] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -174,6 +175,7 @@ export function PredictionsPage() {
       const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       setPredictions(data.predictions || []);
+      setMarketDeviations(data.marketDeviations || {});
       if (data.source === "redirect" && data.redirectDates) {
         // Tarih seçiciyi güncelle ama tekrar fetch tetikleme
         redirectRef.current = true;
@@ -783,6 +785,7 @@ export function PredictionsPage() {
                                   onAddToCoupon={(pick) => handleAddToCoupon(p, pick)}
                                   activeDetailTab={getDetailTab(p.fixtureId)}
                                   onSetDetailTab={(tab) => setDTab(p.fixtureId, tab)}
+                                  marketDeviations={marketDeviations}
                                 />
                               ))}
                             </div>
@@ -844,6 +847,7 @@ function PredictionRow({
   onAddToCoupon,
   activeDetailTab,
   onSetDetailTab,
+  marketDeviations,
 }: {
   prediction: MatchPrediction;
   isFinished: boolean;
@@ -853,6 +857,7 @@ function PredictionRow({
   onAddToCoupon: (pick: PickT) => void;
   activeDetailTab: string;
   onSetDetailTab: (tab: string) => void;
+  marketDeviations?: Record<string, number>;
 }) {
   const bestPick = p.picks[0];
   const analysis = p.analysis;
@@ -1035,6 +1040,7 @@ function PredictionRow({
           onSetTab={onSetDetailTab}
           isInCoupon={isInCoupon}
           onAddToCoupon={onAddToCoupon}
+          marketDeviations={marketDeviations}
         />
       )}
     </div>
@@ -1051,12 +1057,14 @@ function ExpandedDetail({
   onSetTab,
   isInCoupon,
   onAddToCoupon,
+  marketDeviations,
 }: {
   prediction: MatchPrediction;
   activeTab: string;
   onSetTab: (tab: string) => void;
   isInCoupon: (fid: number, pick: string) => boolean;
   onAddToCoupon: (pick: PickT) => void;
+  marketDeviations?: Record<string, number>;
 }) {
   const analysis = p.analysis;
   const insights = p.insights;
@@ -1096,7 +1104,7 @@ function ExpandedDetail({
       {/* Tab Content */}
       <div className="p-4">
         {activeTab === "analysis" && <AnalysisTab analysis={analysis} homeTeam={p.homeTeam.name} awayTeam={p.awayTeam.name} />}
-        {activeTab === "picks" && <PicksTab prediction={p} isInCoupon={isInCoupon} onAddToCoupon={onAddToCoupon} />}
+        {activeTab === "picks" && <PicksTab prediction={p} isInCoupon={isInCoupon} onAddToCoupon={onAddToCoupon} marketDeviations={marketDeviations} />}
         {activeTab === "simulation" && <SimulationTab sim={analysis?.simulation} analysis={analysis} homeTeam={p.homeTeam.name} awayTeam={p.awayTeam.name} />}
         {activeTab === "insights" && <InsightsTab analysis={analysis} insights={insights} />}
         {activeTab === "ai" && <AITab prediction={p} />}
@@ -1196,10 +1204,12 @@ function PicksTab({
   prediction: p,
   isInCoupon,
   onAddToCoupon,
+  marketDeviations,
 }: {
   prediction: MatchPrediction;
   isInCoupon: (fid: number, pick: string) => boolean;
   onAddToCoupon: (pick: PickT) => void;
+  marketDeviations?: Record<string, number>;
 }) {
   // Pick'leri kategorilere göre grupla, her kategoride confidence'a göre sırala
   const grouped = new Map<string, PickT[]>();
@@ -1209,6 +1219,12 @@ function PicksTab({
     grouped.get(cat)!.push(pick);
   }
   for (const list of grouped.values()) list.sort((a, b) => b.confidence - a.confidence);
+
+  // Pick için kalibrasyon sapmasını al (önce DB'den, yoksa runtime lookup)
+  const getDev = (pick: PickT): number | undefined => {
+    if (pick.calibrationDeviation !== undefined) return pick.calibrationDeviation;
+    return marketDeviations?.[pick.type];
+  };
 
   // En güvenilir tek pick (kullanıcıya "bunu oyna" önerisi)
   const topPick = [...p.picks].sort((a, b) => {
@@ -1280,10 +1296,13 @@ function PicksTab({
             <div className="grid gap-1.5">
               {list.map((pick, i) => {
                 const inCoupon = isInCoupon(p.fixtureId, pick.type);
+                const dev = getDev(pick);
+                const isRiskyByCalibration = dev !== undefined && dev >= 15;
                 return (
                   <div key={`${cat.key}-${i}`} className={cn(
                     "flex items-center gap-3 rounded-lg border p-2.5 transition-all",
                     inCoupon ? "border-indigo-500/30 bg-indigo-500/5" :
+                    isRiskyByCalibration ? "border-amber-600/30 bg-amber-500/[0.03]" :
                     pick.isValueBet ? "border-emerald-500/20 bg-emerald-500/[0.03]" :
                     "border-zinc-800 hover:border-zinc-700"
                   )}>
@@ -1295,12 +1314,20 @@ function PicksTab({
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] text-zinc-300 truncate">{pick.reasoning}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         {pick.simProbability != null && (
                           <span className="text-[10px] text-zinc-500">Sim: %{pick.simProbability.toFixed(1)}</span>
                         )}
                         {pick.expectedValue > 0 && (
                           <span className="text-[10px] text-emerald-500">EV: +{(pick.expectedValue * 100).toFixed(1)}%</span>
+                        )}
+                        {isRiskyByCalibration && (
+                          <span
+                            title={`Bu pazar geçmişte ortalama %${Math.round(dev!)} fazla iddialı çıktı`}
+                            className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-medium"
+                          >
+                            ⚠ Geçmişte %{Math.round(dev!)} fazla iddialı
+                          </span>
                         )}
                       </div>
                     </div>

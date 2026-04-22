@@ -34,7 +34,7 @@ import { simulateMatch, getSimProbability } from "@/lib/prediction/simulator";
 import { getRefereeProfile } from "@/lib/prediction/referees";
 import { getLeagueRealStats } from "@/lib/prediction/league-stats";
 import { calculateMatchImportance, type MatchImportance } from "@/lib/prediction/importance";
-import { getOptimalWeights, getCalibrationAdjustments } from "@/lib/prediction/validator";
+import { getOptimalWeights, getCalibrationAdjustments, getMarketDeviations } from "@/lib/prediction/validator";
 import { analyzeForm, type FormAnalysis } from "@/lib/prediction/form-analyzer";
 import { calculateEloFromMatches, eloToWinProbabilities, calculateH2HElo } from "@/lib/prediction/elo";
 import { isMLModelAvailable, getMLProbability, buildFeatureVector, type MLFeatureVector } from "@/lib/prediction/ml-model";
@@ -72,6 +72,8 @@ interface AnalyzeOptions {
   weights?: { heuristic: number; sim: number };
   /** Önceden çekilmiş kalibrasyon düzeltmeleri */
   calibrationAdjustments?: Record<string, number>;
+  /** Önceden çekilmiş market sapmaları (predicted% - actual%, pozitif = over-confident) */
+  marketDeviations?: Record<string, number>;
   /** Önceden tespit edilmiş ML model durumu (per-pick await'ı önler) */
   mlAvailable?: boolean;
 }
@@ -184,7 +186,10 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
   // Kalibrasyon bazlı güven düzeltmeleri al (options'tan da gelebilir)
   const calibrationAdjustments = options?.calibrationAdjustments ?? await getCalibrationAdjustments().catch(() => ({}));
 
-  const picks = await generatePicks(analysis, matchOdds, prediction, fixture, weights, dataQuality, calibrationAdjustments, options?.mlAvailable);
+  // Market-bazlı sapmalar (over-confidence düzeltmesi için)
+  const marketDeviations = options?.marketDeviations ?? await getMarketDeviations().catch(() => ({}));
+
+  const picks = await generatePicks(analysis, matchOdds, prediction, fixture, weights, dataQuality, calibrationAdjustments, options?.mlAvailable, marketDeviations);
 
   // Derinlemesine bilgiler (insights)
   const insights = buildInsights(analysis, xgData, goalTiming, keyMissingPlayers, matchOdds, importance, homeFormAnalysis, awayFormAnalysis);
@@ -1367,7 +1372,8 @@ async function generatePicks(
   weights: { heuristic: number; sim: number } = { heuristic: 0.4, sim: 0.6 },
   dataQuality?: DataQualityScore,
   calibrationAdj?: Record<string, number>,
-  mlAvailableHint?: boolean
+  mlAvailableHint?: boolean,
+  marketDeviations?: Record<string, number>
 ): Promise<Pick[]> {
   const picks: Pick[] = [];
   if (!odds) return picks;
@@ -1571,6 +1577,31 @@ async function generatePicks(
     }
     conf = Math.min(90, conf + surpriseBoost);
 
+    // === Market kalibrasyon dampening ===
+    // Sistemin geçmişte over-confident olduğu pazarlarda confidence'ı düşür.
+    // Sapma > 5 ise: penalty = (deviation - 5) * 0.6, max 20 puan.
+    // Aynı zamanda sert üst sınırlar uygula (HT/FT, CS gibi inherently risky pazarlar).
+    const marketDev = marketDeviations?.[type];
+    let calibrationDeviation: number | undefined;
+    if (marketDev !== undefined && marketDev > 5) {
+      const penalty = Math.min(20, Math.round((marketDev - 5) * 0.6));
+      conf = Math.max(20, conf - penalty);
+      calibrationDeviation = marketDev;
+    } else if (marketDev !== undefined && marketDev < -5) {
+      // Under-confident: hafif boost (max +5)
+      const boost = Math.min(5, Math.round(Math.abs(marketDev) * 0.3));
+      conf = Math.min(90, conf + boost);
+      calibrationDeviation = marketDev;
+    }
+
+    // Inherently risky markets — verisiz bile sert tavan
+    const isHtFt = /^(1|X|2)\/(1|X|2)$/.test(type);
+    const isCorrectScore = type.startsWith("CS ") || /^\d+-\d+$/.test(type);
+    const isHtMarket = type.startsWith("HT ");
+    if (isHtFt) conf = Math.min(conf, 65);
+    else if (isCorrectScore) conf = Math.min(conf, 50);
+    else if (isHtMarket) conf = Math.min(conf, 72);
+
     // EV hesabı confidence'tan bağımsız olmalı.
     // Sadece model olasılığı ile hesapla (confidence bir sıralama metriğidir).
     const pricingProb = Math.max(0.05, Math.min(0.92, modelProb));
@@ -1590,6 +1621,7 @@ async function generatePicks(
         simProbability: simProb,
         modelProbability: pricingProb,
         impliedProbability: Math.max(0.01, Math.min(0.99, impliedProb)),
+        calibrationDeviation,
       });
     }
   };

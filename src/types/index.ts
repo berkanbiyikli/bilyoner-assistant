@@ -82,6 +82,8 @@ export interface Pick {
   simProbability?: number; // Monte Carlo simülasyondan gelen olasılık %
   modelProbability?: number; // EV hesaplamasında kullanılan olasılık (0-1)
   impliedProbability?: number; // Orandan türetilen olasılık (0-1)
+  /** Bu pazar geçmişte ne kadar over/under-confident? (predicted% - actual%) */
+  calibrationDeviation?: number;
 }
 
 export interface MonteCarloResult {

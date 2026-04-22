@@ -553,3 +553,62 @@ export async function getCalibrationAdjustments(): Promise<Record<string, number
     return {};
   }
 }
+
+// ============================================
+// Market-Bazlı Confidence Sapması
+// Engine bu değeri pick üretirken confidence'ı dampen etmek için kullanır.
+// Pozitif değer = sistem bu pazarda over-confident → confidence'ı düşür.
+// ============================================
+
+const MARKET_DEV_CACHE_KEY = "market-deviations-v1";
+const MARKET_DEV_CACHE_TTL = 6 * 3600;
+
+/**
+ * Settle edilmiş `predictions` kayıtlarından her pick türü için
+ * (avgConfidence - actualWinRate) sapmasını döner.
+ * Pozitif sapma = over-confident.
+ *
+ * Min örneklem: market başına ≥5 settle edilmiş tahmin.
+ */
+export async function getMarketDeviations(): Promise<Record<string, number>> {
+  const cached = getCached<Record<string, number>>(MARKET_DEV_CACHE_KEY);
+  if (cached) return cached;
+
+  try {
+    const supabase = createAdminSupabase();
+    const { data, error } = await supabase
+      .from("predictions")
+      .select("pick, confidence, result")
+      .in("result", ["won", "lost"])
+      .order("kickoff", { ascending: false })
+      .limit(2000);
+    if (error || !data) {
+      setCache(MARKET_DEV_CACHE_KEY, {}, MARKET_DEV_CACHE_TTL);
+      return {};
+    }
+
+    const groups = new Map<string, { sumConf: number; won: number; n: number }>();
+    for (const r of data as Array<{ pick: string; confidence: number; result: string }>) {
+      const g = groups.get(r.pick) ?? { sumConf: 0, won: 0, n: 0 };
+      g.sumConf += r.confidence ?? 0;
+      g.won += r.result === "won" ? 1 : 0;
+      g.n += 1;
+      groups.set(r.pick, g);
+    }
+
+    const out: Record<string, number> = {};
+    for (const [market, g] of groups) {
+      if (g.n < 5) continue;
+      const predicted = g.sumConf / g.n;
+      const actual = (g.won / g.n) * 100;
+      const dev = Math.round((predicted - actual) * 10) / 10;
+      // Yalnızca anlamlı sapmaları sakla (|dev| > 5)
+      if (Math.abs(dev) > 5) out[market] = dev;
+    }
+
+    setCache(MARKET_DEV_CACHE_KEY, out, MARKET_DEV_CACHE_TTL);
+    return out;
+  } catch {
+    return {};
+  }
+}

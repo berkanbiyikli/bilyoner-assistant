@@ -12,7 +12,7 @@
 // ============================================
 
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { getCached, setCache } from "@/lib/cache";
+import { getCached, setCache, clearCacheByPrefix } from "@/lib/cache";
 
 // ---- Types ----
 
@@ -179,6 +179,12 @@ export async function runOptimization(): Promise<OptimizationResult> {
 
   if (Object.keys(calibratedFactors).length > 0) {
     setCache(CALIBRATED_FACTORS_KEY, calibratedFactors, CALIBRATED_FACTORS_TTL);
+    // Cache invalidation: stale lambda ile cache'lenmiş tahminleri temizle.
+    // Bir sonraki istek taze hesaplama yapıp yeni faktörleri kullanacak.
+    const cleared = clearCacheByPrefix("prediction-v");
+    if (cleared > 0) {
+      console.log(`[OPTIMIZER] Calibration güncellendi → ${cleared} stale prediction cache silindi`);
+    }
   }
 
   // DB'ye de kaydet (kalıcı)

@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     const allLeagues = searchParams.get("allLeagues") === "true";
 
     // Tüm başlangıç verilerini PARALEL çek — sıralı beklemeden
-    const [allFixtures, existingPredsResult] = await Promise.all([
+    const [allFixtures, existingPredsResult, optimalWeights, calibrationAdjustments, mlAvailable] = await Promise.all([
       getFixturesByDate(date),
       forceRegenerate
         ? supabase.from("predictions").delete()
@@ -36,9 +36,9 @@ export async function GET(req: NextRequest) {
         : supabase.from("predictions").select("fixture_id, pick")
             .gte("kickoff", `${date}T00:00:00.000Z`)
             .lte("kickoff", `${date}T23:59:59.999Z`),
-      // Pre-warm shared resources — paralel Supabase çağrıları
+      // Pre-warm shared resources — paralel Supabase çağrıları, sonuçlar tüm fixture'lara dağıtılacak
       getOptimalWeights().catch(() => ({ heuristic: 0.4, sim: 0.6 })),
-      getCalibrationAdjustments().catch(() => ({})),
+      getCalibrationAdjustments().catch(() => ({} as Record<string, number>)),
       isMLModelAvailable().catch(() => false),
     ]);
 
@@ -98,7 +98,13 @@ export async function GET(req: NextRequest) {
       }
 
       try {
-        const pred = await analyzeMatch(fixture, { skipAI: true, lightweight: true });
+        const pred = await analyzeMatch(fixture, {
+          skipAI: true,
+          lightweight: true,
+          weights: optimalWeights,
+          calibrationAdjustments,
+          mlAvailable,
+        });
         analyzedCount++;
 
         if (pred.picks.length === 0) {

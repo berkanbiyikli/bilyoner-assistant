@@ -44,11 +44,36 @@ import type { AIAnalysis } from "@/types";
 
 const CACHE_TTL = 10 * 60; // 10 dakika (veri tazeliği için kısa)
 
+// ---- Tahmin blend konfigürasyonu (magic number'lar tek noktada) ----
+const BLEND_WEIGHTS = {
+  // 1X2 olasılık blend'i: Sim + API + Odds + Elo = 1.0
+  prob: { sim: 0.45, api: 0.20, odds: 0.25, elo: 0.10 },
+  // ML mevcut: heuristic ağırlığı 0.75'e düşer, ML 0.25 + 0.10 baseline alır
+  mlSplit: { heuristicMul: 0.75, mlMul: 0.25, mlBase: 0.10 },
+  // Sim ↔ heuristic divergence cezası
+  divergence: { threshold: 20, multiplier: 0.3, max: 8 },
+  // Confidence band sınırları (kalibrasyon adjustment lookup)
+  confBands: [80, 70, 60, 50] as const,
+} as const;
+
+// Elo yaklaşıklaması (gerçek H2H Elo yokken kullanılır).
+// NOT: Form bonus'u kaldırıldı çünkü heuristicConf zaten form'u içeriyor — double-counting'i önler.
+const ELO_APPROX = {
+  base: 1500,
+  attackScale: 4, // 1 attack puanı ≈ 4 Elo
+} as const;
+
 interface AnalyzeOptions {
   /** AI analizini atla (kullanıcı-facing route'larda timeout önlemek için) */
   skipAI?: boolean;
   /** Ağır API çağrılarını atla (shot stats, recent fixtures — serverless timeout önlemi) */
   lightweight?: boolean;
+  /** Önceden hesaplanmış optimal ağırlıklar (cron'da bir kez hesaplayıp tüm fixture'lara dağıtmak için) */
+  weights?: { heuristic: number; sim: number };
+  /** Önceden çekilmiş kalibrasyon düzeltmeleri */
+  calibrationAdjustments?: Record<string, number>;
+  /** Önceden tespit edilmiş ML model durumu (per-pick await'ı önler) */
+  mlAvailable?: boolean;
 }
 
 export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOptions): Promise<MatchPrediction> {
@@ -153,13 +178,13 @@ export async function analyzeMatch(fixture: FixtureResponse, options?: AnalyzeOp
   const simulation = simulateMatch(analysis, matchOdds, fixture.league.id, importance, homeFormAnalysis, awayFormAnalysis, leagueRealStats ?? undefined);
   analysis.simulation = simulation;
 
-  // Self-calibrating ağırlıklar al (cache'li)
-  const weights = await getOptimalWeights().catch(() => ({ heuristic: 0.4, sim: 0.6 }));
+  // Self-calibrating ağırlıklar al (cache'li, options'tan da gelebilir)
+  const weights = options?.weights ?? await getOptimalWeights().catch(() => ({ heuristic: 0.4, sim: 0.6 }));
 
-  // Kalibrasyon bazlı güven düzeltmeleri al
-  const calibrationAdjustments = await getCalibrationAdjustments().catch(() => ({}));
+  // Kalibrasyon bazlı güven düzeltmeleri al (options'tan da gelebilir)
+  const calibrationAdjustments = options?.calibrationAdjustments ?? await getCalibrationAdjustments().catch(() => ({}));
 
-  const picks = await generatePicks(analysis, matchOdds, prediction, fixture, weights, dataQuality, calibrationAdjustments);
+  const picks = await generatePicks(analysis, matchOdds, prediction, fixture, weights, dataQuality, calibrationAdjustments, options?.mlAvailable);
 
   // Derinlemesine bilgiler (insights)
   const insights = buildInsights(analysis, xgData, goalTiming, keyMissingPlayers, matchOdds, importance, homeFormAnalysis, awayFormAnalysis);
@@ -1341,7 +1366,8 @@ async function generatePicks(
   fixture: FixtureResponse,
   weights: { heuristic: number; sim: number } = { heuristic: 0.4, sim: 0.6 },
   dataQuality?: DataQualityScore,
-  calibrationAdj?: Record<string, number>
+  calibrationAdj?: Record<string, number>,
+  mlAvailableHint?: boolean
 ): Promise<Pick[]> {
   const picks: Pick[] = [];
   if (!odds) return picks;
@@ -1383,24 +1409,26 @@ async function generatePicks(
   const impliedAway = (1 / odds.away) * vigFactor;
   const impliedDraw = (1 / odds.draw) * vigFactor;
 
-  // 4) Hibrit olasılık: Sim (%45) + API (%20) + Odds (%25) + Elo (%10) → en dengeli tahmin
-  // Elo olasılıkları hesapla (H2H Elo varsa daha güvenilir, yoksa API attack/defense'den)
-  const homeEloApprox = 1500 + (analysis.homeAttack - 50) * 4 + (analysis.homeForm > 50 ? (analysis.homeForm - 50) * 2 : 0);
-  const awayEloApprox = 1500 + (analysis.awayAttack - 50) * 4 + (analysis.awayForm > 50 ? (analysis.awayForm - 50) * 2 : 0);
+  // 4) Hibrit olasılık: Sim + API + Odds + Elo blend (BLEND_WEIGHTS.prob)
+  // Elo: form bonus'u KALDIRILDI — heuristicConf zaten form'u içerdiğinden double-counting'i önler.
+  const homeEloApprox = ELO_APPROX.base + (analysis.homeAttack - 50) * ELO_APPROX.attackScale;
+  const awayEloApprox = ELO_APPROX.base + (analysis.awayAttack - 50) * ELO_APPROX.attackScale;
   const eloProbs = eloToWinProbabilities(homeEloApprox, awayEloApprox);
   const eloHome = eloProbs.homeWin / 100;
   const eloAway = eloProbs.awayWin / 100;
   const eloDraw = eloProbs.draw / 100;
 
+  const { sim: wSim, api: wApi, odds: wOdds, elo: wElo } = BLEND_WEIGHTS.prob;
   const blendProb = (simP: number, apiP: number, oddsP: number, eloP: number): number => {
-    return simP * 0.45 + apiP * 0.20 + oddsP * 0.25 + eloP * 0.10;
+    return simP * wSim + apiP * wApi + oddsP * wOdds + eloP * wElo;
   };
   const homeProbability = blendProb(simHomeProb, apiHomeProb, impliedHome, eloHome);
   const awayProbability = blendProb(simAwayProb, apiAwayProb, impliedAway, eloAway);
   const drawProbability = blendProb(simDrawProb, apiDrawProb, impliedDraw, eloDraw);
 
   // === FAZ 4: ML Model Feature Vector ===
-  const mlAvailable = await isMLModelAvailable();
+  // Cron'dan gelen mlAvailableHint varsa await'i atla (per-pick await'ı önler)
+  const mlAvailable = mlAvailableHint ?? await isMLModelAvailable();
   let mlFeatures: MLFeatureVector | null = null;
   const mlProbCache = new Map<string, number>();
   if (mlAvailable) {
@@ -1450,17 +1478,21 @@ async function generatePicks(
 
     let blended: number;
     if (mlProb !== undefined) {
-      // ML mevcut: heuristic %30 + sim %45 + ML %25
+      // ML mevcut: heuristic ağırlığı azalır, ML payı eklenir (BLEND_WEIGHTS.mlSplit)
       const mlConf = Math.min(92, mlProb);
-      blended = heuristicConf * (weights.heuristic * 0.75) + simConf * weights.sim + mlConf * (weights.heuristic * 0.25 + 0.1);
+      const { heuristicMul, mlMul, mlBase } = BLEND_WEIGHTS.mlSplit;
+      blended = heuristicConf * (weights.heuristic * heuristicMul)
+              + simConf * weights.sim
+              + mlConf * (weights.heuristic * mlMul + mlBase);
     } else {
-      // ML yok: eski formül
+      // ML yok: standart heuristic + sim
       blended = heuristicConf * weights.heuristic + simConf * weights.sim;
     }
 
     // Sim ve heuristic çok farklıysa → güveni düşür (belirsizlik)
     const divergence = Math.abs(heuristicConf - simConf);
-    const penalty = divergence > 20 ? Math.min(8, (divergence - 20) * 0.3) : 0;
+    const { threshold: divThr, multiplier: divMul, max: divMax } = BLEND_WEIGHTS.divergence;
+    const penalty = divergence > divThr ? Math.min(divMax, (divergence - divThr) * divMul) : 0;
 
     // Veri kalitesi cezası — düşük kaliteli veri = düşük güven
     const qPenalty = qualityPenalty;
@@ -1468,12 +1500,16 @@ async function generatePicks(
     // Kalibrasyon düzeltmesi — geçmiş verilere göre over/under-confident düzeltme
     let calibAdj = 0;
     if (calibrationAdj) {
-      // Blended confidence bandına göre düzeltme seç
       const approxConf = Math.round(blended);
-      if (approxConf >= 80 && calibrationAdj["80+"]) calibAdj = calibrationAdj["80+"];
-      else if (approxConf >= 70 && calibrationAdj["70-80"]) calibAdj = calibrationAdj["70-80"];
-      else if (approxConf >= 60 && calibrationAdj["60-70"]) calibAdj = calibrationAdj["60-70"];
-      else if (approxConf >= 50 && calibrationAdj["50-60"]) calibAdj = calibrationAdj["50-60"];
+      // Confidence band lookup (BLEND_WEIGHTS.confBands)
+      const bandKeys: Record<number, string> = { 80: "80+", 70: "70-80", 60: "60-70", 50: "50-60" };
+      for (const band of BLEND_WEIGHTS.confBands) {
+        if (approxConf >= band) {
+          const key = bandKeys[band];
+          if (key && calibrationAdj[key]) calibAdj = calibrationAdj[key];
+          break;
+        }
+      }
     }
 
     return Math.round(Math.max(10, blended - penalty - qPenalty + calibAdj));

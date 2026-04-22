@@ -24,10 +24,24 @@ export function findValueBets(predictions: MatchPrediction[]): ValueBet[] {
       awayProb = sim.simAwayWinProb / 100;
       drawProb = sim.simDrawProb / 100;
     } else {
-      // Fallback: API yüzdeleri (form skoru DEĞİL)
-      homeProb = prediction.analysis.homeForm / 100;
-      awayProb = prediction.analysis.awayForm / 100;
-      drawProb = (prediction.analysis.drawProb ?? (100 - prediction.analysis.homeForm - prediction.analysis.awayForm)) / 100;
+      // Fallback: API yüzdeleri (form skoru DEĞİL — form 0-100 GÜÇ göstergesi, olasılık değildir)
+      // analysis.apiHomeWinProb / apiAwayWinProb / apiDrawProb gerçek olasılık (API-Football prediction.percent)
+      const apiH = prediction.analysis.apiHomeWinProb;
+      const apiA = prediction.analysis.apiAwayWinProb;
+      const apiD = prediction.analysis.apiDrawProb;
+      if (apiH !== undefined && apiA !== undefined && apiD !== undefined) {
+        // Normalize (toplam 100 olmayabilir, API rounding)
+        const total = apiH + apiA + apiD;
+        const norm = total > 0 ? 100 / total : 1;
+        homeProb = (apiH * norm) / 100;
+        awayProb = (apiA * norm) / 100;
+        drawProb = (apiD * norm) / 100;
+      } else {
+        // Son çare: eşit dağılım — value bet üretme
+        homeProb = 0.33;
+        awayProb = 0.33;
+        drawProb = 0.34;
+      }
     }
 
     // Gol olasılıkları — sim varsa sim'den, yoksa heuristic

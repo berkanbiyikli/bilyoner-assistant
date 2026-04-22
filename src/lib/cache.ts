@@ -31,6 +31,22 @@ export function clearCache(): void {
   cache.clear();
 }
 
+/**
+ * Belirli bir prefix ile başlayan tüm cache key'lerini sil.
+ * Örn: optimizer kalibre ettikten sonra `clearCacheByPrefix("prediction-v")` →
+ * stale lambda ile cache'lenmiş tahminler temizlenir, bir sonraki istek taze hesaplama yapar.
+ */
+export function clearCacheByPrefix(prefix: string): number {
+  let count = 0;
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) {
+      cache.delete(key);
+      count++;
+    }
+  }
+  return count;
+}
+
 // Otomatik temizlik (her 5 dakikada)
 if (typeof setInterval !== "undefined") {
   setInterval(() => {

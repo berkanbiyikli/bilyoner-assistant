@@ -138,11 +138,21 @@ export async function GET(req: NextRequest) {
           ...pred.odds,
           realMarkets: pred.odds.realMarkets ? Array.from(pred.odds.realMarkets) : [],
         } : undefined;
+        // Pick başına metadata — UI'da sim'e karşı çapraz doğrulama için
+        const picksMeta: Record<string, { modelProb?: number; impliedProb?: number; calibrationDeviation?: number }> = {};
+        for (const pick of pred.picks) {
+          picksMeta[pick.type] = {
+            modelProb: pick.modelProbability,
+            impliedProb: pick.impliedProbability,
+            calibrationDeviation: pick.calibrationDeviation,
+          };
+        }
         const analysisData = {
           analysis: pred.analysis,
           insights: pred.insights,
           odds: oddsForJson,
           aiAnalysis: pred.aiAnalysis || null,
+          picksMeta,
         };
 
         for (const pick of pred.picks) {

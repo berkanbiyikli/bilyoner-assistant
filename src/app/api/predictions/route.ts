@@ -123,7 +123,13 @@ export async function GET(req: NextRequest) {
         let aiAnalysis: AIAnalysis | undefined = liveAnalysis?.aiAnalysis;
 
         // DB'de saklı analysis_data varsa onu kullan
-        const storedData = firstPred.analysis_data as { analysis?: MatchAnalysis; insights?: MatchInsights; odds?: MatchOdds; aiAnalysis?: AIAnalysis } | null;
+        const storedData = firstPred.analysis_data as {
+          analysis?: MatchAnalysis;
+          insights?: MatchInsights;
+          odds?: MatchOdds;
+          aiAnalysis?: AIAnalysis;
+          picksMeta?: Record<string, { modelProb?: number; impliedProb?: number; calibrationDeviation?: number }>;
+        } | null;
         if (!analysis && storedData?.analysis) {
           analysis = storedData.analysis;
           insights = storedData.insights;
@@ -169,6 +175,7 @@ export async function GET(req: NextRequest) {
           kickoff: firstPred.kickoff,
           picks: sortedPreds.map((p) => {
             const simProb = sim ? getSimProbability(sim, p.pick) : undefined;
+            const meta = storedData?.picksMeta?.[p.pick];
             return {
               type: p.pick,
               confidence: p.confidence,
@@ -177,6 +184,9 @@ export async function GET(req: NextRequest) {
               expectedValue: p.expected_value,
               isValueBet: p.is_value_bet,
               simProbability: simProb,
+              modelProbability: meta?.modelProb,
+              impliedProbability: meta?.impliedProb ?? (p.odds > 1 ? 1 / p.odds : undefined),
+              calibrationDeviation: meta?.calibrationDeviation,
             };
           }),
           analysis,

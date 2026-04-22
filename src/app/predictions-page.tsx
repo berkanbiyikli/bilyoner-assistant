@@ -876,10 +876,13 @@ export function PredictionsPage() {
                                   ratio >= 0.5  ? { label: "≈ Karışık",   color: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30" } :
                                                   { label: "⚠ Zayıf",     color: "text-red-400 bg-red-500/10 border-red-500/30" };
                                 const cellNum = (val: number | undefined, supportThr: number) => {
-                                  if (val == null) return <span className="text-zinc-700">—</span>;
+                                  if (val == null) return <span className="text-zinc-700" title="Bu market için sinyal yok">—</span>;
                                   const supports = val >= supportThr;
                                   return (
-                                    <span className={cn("tabular-nums", supports ? "text-zinc-200 font-semibold" : "text-zinc-500")}>
+                                    <span
+                                      title={supports ? `Sim'i destekliyor (≥%${supportThr.toFixed(0)})` : `Sim'in altında (eşik: %${supportThr.toFixed(0)})`}
+                                      className={cn("tabular-nums", supports ? "text-emerald-300 font-semibold" : "text-orange-400/70")}
+                                    >
                                       %{val.toFixed(0)}
                                     </span>
                                   );
@@ -905,11 +908,19 @@ export function PredictionsPage() {
                                     {/* Sim */}
                                     <span className="text-right text-cyan-400 font-bold tabular-nums">%{item.simProb.toFixed(0)}</span>
                                     {/* Engine */}
-                                    <span className="text-right">{cellNum(item.engineConf, supportThr)}</span>
+                                    <span className="text-right">
+                                      {item.engineConf != null
+                                        ? cellNum(item.engineConf, supportThr)
+                                        : <span className="text-zinc-700 text-[10px]" title="Engine bu market için pick üretmemiş — başka pazarı tercih etmiş olabilir">yok</span>}
+                                    </span>
                                     {/* Oran% (implied) */}
                                     <span className="text-right">{cellNum(item.impliedProb, supportThr)}</span>
                                     {/* ML */}
-                                    <span className="text-right">{cellNum(item.mlProb, supportThr)}</span>
+                                    <span className="text-right">
+                                      {item.mlProb != null
+                                        ? cellNum(item.mlProb, supportThr)
+                                        : <span className="text-zinc-700 text-[10px]" title="Bu pazar için ML olasılığı yok (engine pick üretmedi veya market ML kapsamı dışı)">—</span>}
+                                    </span>
                                     {/* API */}
                                     <span className="text-right">{cellNum(item.apiProb, supportThr)}</span>
                                     {/* Güvenilirlik */}

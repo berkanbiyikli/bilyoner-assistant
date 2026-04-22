@@ -86,6 +86,9 @@ export async function GET(req: NextRequest) {
     const noPickInserts: Array<Record<string, unknown>> = [];
     const pickInserts: Array<Record<string, unknown>> = [];
     const noPickDeleteIds: number[] = [];
+    // Pick'leri yazdığımız fixture'lar — eski kayıtlar silinecek (idempotency).
+    // Aynı (fixture_id, pick) için aynı türde duplicate olmasını önler.
+    const fixturesToReplace = new Set<number>();
 
     console.log(`[CRON] Init tamamlandı (${Math.round((Date.now() - startTime) / 1000)}s)`);
 
@@ -126,6 +129,8 @@ export async function GET(req: NextRequest) {
         }
 
         noPickDeleteIds.push(pred.fixtureId);
+        // Bu fixture için pick yazıyoruz → eski tüm kayıtları sileceğiz (duplicate önleme)
+        fixturesToReplace.add(pred.fixtureId);
 
         const oddsForJson = pred.odds ? {
           ...pred.odds,
@@ -139,8 +144,10 @@ export async function GET(req: NextRequest) {
         };
 
         for (const pick of pred.picks) {
+          // Aynı analiz turunda bir pick türünden sadece bir tane (defansif)
           const key = `${pred.fixtureId}_${pick.type}`;
           if (existingPickKeys.has(key)) continue;
+          existingPickKeys.add(key);
           pickInserts.push({
             fixture_id: pred.fixtureId,
             home_team: pred.homeTeam.name,
@@ -165,6 +172,14 @@ export async function GET(req: NextRequest) {
     if (noPickDeleteIds.length > 0) {
       await supabase.from("predictions").delete()
         .in("fixture_id", noPickDeleteIds).eq("pick", "no_pick");
+    }
+    // Idempotency: pick yazacağımız fixture'lar için TÜM eski pick kayıtlarını sil.
+    // Böylece concurrent cron çalışmalarında oluşmuş duplicate'ler temizlenir,
+    // her fixture için kanonik (tek tur) pick seti DB'ye gider.
+    if (fixturesToReplace.size > 0) {
+      const replaceIds = Array.from(fixturesToReplace);
+      await supabase.from("predictions").delete()
+        .in("fixture_id", replaceIds).neq("pick", "no_pick");
     }
     if (noPickInserts.length > 0) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

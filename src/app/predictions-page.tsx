@@ -1173,6 +1173,25 @@ function AnalysisTab({ analysis, homeTeam, awayTeam }: { analysis: MatchPredicti
 }
 
 // ---- Picks Tab ----
+// Pick'leri kategorilere ayır: "1X2 / Çifte Şans / Gol / KG / İY/MS / Skor / Kombo"
+// Çelişkili pick'ler aynı maçta görünebilir (örn 1X ve 2/2) çünkü sistem her market'i
+// bağımsız değerlendirir. Kullanıcıya bunu açıkça gösterelim.
+const PICK_CATEGORIES: { key: string; label: string; icon: string; types: (t: string) => boolean }[] = [
+  { key: "ms", label: "Maç Sonucu", icon: "🏆", types: (t) => ["1", "X", "2"].includes(t) },
+  { key: "dc", label: "Çifte Şans", icon: "🛡️", types: (t) => ["1X", "X2", "12"].includes(t) },
+  { key: "gol", label: "Gol", icon: "⚽", types: (t) => /^(Over|Under)\s/.test(t) },
+  { key: "kg", label: "KG Var/Yok", icon: "🤝", types: (t) => t.startsWith("BTTS") },
+  { key: "iy", label: "İlk Yarı", icon: "⏱️", types: (t) => t.startsWith("HT ") },
+  { key: "iyms", label: "İY/MS", icon: "🔀", types: (t) => /^(1|X|2)\/(1|X|2)$/.test(t) },
+  { key: "skor", label: "Kesin Skor", icon: "🎯", types: (t) => t.startsWith("CS ") || /^\d+-\d+$/.test(t) },
+  { key: "kombo", label: "Kombine", icon: "🧩", types: (t) => t.includes(" & ") },
+];
+
+function categorizePick(type: string): string {
+  for (const cat of PICK_CATEGORIES) if (cat.types(type)) return cat.key;
+  return "diger";
+}
+
 function PicksTab({
   prediction: p,
   isInCoupon,
@@ -1182,65 +1201,135 @@ function PicksTab({
   isInCoupon: (fid: number, pick: string) => boolean;
   onAddToCoupon: (pick: PickT) => void;
 }) {
+  // Pick'leri kategorilere göre grupla, her kategoride confidence'a göre sırala
+  const grouped = new Map<string, PickT[]>();
+  for (const pick of p.picks) {
+    const cat = categorizePick(pick.type);
+    if (!grouped.has(cat)) grouped.set(cat, []);
+    grouped.get(cat)!.push(pick);
+  }
+  for (const list of grouped.values()) list.sort((a, b) => b.confidence - a.confidence);
+
+  // En güvenilir tek pick (kullanıcıya "bunu oyna" önerisi)
+  const topPick = [...p.picks].sort((a, b) => {
+    const evBonus = (x: PickT) => (x.expectedValue > 0 ? x.expectedValue * 20 : 0);
+    return (b.confidence + evBonus(b)) - (a.confidence + evBonus(a));
+  })[0];
+
+  // Çelişki tespiti: birden fazla kategori = farklı senaryolar
+  const hasContradictions = grouped.size > 1;
+
   return (
-    <div className="grid gap-2">
-      {p.picks.map((pick, i) => {
-        const inCoupon = isInCoupon(p.fixtureId, pick.type);
-        return (
-          <div key={i} className={cn(
-            "flex items-center gap-3 rounded-lg border p-3 transition-all",
-            inCoupon ? "border-indigo-500/30 bg-indigo-500/5" :
-            pick.isValueBet ? "border-emerald-500/20 bg-emerald-500/[0.03]" :
-            "border-zinc-800 hover:border-zinc-700"
-          )}>
-            {/* Type badge */}
-            <span className={cn(
-              "text-xs font-bold px-2.5 py-1 rounded-md shrink-0 min-w-[50px] text-center",
-              pick.isValueBet ? "bg-emerald-500/15 text-emerald-400" : "bg-indigo-500/15 text-indigo-400"
-            )}>
-              {pickLabel(pick.type)}
-            </span>
-
-            {/* Details */}
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-zinc-300 truncate">{pick.reasoning}</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                {pick.simProbability != null && (
-                  <span className="text-[10px] text-zinc-500">Sim: %{pick.simProbability.toFixed(1)}</span>
-                )}
-                {pick.expectedValue > 0 && (
-                  <span className="text-[10px] text-emerald-500">EV: +{(pick.expectedValue * 100).toFixed(1)}%</span>
-                )}
-              </div>
+    <div className="space-y-3">
+      {/* Önerilen pick — kullanıcı dostu özet */}
+      {topPick && (
+        <div className="rounded-lg border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-zinc-900/50 p-3">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="flex items-center gap-2">
+              <Star className="w-4 h-4 text-amber-400" />
+              <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wide">Önerilen</span>
             </div>
-
-            {/* Confidence */}
-            <span className={cn(
-              "text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0",
-              pick.confidence >= 70 ? "bg-green-500/15 text-green-400" :
-              pick.confidence >= 55 ? "bg-yellow-500/15 text-yellow-400" :
-              "bg-red-500/10 text-red-400"
-            )}>
-              %{pick.confidence}
-            </span>
-
-            {/* Odds */}
-            <span className="text-[11px] font-bold text-yellow-500/80 shrink-0 tabular-nums w-[40px] text-right">
-              {pick.odds.toFixed(2)}
-            </span>
-
-            {/* Add to coupon */}
             <button
-              onClick={(e) => { e.stopPropagation(); onAddToCoupon(pick); }}
+              onClick={(e) => { e.stopPropagation(); onAddToCoupon(topPick); }}
               className={cn(
-                "p-1.5 rounded-md transition-all shrink-0",
-                inCoupon
+                "text-[10px] font-medium px-2 py-1 rounded-md transition-all",
+                isInCoupon(p.fixtureId, topPick.type)
                   ? "bg-indigo-500 text-white"
-                  : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                  : "bg-amber-500 text-black hover:bg-amber-400"
               )}
             >
-              {inCoupon ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+              {isInCoupon(p.fixtureId, topPick.type) ? "✓ Kuponda" : "+ Kupona Ekle"}
             </button>
+          </div>
+          <div className="flex items-baseline gap-3">
+            <span className="text-lg font-bold text-white">{pickLabel(topPick.type)}</span>
+            <span className="text-sm text-yellow-500 font-bold">{topPick.odds.toFixed(2)}</span>
+            <span className="text-xs text-zinc-400">%{topPick.confidence} güven</span>
+            {topPick.expectedValue > 0 && (
+              <span className="text-xs text-emerald-400">+{(topPick.expectedValue * 100).toFixed(0)}% EV</span>
+            )}
+          </div>
+          <p className="text-[11px] text-zinc-400 mt-1 line-clamp-2">{topPick.reasoning}</p>
+        </div>
+      )}
+
+      {/* Çelişki uyarısı */}
+      {hasContradictions && (
+        <div className="flex items-start gap-2 rounded-lg border border-zinc-700 bg-zinc-800/40 px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-zinc-400 leading-relaxed">
+            <span className="text-zinc-300 font-medium">Aşağıdaki tahminler farklı senaryoları gösterir.</span>{" "}
+            Hepsini birden oynama — sistem her pazarı bağımsız değerlendirdiği için aralarında çelişki olabilir.
+            Tek tek değerlendir, en güvendiğini seç.
+          </p>
+        </div>
+      )}
+
+      {/* Kategorize pick listesi */}
+      {PICK_CATEGORIES.map((cat) => {
+        const list = grouped.get(cat.key);
+        if (!list || list.length === 0) return null;
+        return (
+          <div key={cat.key} className="space-y-1.5">
+            <div className="flex items-center gap-2 px-1">
+              <span className="text-xs">{cat.icon}</span>
+              <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">{cat.label}</span>
+              <div className="flex-1 h-px bg-zinc-800" />
+              <span className="text-[10px] text-zinc-600">{list.length} seçenek</span>
+            </div>
+            <div className="grid gap-1.5">
+              {list.map((pick, i) => {
+                const inCoupon = isInCoupon(p.fixtureId, pick.type);
+                return (
+                  <div key={`${cat.key}-${i}`} className={cn(
+                    "flex items-center gap-3 rounded-lg border p-2.5 transition-all",
+                    inCoupon ? "border-indigo-500/30 bg-indigo-500/5" :
+                    pick.isValueBet ? "border-emerald-500/20 bg-emerald-500/[0.03]" :
+                    "border-zinc-800 hover:border-zinc-700"
+                  )}>
+                    <span className={cn(
+                      "text-xs font-bold px-2.5 py-1 rounded-md shrink-0 min-w-[50px] text-center",
+                      pick.isValueBet ? "bg-emerald-500/15 text-emerald-400" : "bg-indigo-500/15 text-indigo-400"
+                    )}>
+                      {pickLabel(pick.type)}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] text-zinc-300 truncate">{pick.reasoning}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {pick.simProbability != null && (
+                          <span className="text-[10px] text-zinc-500">Sim: %{pick.simProbability.toFixed(1)}</span>
+                        )}
+                        {pick.expectedValue > 0 && (
+                          <span className="text-[10px] text-emerald-500">EV: +{(pick.expectedValue * 100).toFixed(1)}%</span>
+                        )}
+                      </div>
+                    </div>
+                    <span className={cn(
+                      "text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0",
+                      pick.confidence >= 70 ? "bg-green-500/15 text-green-400" :
+                      pick.confidence >= 55 ? "bg-yellow-500/15 text-yellow-400" :
+                      "bg-red-500/10 text-red-400"
+                    )}>
+                      %{pick.confidence}
+                    </span>
+                    <span className="text-[11px] font-bold text-yellow-500/80 shrink-0 tabular-nums w-[40px] text-right">
+                      {pick.odds.toFixed(2)}
+                    </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onAddToCoupon(pick); }}
+                      className={cn(
+                        "p-1.5 rounded-md transition-all shrink-0",
+                        inCoupon
+                          ? "bg-indigo-500 text-white"
+                          : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                      )}
+                    >
+                      {inCoupon ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}

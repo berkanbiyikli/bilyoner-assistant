@@ -67,11 +67,22 @@ export async function GET(req: NextRequest) {
         .order("confidence", { ascending: false });
 
       // 3) DB tahminlerini fixture bazlı grupla ve zenginleştir
+      // DEDUP: Aynı (fixture_id, pick) için en yüksek confidence olanı tut.
+      // Geçmişte concurrent cron çalışmaları yüzünden duplicate kayıtlar var.
       const fixtureGrouped = new Map<number, typeof dbPredictions>();
+      const seenKeys = new Map<string, number>(); // key -> kept confidence
       for (const dbPred of (dbPredictions || [])) {
+        const dedupKey = `${dbPred.fixture_id}_${dbPred.pick}`;
+        const existingConf = seenKeys.get(dedupKey);
+        if (existingConf !== undefined && existingConf >= (dbPred.confidence ?? 0)) {
+          continue; // Bu kayıt daha düşük confidence — atla
+        }
+        seenKeys.set(dedupKey, dbPred.confidence ?? 0);
         const group = fixtureGrouped.get(dbPred.fixture_id) || [];
-        group.push(dbPred);
-        fixtureGrouped.set(dbPred.fixture_id, group);
+        // Önceki kaydı (varsa) kaldır, yenisini ekle
+        const filtered = group.filter((g) => g.pick !== dbPred.pick);
+        filtered.push(dbPred);
+        fixtureGrouped.set(dbPred.fixture_id, filtered);
       }
 
       // NOT: Kullanıcı isteğinde canlı analiz YAPILMAZ — 504 timeout'a neden olur.
@@ -231,12 +242,18 @@ export async function GET(req: NextRequest) {
         // Tahminlerin ait olduğu tarihleri bul
         const predDates = [...new Set(finalPreds.map(p => p.kickoff.split("T")[0]))].sort();
 
-        // Tahminleri grupla
+        // Tahminleri grupla (DEDUP — aynı pick türünden en yüksek confidence olanı tut)
         const latestGrouped = new Map<number, typeof finalPreds>();
+        const seenLatestKeys = new Map<string, number>();
         for (const p of finalPreds) {
+          const dedupKey = `${p.fixture_id}_${p.pick}`;
+          const existingConf = seenLatestKeys.get(dedupKey);
+          if (existingConf !== undefined && existingConf >= (p.confidence ?? 0)) continue;
+          seenLatestKeys.set(dedupKey, p.confidence ?? 0);
           const group = latestGrouped.get(p.fixture_id) || [];
-          group.push(p);
-          latestGrouped.set(p.fixture_id, group);
+          const filtered = group.filter((g) => g.pick !== p.pick);
+          filtered.push(p);
+          latestGrouped.set(p.fixture_id, filtered);
         }
 
         const fallbackPredictions = Array.from(latestGrouped.entries()).map(([fixtureId, preds]) => {

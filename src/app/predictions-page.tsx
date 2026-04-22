@@ -435,7 +435,20 @@ export function PredictionsPage() {
 
   // Sim-tabanlı günlük özet — kalibrasyondan etkilenmeyen "ham" simülasyon olasılıkları
   // Bu yüzdeler 10K Monte Carlo'dan gelir; engine'in confidence inflation'ından bağımsız.
-  type SimSummaryItem = { prediction: MatchPrediction; pickType: string; pickLabelText: string; simProb: number; pick?: PickT };
+  type SimSummaryItem = {
+    prediction: MatchPrediction;
+    pickType: string;
+    pickLabelText: string;
+    simProb: number;
+    pick?: PickT;
+    // Çapraz doğrulama sinyalleri
+    engineConf?: number;     // Pick varsa engine confidence
+    impliedProb?: number;    // Oran implied % (1/odds * 100)
+    mlProb?: number;         // ML model olasılığı %
+    apiProb?: number;        // API-Football olasılığı % (sadece 1/X/2)
+    confirmCount: number;    // Sim'i destekleyen sinyal sayısı (engine/ml/api/implied)
+    signalCount: number;     // Mevcut sinyal sayısı
+  };
   const simSummary = useMemo(() => {
     type Section = { key: string; icon: string; label: string; threshold: number; items: SimSummaryItem[] };
     const sections: Section[] = [
@@ -449,30 +462,87 @@ export function PredictionsPage() {
       { key: "over15", icon: "🔥", label: "Banker — 1.5 Üst", threshold: 80, items: [] },
       { key: "ht_over05", icon: "🕐", label: "İY 0.5 Üst", threshold: 70, items: [] },
       { key: "ht_over15", icon: "⏱", label: "İY 1.5 Üst", threshold: 45, items: [] },
+      { key: "ht_btts_yes", icon: "⚡", label: "İY KG Var", threshold: 35, items: [] },
     ];
     const findPick = (p: MatchPrediction, type: string) => p.picks.find((pk) => pk.type === type);
+
+    // Bir item için confirmation hesapla — sim'i destekleyen sinyalleri say
+    const buildItem = (
+      p: MatchPrediction,
+      pickType: string,
+      pickLabelText: string,
+      simProb: number,
+      apiProb?: number,
+      oddsHint?: number
+    ): SimSummaryItem => {
+      const pick = findPick(p, pickType);
+      const engineConf = pick?.confidence;
+      // Oran: pick varsa pick.odds, yoksa hint, yoksa undefined
+      const odds = pick?.odds ?? oddsHint;
+      const impliedProb = odds && odds > 1 ? (100 / odds) : undefined;
+      const mlProb = pick?.modelProbability != null ? pick.modelProbability * 100 : undefined;
+
+      // Tolerans: sim'in %85'inden büyükse "destekliyor" say
+      const supportThreshold = simProb * 0.85;
+      let confirmCount = 0;
+      let signalCount = 0;
+      const checkSignal = (val: number | undefined) => {
+        if (val == null || isNaN(val)) return;
+        signalCount++;
+        if (val >= supportThreshold) confirmCount++;
+      };
+      checkSignal(engineConf);
+      checkSignal(impliedProb);
+      checkSignal(mlProb);
+      checkSignal(apiProb);
+
+      return {
+        prediction: p,
+        pickType,
+        pickLabelText,
+        simProb,
+        pick,
+        engineConf,
+        impliedProb,
+        mlProb,
+        apiProb,
+        confirmCount,
+        signalCount,
+      };
+    };
+
     for (const p of sortedPredictions) {
       const sim = p.analysis?.simulation;
       if (!sim) continue;
-      // 1/X/2
-      if (sim.simHomeWinProb >= 60) sections[0].items.push({ prediction: p, pickType: "1", pickLabelText: "1", simProb: sim.simHomeWinProb, pick: findPick(p, "1") });
-      if (sim.simAwayWinProb >= 60) sections[1].items.push({ prediction: p, pickType: "2", pickLabelText: "2", simProb: sim.simAwayWinProb, pick: findPick(p, "2") });
-      if (sim.simDrawProb >= 35) sections[2].items.push({ prediction: p, pickType: "X", pickLabelText: "X", simProb: sim.simDrawProb, pick: findPick(p, "X") });
+      const o = p.odds;
+      // 1/X/2 — API olasılıklarını da kullan
+      if (sim.simHomeWinProb >= 60) sections[0].items.push(buildItem(p, "1", "1", sim.simHomeWinProb, p.analysis.apiHomeWinProb, o?.home));
+      if (sim.simAwayWinProb >= 60) sections[1].items.push(buildItem(p, "2", "2", sim.simAwayWinProb, p.analysis.apiAwayWinProb, o?.away));
+      if (sim.simDrawProb >= 35) sections[2].items.push(buildItem(p, "X", "X", sim.simDrawProb, p.analysis.apiDrawProb, o?.draw));
       // Goller
-      if (sim.simOver25Prob >= 60) sections[3].items.push({ prediction: p, pickType: "Over 2.5", pickLabelText: "Ü2.5", simProb: sim.simOver25Prob, pick: findPick(p, "Over 2.5") });
-      if (100 - sim.simOver25Prob >= 60) sections[4].items.push({ prediction: p, pickType: "Under 2.5", pickLabelText: "A2.5", simProb: 100 - sim.simOver25Prob, pick: findPick(p, "Under 2.5") });
+      if (sim.simOver25Prob >= 60) sections[3].items.push(buildItem(p, "Over 2.5", "Ü2.5", sim.simOver25Prob, undefined, o?.over25));
+      if (100 - sim.simOver25Prob >= 60) sections[4].items.push(buildItem(p, "Under 2.5", "A2.5", 100 - sim.simOver25Prob, undefined, o?.under25));
       // BTTS
-      if (sim.simBttsProb >= 60) sections[5].items.push({ prediction: p, pickType: "BTTS Yes", pickLabelText: "KG+", simProb: sim.simBttsProb, pick: findPick(p, "BTTS Yes") });
-      if (100 - sim.simBttsProb >= 60) sections[6].items.push({ prediction: p, pickType: "BTTS No", pickLabelText: "KG-", simProb: 100 - sim.simBttsProb, pick: findPick(p, "BTTS No") });
+      if (sim.simBttsProb >= 60) sections[5].items.push(buildItem(p, "BTTS Yes", "KG+", sim.simBttsProb, undefined, o?.bttsYes));
+      if (100 - sim.simBttsProb >= 60) sections[6].items.push(buildItem(p, "BTTS No", "KG-", 100 - sim.simBttsProb, undefined, o?.bttsNo));
       // Banker (1.5 Ü)
-      if (sim.simOver15Prob >= 80) sections[7].items.push({ prediction: p, pickType: "Over 1.5", pickLabelText: "Ü1.5", simProb: sim.simOver15Prob, pick: findPick(p, "Over 1.5") });
+      if (sim.simOver15Prob >= 80) sections[7].items.push(buildItem(p, "Over 1.5", "Ü1.5", sim.simOver15Prob, undefined, o?.over15));
       // İY 0.5 Ü
-      if (sim.simHtOver05Prob >= 70) sections[8].items.push({ prediction: p, pickType: "HT Over 0.5", pickLabelText: "İY Ü0.5", simProb: sim.simHtOver05Prob, pick: findPick(p, "HT Over 0.5") });
-      // İY 1.5 Ü (yüksek tempolu maçlar — pick olarak üretilmese bile sim sinyali)
-      if (sim.simHtOver15Prob >= 45) sections[9].items.push({ prediction: p, pickType: "HT Over 1.5", pickLabelText: "İY Ü1.5", simProb: sim.simHtOver15Prob, pick: findPick(p, "HT Over 1.5") });
+      if (sim.simHtOver05Prob >= 70) sections[8].items.push(buildItem(p, "HT Over 0.5", "İY Ü0.5", sim.simHtOver05Prob));
+      // İY 1.5 Ü
+      if (sim.simHtOver15Prob >= 45) sections[9].items.push(buildItem(p, "HT Over 1.5", "İY Ü1.5", sim.simHtOver15Prob));
+      // İY KG Var — İY'de iki taraf da gol atması zor, %35 zaten güçlü sinyal
+      if (sim.simHtBttsProb >= 35) sections[10].items.push(buildItem(p, "HT BTTS Yes", "İY KG+", sim.simHtBttsProb));
     }
-    // Her section'ı sim olasılığına göre sırala
-    for (const s of sections) s.items.sort((a, b) => b.simProb - a.simProb);
+    // Her section'ı önce confirmation güçlü olanlara, sonra sim olasılığına göre sırala
+    for (const s of sections) {
+      s.items.sort((a, b) => {
+        const aRatio = a.signalCount > 0 ? a.confirmCount / a.signalCount : 0;
+        const bRatio = b.signalCount > 0 ? b.confirmCount / b.signalCount : 0;
+        if (Math.abs(aRatio - bRatio) > 0.01) return bRatio - aRatio;
+        return b.simProb - a.simProb;
+      });
+    }
     return sections;
   }, [sortedPredictions]);
 
@@ -747,7 +817,7 @@ export function PredictionsPage() {
                           📊 Simülasyon Özeti — Yüksek Olasılıklı Pazarlar
                         </p>
                         <p className="text-[11px] text-zinc-500">
-                          10K Monte Carlo iterasyonundan ham olasılıklar · Pick güven inflation&apos;ından bağımsız
+                          10K Monte Carlo · Diğer sinyaller (Engine/Oran/ML/API) destekliyor mu? Güvenilirlik rozeti gör.
                         </p>
                       </div>
                       {perfStats && (
@@ -783,53 +853,101 @@ export function PredictionsPage() {
                               <div className="flex-1 h-px bg-zinc-800" />
                               <span className="text-[10px] font-bold text-cyan-400">{sec.items.length} maç</span>
                             </div>
+                            {/* Table header */}
+                            <div className="hidden md:grid grid-cols-[44px_1fr_60px_60px_60px_60px_60px_84px_64px_28px] gap-2 px-3 py-1.5 text-[9px] uppercase tracking-wider text-zinc-600 font-semibold border-b border-zinc-800/50 bg-zinc-950/40">
+                              <span>Saat</span>
+                              <span>Maç</span>
+                              <span className="text-right" title="Monte Carlo simülasyonu">Sim</span>
+                              <span className="text-right" title="Engine confidence (kalibreli)">Engine</span>
+                              <span className="text-right" title="Bahis oranından implied olasılık">Oran%</span>
+                              <span className="text-right" title="ML model olasılığı">ML</span>
+                              <span className="text-right" title="API-Football olasılığı (sadece 1/X/2)">API</span>
+                              <span className="text-center" title="Diğer sinyallerin sim'i destekleme oranı">Güvenilirlik</span>
+                              <span className="text-right">Oran</span>
+                              <span></span>
+                            </div>
                             <div className="divide-y divide-zinc-800/60">
-                              {sec.items.slice(0, 8).map((item, i) => {
+                              {sec.items.slice(0, 10).map((item, i) => {
                                 const inCoupon = item.pick ? isInCoupon(item.prediction.fixtureId, item.pickType) : false;
+                                const ratio = item.signalCount > 0 ? item.confirmCount / item.signalCount : 0;
+                                const reliability =
+                                  item.signalCount === 0 ? { label: "—", color: "text-zinc-600 bg-zinc-800/40 border-zinc-700/40" } :
+                                  ratio >= 0.75 ? { label: "✓ Güvenilir", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30" } :
+                                  ratio >= 0.5  ? { label: "≈ Karışık",   color: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30" } :
+                                                  { label: "⚠ Zayıf",     color: "text-red-400 bg-red-500/10 border-red-500/30" };
+                                const cellNum = (val: number | undefined, supportThr: number) => {
+                                  if (val == null) return <span className="text-zinc-700">—</span>;
+                                  const supports = val >= supportThr;
+                                  return (
+                                    <span className={cn("tabular-nums", supports ? "text-zinc-200 font-semibold" : "text-zinc-500")}>
+                                      %{val.toFixed(0)}
+                                    </span>
+                                  );
+                                };
+                                const supportThr = item.simProb * 0.85;
                                 return (
                                   <div
                                     key={`${item.prediction.fixtureId}-${i}`}
-                                    className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-800/30 transition-colors"
+                                    className="grid grid-cols-[44px_1fr_60px_60px_60px_60px_60px_84px_64px_28px] md:gap-2 gap-1 px-3 py-2 items-center hover:bg-zinc-800/30 transition-colors text-[11px]"
                                   >
-                                    <span className="text-[10px] text-zinc-600 tabular-nums w-[42px] shrink-0">
+                                    <span className="text-[10px] text-zinc-600 tabular-nums shrink-0">
                                       {new Date(item.prediction.kickoff).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
                                     </span>
                                     <button
                                       onClick={() => setExpandedMatch(expandedMatch === item.prediction.fixtureId ? null : item.prediction.fixtureId)}
-                                      className="flex-1 min-w-0 text-left"
+                                      className="min-w-0 text-left col-span-1"
                                     >
                                       <p className="text-[11px] text-zinc-200 font-medium truncate">
                                         {item.prediction.homeTeam.name} <span className="text-zinc-600">vs</span> {item.prediction.awayTeam.name}
                                       </p>
                                       <p className="text-[10px] text-zinc-600 truncate">{item.prediction.league.name}</p>
                                     </button>
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 shrink-0 tabular-nums">
-                                      Sim %{item.simProb.toFixed(1)}
+                                    {/* Sim */}
+                                    <span className="text-right text-cyan-400 font-bold tabular-nums">%{item.simProb.toFixed(0)}</span>
+                                    {/* Engine */}
+                                    <span className="text-right">{cellNum(item.engineConf, supportThr)}</span>
+                                    {/* Oran% (implied) */}
+                                    <span className="text-right">{cellNum(item.impliedProb, supportThr)}</span>
+                                    {/* ML */}
+                                    <span className="text-right">{cellNum(item.mlProb, supportThr)}</span>
+                                    {/* API */}
+                                    <span className="text-right">{cellNum(item.apiProb, supportThr)}</span>
+                                    {/* Güvenilirlik */}
+                                    <span
+                                      title={`${item.confirmCount}/${item.signalCount} sinyal sim'i destekliyor (eşik: %${supportThr.toFixed(0)})`}
+                                      className={cn(
+                                        "text-[9px] font-bold px-1.5 py-0.5 rounded border text-center",
+                                        reliability.color
+                                      )}
+                                    >
+                                      {reliability.label}
                                     </span>
-                                    {item.pick && (
-                                      <>
-                                        <span className="text-[10px] font-bold text-yellow-500 shrink-0 tabular-nums w-[36px] text-right">
-                                          {item.pick.odds.toFixed(2)}
-                                        </span>
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); handleAddToCoupon(item.prediction, item.pick!); }}
-                                          className={cn(
-                                            "p-1 rounded transition-all shrink-0",
-                                            inCoupon
-                                              ? "bg-indigo-500 text-white"
-                                              : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
-                                          )}
-                                        >
-                                          {inCoupon ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-                                        </button>
-                                      </>
+                                    {/* Oran */}
+                                    <span className="text-right text-yellow-500 font-bold tabular-nums text-[11px]">
+                                      {item.pick ? item.pick.odds.toFixed(2) : "—"}
+                                    </span>
+                                    {/* Buton */}
+                                    {item.pick ? (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); handleAddToCoupon(item.prediction, item.pick!); }}
+                                        className={cn(
+                                          "p-1 rounded transition-all",
+                                          inCoupon
+                                            ? "bg-indigo-500 text-white"
+                                            : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                                        )}
+                                      >
+                                        {inCoupon ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                                      </button>
+                                    ) : (
+                                      <span />
                                     )}
                                   </div>
                                 );
                               })}
-                              {sec.items.length > 8 && (
+                              {sec.items.length > 10 && (
                                 <div className="px-3 py-1.5 text-center text-[10px] text-zinc-600">
-                                  +{sec.items.length - 8} maç daha (filtreyi kullan)
+                                  +{sec.items.length - 10} maç daha (filtreyi kullan)
                                 </div>
                               )}
                             </div>

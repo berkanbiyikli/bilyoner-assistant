@@ -83,7 +83,7 @@ export function PredictionsPage() {
   // Cascade Strategy state
   const [cascadeStrategies, setCascadeStrategies] = useState<Record<CascadeRiskLevel, CascadeStrategy> | null>(null);
   const [cascadeLoading, setCascadeLoading] = useState(false);
-  const [heroTab, setHeroTab] = useState<"cascade" | "top-picks">("cascade");
+  const [heroTab, setHeroTab] = useState<"cascade" | "top-picks">("top-picks");
 
   // Coupon
   const { activeCoupon, addToCoupon } = useAppStore();
@@ -569,6 +569,19 @@ export function PredictionsPage() {
                 {/* Top Picks Hero */}
                 {heroTab === "top-picks" && topPicks.length > 0 && (
                   <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-zinc-200">
+                          🎯 Bugün için önerilenler
+                        </p>
+                        <p className="text-[11px] text-zinc-500">
+                          En yüksek güven + EV skoruna göre · Karta tıkla, kupona ekle
+                        </p>
+                      </div>
+                      <span className="text-[10px] text-zinc-600">
+                        {topPicks.filter(t => t.pick.isValueBet).length} value bet
+                      </span>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
                       {topPicks.map(({ prediction: tp, pick: tpick }, i) => (
                         <button

@@ -448,6 +448,7 @@ export function PredictionsPage() {
       { key: "btts_no", icon: "🚫", label: "KG Yok", threshold: 60, items: [] },
       { key: "over15", icon: "🔥", label: "Banker — 1.5 Üst", threshold: 80, items: [] },
       { key: "ht_over05", icon: "🕐", label: "İY 0.5 Üst", threshold: 70, items: [] },
+      { key: "ht_over15", icon: "⏱", label: "İY 1.5 Üst", threshold: 45, items: [] },
     ];
     const findPick = (p: MatchPrediction, type: string) => p.picks.find((pk) => pk.type === type);
     for (const p of sortedPredictions) {
@@ -467,6 +468,8 @@ export function PredictionsPage() {
       if (sim.simOver15Prob >= 80) sections[7].items.push({ prediction: p, pickType: "Over 1.5", pickLabelText: "Ü1.5", simProb: sim.simOver15Prob, pick: findPick(p, "Over 1.5") });
       // İY 0.5 Ü
       if (sim.simHtOver05Prob >= 70) sections[8].items.push({ prediction: p, pickType: "HT Over 0.5", pickLabelText: "İY Ü0.5", simProb: sim.simHtOver05Prob, pick: findPick(p, "HT Over 0.5") });
+      // İY 1.5 Ü (yüksek tempolu maçlar — pick olarak üretilmese bile sim sinyali)
+      if (sim.simHtOver15Prob >= 45) sections[9].items.push({ prediction: p, pickType: "HT Over 1.5", pickLabelText: "İY Ü1.5", simProb: sim.simHtOver15Prob, pick: findPick(p, "HT Over 1.5") });
     }
     // Her section'ı sim olasılığına göre sırala
     for (const s of sections) s.items.sort((a, b) => b.simProb - a.simProb);

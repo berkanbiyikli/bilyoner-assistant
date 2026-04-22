@@ -22,13 +22,29 @@ export async function GET(request: Request) {
 
   const supabase = createAdminSupabase();
 
-  // Tüm pick'leri çek (gerekirse tarih filtreli)
-  let query = supabase.from("predictions").select("id, fixture_id, pick, confidence, created_at");
-  if (date) {
-    query = query.gte("kickoff", `${date}T00:00:00.000Z`).lte("kickoff", `${date}T23:59:59.999Z`);
+  // Tüm pick'leri çek (gerekirse tarih filtreli) — pagination ile (1000 satır limiti)
+  type Row = { id: string; fixture_id: number; pick: string; confidence: number | null; created_at: string };
+  const rows: Row[] = [];
+  const PAGE = 1000;
+  let from = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    let q = supabase
+      .from("predictions")
+      .select("id, fixture_id, pick, confidence, created_at")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (date) {
+      q = q.gte("kickoff", `${date}T00:00:00.000Z`).lte("kickoff", `${date}T23:59:59.999Z`);
+    }
+    const { data, error: pageErr } = await q;
+    if (pageErr) return NextResponse.json({ error: pageErr.message }, { status: 500 });
+    if (!data || data.length === 0) break;
+    rows.push(...(data as Row[]));
+    if (data.length < PAGE) break;
+    from += PAGE;
+    if (rows.length > 50000) break; // güvenlik tavanı
   }
-  const { data: rows, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // (fixture_id, pick) -> en iyi kayıt
   const bestByKey = new Map<string, { id: string; confidence: number; created_at: string }>();

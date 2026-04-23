@@ -235,7 +235,7 @@ export default function SporTotoPage() {
   );
   const [program, setProgram] = useState<TotoProgram | null>(null);
   const [summary, setSummary] = useState<TotoBulletinSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [view, setView] = useState<ViewMode>("all");
@@ -250,13 +250,18 @@ export default function SporTotoPage() {
   }, [weekKey]);
 
   const fetchData = useCallback(async () => {
+    // 6 yabancı maç seçilmeden bülten yükleme — API çok ağır
+    if (selectedForeignIds.length !== 6) {
+      setLoading(false);
+      setProgram(null);
+      setSummary(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ date, days: "4" });
-      if (selectedForeignIds.length > 0) {
-        params.set("foreignIds", selectedForeignIds.join(","));
-      }
+      params.set("foreignIds", selectedForeignIds.join(","));
       const res = await fetch(`/api/spor-toto?${params.toString()}`);
       const data: ApiResponse = await res.json();
       if (!data.success || !data.program) {
@@ -365,7 +370,7 @@ export default function SporTotoPage() {
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>
               Spor Toto&apos;nun bu hafta seçtiği <strong>6 yabancı maçı</strong> belirtmen lazım.
-              Şu an <strong>{selectedForeignIds.length}/6</strong> seçili — eksik olanlar otomatik dolduruluyor.
+              Şu an <strong>{selectedForeignIds.length}/6</strong> seçili — analiz başlatmak için 6 maç seç.
             </span>
           </div>
           <button
@@ -373,6 +378,25 @@ export default function SporTotoPage() {
             className="shrink-0 rounded-md bg-amber-500/20 px-3 py-1 text-xs font-semibold hover:bg-amber-500/30"
           >
             Maçları Seç
+          </button>
+        </div>
+      )}
+
+      {/* Henüz seçim yoksa büyük CTA */}
+      {selectedForeignIds.length !== 6 && !loading && !program && (
+        <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center">
+          <Trophy className="mx-auto h-12 w-12 text-primary/60" />
+          <h2 className="mt-3 text-lg font-bold">Yabancı Maçları Seç</h2>
+          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+            Bu hafta Spor Toto kuponunda yer alan <strong>6 yabancı maçı</strong> işaretle.
+            9 TR maçı zaten otomatik geliyor — toplam 15 maç üzerinden detaylı analiz başlayacak.
+          </p>
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            <Trophy className="h-4 w-4" />
+            Maç Seçim Ekranını Aç ({selectedForeignIds.length}/6)
           </button>
         </div>
       )}

@@ -1434,9 +1434,9 @@ function buildSurprise(
 
   // Favori ve underdog tespiti (orana göre)
   const oddsArr: { pick: TotoSelection; odd: number }[] = [
-    { pick: "1", odd: odds.home },
-    { pick: "0", odd: odds.draw },
-    { pick: "2", odd: odds.away },
+    { pick: "1" as TotoSelection, odd: odds.home },
+    { pick: "0" as TotoSelection, odd: odds.draw },
+    { pick: "2" as TotoSelection, odd: odds.away },
   ].sort((a, b) => a.odd - b.odd);
   const favorite = oddsArr[0];
   const underdog = oddsArr[2];

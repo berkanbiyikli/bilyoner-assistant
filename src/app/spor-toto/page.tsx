@@ -34,6 +34,10 @@ import {
   X,
   Check,
   Search,
+  Copy,
+  Wallet,
+  ShieldCheck,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -47,6 +51,7 @@ import type {
   TeamMotivationContext,
   TotoMotivation,
 } from "@/types/spor-toto";
+import { buildSporTotoCoupons, type SporTotoCoupon, type CouponMatchPick } from "@/lib/spor-toto";
 
 // ============================================
 // Helpers
@@ -586,6 +591,11 @@ export default function SporTotoPage() {
         <CouponStrategyCard summary={summary} program={program} />
       )}
 
+      {/* 5 Kupon Önerisi */}
+      {program && program.matches.length > 0 && (
+        <SporTotoCouponsCard matches={program.matches} />
+      )}
+
       {/* View tabs */}
       {program && summary && (
         <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-card p-1">
@@ -774,6 +784,247 @@ function StrategyMetric({
       </div>
       <div className={cn("mt-1 text-2xl font-bold", color)}>{value}</div>
       <div className="text-[10px] text-muted-foreground">{desc}</div>
+    </div>
+  );
+}
+
+// ============================================
+// 5 Kupon Önerisi (Spor Toto Kupon Kartı)
+// ============================================
+
+const RISK_LABEL: Record<SporTotoCoupon["riskLevel"], string> = {
+  very_low: "Çok Güvenli",
+  low: "Güvenli",
+  medium: "Dengeli",
+  high: "Riskli",
+  very_high: "Yüksek Risk",
+};
+
+const RISK_COLOR: Record<SporTotoCoupon["riskLevel"], string> = {
+  very_low: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  low: "bg-green-500/15 text-green-400 border-green-500/30",
+  medium: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  high: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  very_high: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+};
+
+const MODE_BADGE: Record<CouponMatchPick["mode"], string> = {
+  single: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  double: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  triple: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+};
+
+function SporTotoCouponsCard({ matches }: { matches: TotoMatch[] }) {
+  const coupons = useMemo(() => buildSporTotoCoupons(matches), [matches]);
+  const [activeId, setActiveId] = useState<string>("dengeli");
+  const [copied, setCopied] = useState(false);
+
+  if (coupons.length === 0) return null;
+
+  const active = coupons.find((c) => c.id === activeId) ?? coupons[0];
+
+  const handleCopy = async () => {
+    const lines = [
+      `${active.emoji} ${active.name} — ${active.totalColumns} kolon · ${active.totalCost} TL`,
+      "",
+      ...active.picks.map(
+        (p, i) =>
+          `${(i + 1).toString().padStart(2, " ")}. ${p.homeTeam} - ${p.awayTeam}  →  ${p.label}`
+      ),
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // sessizce yut
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+          <Ticket className="h-4 w-4" />
+          5 Spor Toto Kupon Önerisi
+        </div>
+        <span className="text-[10px] text-muted-foreground">
+          Kolon başı {active.pricePerColumn} TL
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Banko + çifte şans + üçlü dağılımıyla ucuzdan pahalıya 5 farklı kupon. Bilyoner&apos;e aynen yazabilirsin.
+      </p>
+
+      {/* Kupon seçici tabs */}
+      <div className="mt-3 grid gap-2 sm:grid-cols-5">
+        {coupons.map((c) => {
+          const isActive = c.id === active.id;
+          return (
+            <button
+              key={c.id}
+              onClick={() => setActiveId(c.id)}
+              className={cn(
+                "rounded-lg border p-2 text-left transition",
+                isActive
+                  ? "border-primary bg-primary/15 ring-1 ring-primary"
+                  : "border-border bg-card hover:border-primary/50"
+              )}
+            >
+              <div className="flex items-center gap-1 text-xs font-semibold">
+                <span>{c.emoji}</span>
+                <span className="truncate">{c.name}</span>
+              </div>
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                {c.totalColumns} kolon
+              </div>
+              <div className="text-[11px] font-bold text-primary">
+                {c.totalCost} TL
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Aktif kupon detayı */}
+      <div className="mt-4 rounded-lg border border-border bg-card/60 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-bold">
+              <span>{active.emoji}</span>
+              <span>{active.name}</span>
+              <span
+                className={cn(
+                  "rounded border px-1.5 py-0.5 text-[10px] font-semibold",
+                  RISK_COLOR[active.riskLevel]
+                )}
+              >
+                {RISK_LABEL[active.riskLevel]}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {active.description}
+            </p>
+          </div>
+          <button
+            onClick={handleCopy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            {copied ? (
+              <>
+                <Check className="h-3.5 w-3.5" /> Kopyalandı
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5" /> Kuponu Kopyala
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Özet metrikler */}
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <CouponMetric
+            icon={Lock}
+            label="Tek"
+            value={active.bankoCount}
+            color="text-emerald-400"
+          />
+          <CouponMetric
+            icon={Layers}
+            label="Çift"
+            value={active.doubleCount}
+            color="text-amber-400"
+          />
+          <CouponMetric
+            icon={Siren}
+            label="Üçlü"
+            value={active.tripleCount}
+            color="text-rose-400"
+          />
+          <CouponMetric
+            icon={Calculator}
+            label="Kolon"
+            value={active.totalColumns}
+            color="text-primary"
+          />
+          <CouponMetric
+            icon={Wallet}
+            label="Maliyet"
+            value={`${active.totalCost} TL`}
+            color="text-cyan-400"
+          />
+        </div>
+
+        {/* Maç listesi */}
+        <div className="mt-3 space-y-1.5">
+          {active.picks.map((p, idx) => (
+            <div
+              key={p.matchId}
+              className="flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5 text-xs"
+            >
+              <span className="w-5 shrink-0 text-right text-[10px] text-muted-foreground">
+                {idx + 1}.
+              </span>
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium">{p.homeTeam}</span>
+                <span className="mx-1 text-muted-foreground">vs</span>
+                <span className="font-medium">{p.awayTeam}</span>
+              </span>
+              {p.isBanko && (
+                <Star className="h-3 w-3 shrink-0 fill-emerald-400 text-emerald-400" />
+              )}
+              {p.isSurprise && (
+                <Siren className="h-3 w-3 shrink-0 text-rose-400" />
+              )}
+              <span
+                className={cn(
+                  "shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-bold",
+                  MODE_BADGE[p.mode]
+                )}
+                title={p.reasoning}
+              >
+                {p.label}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Alt bilgi */}
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div className="rounded-md bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-400">
+            <ShieldCheck className="mr-1 inline h-3 w-3" />
+            Tutturma olasılığı: <strong>%{active.expectedAccuracy.toFixed(2)}</strong>
+          </div>
+          <div className="rounded-md bg-primary/10 px-2.5 py-1.5 text-[11px] text-primary">
+            <TrendingUp className="mr-1 inline h-3 w-3" />
+            {active.totalColumns} kolon × {active.pricePerColumn} TL ={" "}
+            <strong>{active.totalCost} TL</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CouponMetric({
+  icon: Icon,
+  label,
+  value,
+  color,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number | string;
+  color: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-background/40 p-2">
+      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+        <Icon className="h-3 w-3" />
+        {label}
+      </div>
+      <div className={cn("mt-0.5 text-sm font-bold", color)}>{value}</div>
     </div>
   );
 }

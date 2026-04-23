@@ -98,14 +98,18 @@ function getTotoWeekStart(date: Date): Date {
 
 export async function buildTotoBulletin(
   targetDate?: string,
-  daysAhead: number = 4 // Cuma-Pazartesi = 4 gün
+  daysAhead: number = 4, // Cuma-Pazartesi = 4 gün
+  foreignFixtureIds?: number[] // Kullanıcının seçtiği 6 yabancı maç
 ): Promise<TotoProgram> {
   // Hafta başlangıcını Cuma'ya hizala
   const baseDate = targetDate ? parseISO(targetDate) : new Date();
   const weekStart = getTotoWeekStart(baseDate);
   const startDate = format(weekStart, "yyyy-MM-dd");
 
-  const cacheKey = `toto-bulletin:v2:${startDate}:${daysAhead}`;
+  const sortedForeignKey = foreignFixtureIds && foreignFixtureIds.length
+    ? `:fids=${[...foreignFixtureIds].sort().join(",")}`
+    : "";
+  const cacheKey = `toto-bulletin:v2:${startDate}:${daysAhead}${sortedForeignKey}`;
   const cached = getCached<TotoProgram>(cacheKey);
   if (cached) return cached;
 
@@ -144,11 +148,23 @@ export async function buildTotoBulletin(
     return sortByTime(a, b);
   });
 
-  // 9 TR + 6 yabancı = 15 maç (TR yetmezse yabancıdan tamamla)
+  // 9 TR + 6 yabancı = 15 maç
+  // Eğer kullanıcı yabancı maçları belirttiyse onları kullan, yoksa otomatik seç
   const selectedTR = trFixtures.slice(0, MAX_TR_MATCHES);
   const trShortfall = MAX_TR_MATCHES - selectedTR.length;
   const foreignSlots = MAX_FOREIGN_MATCHES + Math.max(0, trShortfall);
-  const selectedForeign = foreignFixtures.slice(0, foreignSlots);
+
+  let selectedForeign: FixtureResponse[];
+  if (foreignFixtureIds && foreignFixtureIds.length > 0) {
+    const idSet = new Set(foreignFixtureIds);
+    const userPicked = foreignFixtures.filter((f) => idSet.has(f.fixture.id));
+    // Kullanıcı seçimi 6'dan az ise otomatik tamamla
+    const remaining = foreignFixtures.filter((f) => !idSet.has(f.fixture.id));
+    const fillCount = Math.max(0, foreignSlots - userPicked.length);
+    selectedForeign = [...userPicked, ...remaining.slice(0, fillCount)];
+  } else {
+    selectedForeign = foreignFixtures.slice(0, foreignSlots);
+  }
 
   const selected = [...selectedTR, ...selectedForeign].slice(0, MAX_TOTAL_MATCHES);
 
@@ -202,6 +218,66 @@ export async function buildTotoBulletin(
 
   setCache(cacheKey, program, 600); // 10 dk cache
   return program;
+}
+
+// ---- Yabancı Maç Adayları (kullanıcı seçimi için) ----
+
+export interface ForeignCandidate {
+  fixtureId: number;
+  league: { id: number; name: string; country: string; logo: string; flag?: string | null };
+  kickoff: string;
+  homeTeam: { id: number; name: string; logo: string };
+  awayTeam: { id: number; name: string; logo: string };
+}
+
+export async function getForeignCandidates(
+  targetDate?: string,
+  daysAhead: number = 4
+): Promise<{ startDate: string; endDate: string; candidates: ForeignCandidate[] }> {
+  const baseDate = targetDate ? parseISO(targetDate) : new Date();
+  const weekStart = getTotoWeekStart(baseDate);
+  const startDate = format(weekStart, "yyyy-MM-dd");
+  const endDate = format(addDays(weekStart, daysAhead - 1), "yyyy-MM-dd");
+
+  const cacheKey = `toto-foreign-candidates:${startDate}:${daysAhead}`;
+  const cached = getCached<{ startDate: string; endDate: string; candidates: ForeignCandidate[] }>(cacheKey);
+  if (cached) return cached;
+
+  const all: FixtureResponse[] = [];
+  for (let i = 0; i < daysAhead; i++) {
+    const date = format(addDays(weekStart, i), "yyyy-MM-dd");
+    const fixtures = await getFixturesByDate(date);
+    all.push(...fixtures);
+  }
+
+  const foreign = all.filter((f) => FOREIGN_LEAGUE_IDS.includes(f.league.id));
+
+  // Lig önceliği + tarih sırası
+  foreign.sort((a, b) => {
+    const lA = LEAGUES.find((l) => l.id === a.league.id);
+    const lB = LEAGUES.find((l) => l.id === b.league.id);
+    const prDiff = (lA?.priority ?? 5) - (lB?.priority ?? 5);
+    if (prDiff !== 0) return prDiff;
+    return new Date(a.fixture.date).getTime() - new Date(b.fixture.date).getTime();
+  });
+
+  const candidates: ForeignCandidate[] = foreign.map((f) => ({
+    fixtureId: f.fixture.id,
+    league: {
+      id: f.league.id,
+      name: f.league.name,
+      country: f.league.country,
+      logo: f.league.logo,
+      flag: f.league.flag,
+    },
+    kickoff: f.fixture.date,
+    homeTeam: { id: f.teams.home.id, name: f.teams.home.name, logo: f.teams.home.logo },
+    awayTeam: { id: f.teams.away.id, name: f.teams.away.name, logo: f.teams.away.logo },
+  }));
+
+  const result = { startDate, endDate, candidates };
+  setCache(cacheKey, result, 600);
+  return result;
 }
 
 // ---- Tek Maç Builder ----

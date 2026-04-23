@@ -31,6 +31,9 @@ import {
   Calculator,
   Star,
   Layers,
+  X,
+  Check,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -182,7 +185,49 @@ interface ApiResponse {
   error?: string;
 }
 
+interface CandidateApiResponse {
+  success: boolean;
+  startDate: string;
+  endDate: string;
+  candidates: ForeignCandidate[];
+  error?: string;
+}
+
+interface ForeignCandidate {
+  fixtureId: number;
+  league: { id: number; name: string; country: string; logo: string; flag?: string | null };
+  kickoff: string;
+  homeTeam: { id: number; name: string; logo: string };
+  awayTeam: { id: number; name: string; logo: string };
+}
+
 type ViewMode = "all" | "tr" | "foreign" | "surprise" | "banko";
+
+// Hafta başlangıcını (Cuma) hesapla — localStorage anahtarı için
+function getWeekKey(dateStr: string): string {
+  const d = new Date(dateStr);
+  const day = d.getDay(); // 0=Pzr ... 5=Cum 6=Cmt
+  const diff = (day - 5 + 7) % 7;
+  d.setDate(d.getDate() - diff);
+  return d.toISOString().split("T")[0];
+}
+
+function loadSelection(weekKey: string): number[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(`spor-toto:foreign:${weekKey}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((n) => typeof n === "number") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSelection(weekKey: string, ids: number[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(`spor-toto:foreign:${weekKey}`, JSON.stringify(ids));
+}
 
 export default function SporTotoPage() {
   const [date, setDate] = useState<string>(() =>
@@ -194,12 +239,25 @@ export default function SporTotoPage() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [view, setView] = useState<ViewMode>("all");
+  const [selectedForeignIds, setSelectedForeignIds] = useState<number[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const weekKey = useMemo(() => getWeekKey(date), [date]);
+
+  // localStorage'dan seçimi yükle
+  useEffect(() => {
+    setSelectedForeignIds(loadSelection(weekKey));
+  }, [weekKey]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/spor-toto?date=${date}&days=4`);
+      const params = new URLSearchParams({ date, days: "4" });
+      if (selectedForeignIds.length > 0) {
+        params.set("foreignIds", selectedForeignIds.join(","));
+      }
+      const res = await fetch(`/api/spor-toto?${params.toString()}`);
       const data: ApiResponse = await res.json();
       if (!data.success || !data.program) {
         setError(data.error || "Bülten yüklenemedi");
@@ -214,7 +272,7 @@ export default function SporTotoPage() {
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, selectedForeignIds]);
 
   useEffect(() => {
     fetchData();
@@ -278,6 +336,18 @@ export default function SporTotoPage() {
             />
           </div>
           <button
+            onClick={() => setPickerOpen(true)}
+            className={cn(
+              "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+              selectedForeignIds.length === 6
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15"
+                : "border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15"
+            )}
+          >
+            <Trophy className="h-4 w-4" />
+            Yabancı Maçlar ({selectedForeignIds.length}/6)
+          </button>
+          <button
             onClick={fetchData}
             disabled={loading}
             className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
@@ -287,6 +357,25 @@ export default function SporTotoPage() {
           </button>
         </div>
       </div>
+
+      {/* Yabancı maç seçilmediyse uyarı */}
+      {selectedForeignIds.length < 6 && !loading && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>
+              Spor Toto&apos;nun bu hafta seçtiği <strong>6 yabancı maçı</strong> belirtmen lazım.
+              Şu an <strong>{selectedForeignIds.length}/6</strong> seçili — eksik olanlar otomatik dolduruluyor.
+            </span>
+          </div>
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="shrink-0 rounded-md bg-amber-500/20 px-3 py-1 text-xs font-semibold hover:bg-amber-500/30"
+          >
+            Maçları Seç
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
@@ -495,6 +584,21 @@ export default function SporTotoPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Yabancı maç seçim modalı */}
+      {pickerOpen && (
+        <ForeignPickerModal
+          date={date}
+          weekKey={weekKey}
+          initialSelected={selectedForeignIds}
+          onClose={() => setPickerOpen(false)}
+          onSave={(ids) => {
+            saveSelection(weekKey, ids);
+            setSelectedForeignIds(ids);
+            setPickerOpen(false);
+          }}
+        />
       )}
     </div>
   );
@@ -1359,6 +1463,292 @@ function Stat({ label, value }: { label: string; value: string | number }) {
     <div className="flex justify-between rounded bg-muted/20 px-1.5 py-0.5">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-semibold">{value}</span>
+    </div>
+  );
+}
+
+// ============================================
+// Foreign Picker Modal
+// ============================================
+
+function ForeignPickerModal({
+  date,
+  weekKey,
+  initialSelected,
+  onClose,
+  onSave,
+}: {
+  date: string;
+  weekKey: string;
+  initialSelected: number[];
+  onClose: () => void;
+  onSave: (ids: number[]) => void;
+}) {
+  const [candidates, setCandidates] = useState<ForeignCandidate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set(initialSelected));
+  const [search, setSearch] = useState("");
+  const [leagueFilter, setLeagueFilter] = useState<number | "all">("all");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/spor-toto?date=${date}&days=4&mode=candidates`
+        );
+        const data: CandidateApiResponse = await res.json();
+        if (cancelled) return;
+        if (!data.success) {
+          setError(data.error || "Adaylar yüklenemedi");
+        } else {
+          setCandidates(data.candidates || []);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Hata");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [date]);
+
+  const leagues = useMemo(() => {
+    const map = new Map<number, { id: number; name: string; flag?: string | null }>();
+    candidates.forEach((c) => {
+      if (!map.has(c.league.id)) {
+        map.set(c.league.id, { id: c.league.id, name: c.league.name, flag: c.league.flag });
+      }
+    });
+    return Array.from(map.values());
+  }, [candidates]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return candidates.filter((c) => {
+      if (leagueFilter !== "all" && c.league.id !== leagueFilter) return false;
+      if (!q) return true;
+      return (
+        c.homeTeam.name.toLowerCase().includes(q) ||
+        c.awayTeam.name.toLowerCase().includes(q) ||
+        c.league.name.toLowerCase().includes(q)
+      );
+    });
+  }, [candidates, search, leagueFilter]);
+
+  const toggle = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        if (next.size >= 6) return prev; // max 6
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const canSave = selected.size === 6;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 border-b border-border p-4">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-bold">
+              <Trophy className="h-5 w-5 text-primary" />
+              Yabancı Maç Seçimi
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Hafta: {weekKey} · Spor Toto&apos;nun bu hafta seçtiği <strong>6 yabancı maçı</strong> işaretle.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/20 p-3">
+          <div className="flex flex-1 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5">
+            <Search className="h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Takım veya lig ara..."
+              className="flex-1 bg-transparent text-sm outline-none"
+            />
+          </div>
+          <select
+            value={leagueFilter}
+            onChange={(e) =>
+              setLeagueFilter(
+                e.target.value === "all" ? "all" : parseInt(e.target.value, 10)
+              )
+            }
+            className="rounded-md border border-border bg-card px-2.5 py-1.5 text-sm outline-none"
+          >
+            <option value="all">Tüm Ligler</option>
+            {leagues.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.flag ?? ""} {l.name}
+              </option>
+            ))}
+          </select>
+          <div
+            className={cn(
+              "rounded-md border px-2.5 py-1.5 text-sm font-bold",
+              canSave
+                ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400"
+                : "border-amber-500/40 bg-amber-500/15 text-amber-400"
+            )}
+          >
+            {selected.size}/6
+          </div>
+        </div>
+
+        {/* List */}
+        <div className="flex-1 overflow-y-auto p-3">
+          {loading && (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          )}
+          {error && (
+            <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-400">
+              {error}
+            </div>
+          )}
+          {!loading && !error && filtered.length === 0 && (
+            <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              Bu kriterlerde maç yok.
+            </div>
+          )}
+          <div className="space-y-1.5">
+            {filtered.map((c) => {
+              const isSelected = selected.has(c.fixtureId);
+              const disabled = !isSelected && selected.size >= 6;
+              return (
+                <button
+                  key={c.fixtureId}
+                  onClick={() => toggle(c.fixtureId)}
+                  disabled={disabled}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg border p-2.5 text-left transition-colors",
+                    isSelected
+                      ? "border-primary/50 bg-primary/10"
+                      : disabled
+                        ? "border-border bg-muted/20 opacity-40"
+                        : "border-border bg-card hover:bg-muted/30"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2",
+                      isSelected
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border"
+                    )}
+                  >
+                    {isSelected && <Check className="h-3 w-3" />}
+                  </div>
+
+                  <div className="hidden w-32 shrink-0 text-xs text-muted-foreground sm:block">
+                    <div className="flex items-center gap-1">
+                      <span>{c.league.flag ?? "🌍"}</span>
+                      <span className="truncate">{c.league.name}</span>
+                    </div>
+                    <div className="mt-0.5">
+                      {new Date(c.kickoff).toLocaleString("tr-TR", {
+                        weekday: "short",
+                        day: "2-digit",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      {c.homeTeam.logo && (
+                        <Image
+                          src={c.homeTeam.logo}
+                          alt=""
+                          width={18}
+                          height={18}
+                          className="h-[18px] w-[18px]"
+                          unoptimized
+                        />
+                      )}
+                      <span className="truncate font-medium">{c.homeTeam.name}</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-sm">
+                      {c.awayTeam.logo && (
+                        <Image
+                          src={c.awayTeam.logo}
+                          alt=""
+                          width={18}
+                          height={18}
+                          className="h-[18px] w-[18px]"
+                          unoptimized
+                        />
+                      )}
+                      <span className="truncate font-medium">{c.awayTeam.name}</span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/20 p-3">
+          <button
+            onClick={() => setSelected(new Set())}
+            className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            Seçimi Temizle
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+            >
+              İptal
+            </button>
+            <button
+              onClick={() => onSave(Array.from(selected))}
+              disabled={!canSave}
+              className={cn(
+                "rounded-md px-4 py-1.5 text-sm font-semibold transition-colors",
+                canSave
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "cursor-not-allowed bg-muted text-muted-foreground"
+              )}
+            >
+              Kaydet ({selected.size}/6)
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

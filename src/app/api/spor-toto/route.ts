@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildTotoBulletin, buildBulletinSummary } from "@/lib/spor-toto";
+import { buildTotoBulletin, buildBulletinSummary, getForeignCandidates } from "@/lib/spor-toto";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -9,9 +9,23 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const date = searchParams.get("date") || format(new Date(), "yyyy-MM-dd");
-    const days = Math.min(parseInt(searchParams.get("days") || "3", 10), 7);
+    const days = Math.min(parseInt(searchParams.get("days") || "4", 10), 7);
+    const mode = searchParams.get("mode"); // "candidates" → sadece yabancı maç adayları
 
-    const program = await buildTotoBulletin(date, days);
+    if (mode === "candidates") {
+      const data = await getForeignCandidates(date, days);
+      return NextResponse.json({ success: true, ...data });
+    }
+
+    const foreignIdsRaw = searchParams.get("foreignIds");
+    const foreignFixtureIds = foreignIdsRaw
+      ? foreignIdsRaw
+          .split(",")
+          .map((s) => parseInt(s.trim(), 10))
+          .filter((n) => Number.isFinite(n))
+      : undefined;
+
+    const program = await buildTotoBulletin(date, days, foreignFixtureIds);
     const summary = buildBulletinSummary(program);
 
     return NextResponse.json({

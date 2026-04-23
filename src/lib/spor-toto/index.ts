@@ -2,4 +2,5 @@
 // Spor Toto Module - Public API
 // ============================================
 
-export { buildTotoBulletin, buildBulletinSummary } from "./bulletin";
+export { buildTotoBulletin, buildBulletinSummary, getForeignCandidates } from "./bulletin";
+export type { ForeignCandidate } from "./bulletin";

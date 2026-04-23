@@ -46,10 +46,9 @@ import { getCached, setCache } from "@/lib/cache";
 import { format, addDays, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
 
-// Türkiye ligleri (banko olarak kabul edilir)
+// Türkiye ligleri (banko olarak kabul edilir) — sadece Süper Lig
 const TR_LEAGUE_IDS = [
   203,  // Süper Lig
-  204,  // 1. Lig
 ];
 
 // Yabancı ligler (sürpriz adayları)

@@ -800,7 +800,7 @@ const RISK_LABEL: Record<SporTotoCoupon["riskLevel"], string> = {
   very_high: "Yüksek Risk",
 };
 
-const RISK_COLOR: Record<SporTotoCoupon["riskLevel"], string> = {
+const COUPON_RISK_COLOR: Record<SporTotoCoupon["riskLevel"], string> = {
   very_low: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   low: "bg-green-500/15 text-green-400 border-green-500/30",
   medium: "bg-amber-500/15 text-amber-400 border-amber-500/30",
@@ -896,7 +896,7 @@ function SporTotoCouponsCard({ matches }: { matches: TotoMatch[] }) {
               <span
                 className={cn(
                   "rounded border px-1.5 py-0.5 text-[10px] font-semibold",
-                  RISK_COLOR[active.riskLevel]
+                  COUPON_RISK_COLOR[active.riskLevel]
                 )}
               >
                 {RISK_LABEL[active.riskLevel]}

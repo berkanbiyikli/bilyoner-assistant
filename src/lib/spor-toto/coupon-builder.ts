@@ -46,7 +46,7 @@ export interface SporTotoCoupon {
   expectedAccuracy: number;      // 0-100, kupon kazanma olasılığı tahmini
 }
 
-const PRICE_PER_COLUMN = 2; // TL (Spor Toto)
+const PRICE_PER_COLUMN = 20; // TL (Spor Toto kolon ücreti)
 
 interface MatchAnalysis {
   match: TotoMatch;

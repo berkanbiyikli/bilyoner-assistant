@@ -7,6 +7,7 @@ import {
   TrendingUp,
   Radio,
   Brain,
+  Ticket,
   Menu,
   X,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/", label: "Tahminler", icon: Trophy },
+  { href: "/spor-toto", label: "Spor Toto", icon: Ticket },
   { href: "/live", label: "Canlı", icon: Radio },
   { href: "/stats", label: "İstatistik", icon: TrendingUp },
   { href: "/ml-lab", label: "ML Lab", icon: Brain },

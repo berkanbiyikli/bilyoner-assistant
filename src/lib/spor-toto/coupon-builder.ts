@@ -407,3 +407,82 @@ export function buildSporTotoCoupons(matches: TotoMatch[]): SporTotoCoupon[] {
     })
     .sort((a, b) => a.totalCost - b.totalCost);
 }
+
+/**
+ * Bütçe-bazlı en iyi sistem kuponu önerisi.
+ *
+ * Verilen bütçeye sığan tüm (double, triple) kombinasyonlarını dener,
+ * tutturma olasılığı (expected accuracy) en yüksek olanı seçer.
+ *
+ * Bütçenin en az %50'sini kullanan kuponları tercih eder
+ * (bütçeyi heba etmemek için).
+ */
+export function buildBudgetCoupon(
+  matches: TotoMatch[],
+  budget: number,
+  strategy: CouponStrategy = "difficulty"
+): SporTotoCoupon | null {
+  if (!matches || matches.length === 0 || budget < PRICE_PER_COLUMN) return null;
+
+  const analyses = matches.map(analyzeMatch);
+  const total = matches.length;
+  const maxColumns = Math.floor(budget / PRICE_PER_COLUMN);
+
+  let best: {
+    doubles: number;
+    triples: number;
+    accuracy: number;
+    columns: number;
+    picks: CouponMatchPick[];
+  } | null = null;
+
+  // Tüm uygulanabilir (d, t) kombinasyonlarını dene
+  for (let t = 0; t <= Math.min(total, 5); t++) {
+    for (let d = 0; d <= total - t; d++) {
+      const cols = Math.pow(2, d) * Math.pow(3, t);
+      if (cols > maxColumns) break;
+      const picks = applyCouponProfile(analyses, d, t, strategy);
+      const accuracy = estimateAccuracy(picks, analyses);
+
+      // Bütçe verimlilik bonusu: bütçenin daha çoğunu kullanan kuponlar
+      // marjinal olarak avantajlı (çünkü daha fazla güvenlik sağlar)
+      const usage = (cols * PRICE_PER_COLUMN) / budget;
+      const score = accuracy * (0.7 + 0.3 * usage); // %0-30 bonus
+
+      if (!best || score > best.accuracy * (0.7 + 0.3 * (best.columns * PRICE_PER_COLUMN / budget))) {
+        best = { doubles: d, triples: t, accuracy, columns: cols, picks };
+      }
+    }
+  }
+
+  if (!best) return null;
+
+  const totalCost = best.columns * PRICE_PER_COLUMN;
+  const bankoCount = best.picks.filter((p) => p.mode === "single").length;
+  const doubleCount = best.picks.filter((p) => p.mode === "double").length;
+  const tripleCount = best.picks.filter((p) => p.mode === "triple").length;
+
+  // Risk seviyesi: bütçenin ne kadarı kullanıldı + accuracy
+  let riskLevel: SporTotoCoupon["riskLevel"];
+  if (best.accuracy >= 25) riskLevel = "very_low";
+  else if (best.accuracy >= 15) riskLevel = "low";
+  else if (best.accuracy >= 8) riskLevel = "medium";
+  else if (best.accuracy >= 3) riskLevel = "high";
+  else riskLevel = "very_high";
+
+  return {
+    id: "budget",
+    name: `Bütçe Optimizasyonu (${budget} TL)`,
+    emoji: "💰",
+    description: `${budget} TL bütçenle en yüksek tutturma olasılığını veren kombinasyon: ${bankoCount} tek + ${doubleCount} çift + ${tripleCount} üçlü = ${best.columns} kolon · ${totalCost} TL.`,
+    riskLevel,
+    picks: best.picks,
+    totalColumns: best.columns,
+    pricePerColumn: PRICE_PER_COLUMN,
+    totalCost,
+    bankoCount,
+    doubleCount,
+    tripleCount,
+    expectedAccuracy: best.accuracy,
+  };
+}

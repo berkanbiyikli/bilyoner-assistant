@@ -51,7 +51,7 @@ import type {
   TeamMotivationContext,
   TotoMotivation,
 } from "@/types/spor-toto";
-import { buildSporTotoCoupons, type SporTotoCoupon, type CouponMatchPick } from "@/lib/spor-toto";
+import { buildSporTotoCoupons, buildBudgetCoupon, type SporTotoCoupon, type CouponMatchPick, type CouponStrategy } from "@/lib/spor-toto";
 
 // ============================================
 // Helpers
@@ -819,6 +819,15 @@ function SporTotoCouponsCard({ matches }: { matches: TotoMatch[] }) {
   const [activeId, setActiveId] = useState<string>("dengeli-a");
   const [copied, setCopied] = useState(false);
 
+  // Bütçe optimizasyonu state'i
+  const [budget, setBudget] = useState<number>(1000);
+  const [budgetStrategy, setBudgetStrategy] = useState<CouponStrategy>("difficulty");
+  const budgetCoupon = useMemo(
+    () => buildBudgetCoupon(matches, budget, budgetStrategy),
+    [matches, budget, budgetStrategy]
+  );
+  const [budgetCopied, setBudgetCopied] = useState(false);
+
   if (coupons.length === 0) return null;
 
   const active = coupons.find((c) => c.id === activeId) ?? coupons[0];
@@ -1002,6 +1011,165 @@ function SporTotoCouponsCard({ matches }: { matches: TotoMatch[] }) {
             <strong>{active.totalCost} TL</strong>
           </div>
         </div>
+      </div>
+
+      {/* ---- BÜTÇE OPTİMİZASYONU ---- */}
+      <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-bold text-amber-400">
+            <Wallet className="h-4 w-4" />
+            Bütçe Optimizasyonu
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] text-muted-foreground">Bütçen:</label>
+            <input
+              type="number"
+              min={20}
+              step={20}
+              value={budget}
+              onChange={(e) => setBudget(Math.max(20, Number(e.target.value) || 0))}
+              className="w-24 rounded-md border border-border bg-background px-2 py-1 text-right text-xs font-semibold focus:border-primary focus:outline-none"
+            />
+            <span className="text-[11px] text-muted-foreground">TL</span>
+          </div>
+        </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Bütçeni gir, sistem en yüksek tutturma olasılığını veren tek/çift/üçlü dağılımını otomatik bulsun.
+        </p>
+
+        {/* Strateji seçici */}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {([
+            { id: "difficulty", label: "Zorluk" },
+            { id: "surprise", label: "Sürpriz" },
+            { id: "foreign", label: "Yabancı" },
+          ] as const).map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setBudgetStrategy(s.id)}
+              className={cn(
+                "rounded-md border px-2 py-1 text-[10px] font-semibold transition",
+                budgetStrategy === s.id
+                  ? "border-amber-400 bg-amber-500/20 text-amber-400"
+                  : "border-border bg-card text-muted-foreground hover:border-amber-500/50"
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        {budgetCoupon ? (
+          <div className="mt-3 rounded-lg border border-border bg-card/60 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-bold">
+                  <span>{budgetCoupon.emoji}</span>
+                  <span>{budgetCoupon.name}</span>
+                  <span
+                    className={cn(
+                      "rounded border px-1.5 py-0.5 text-[10px] font-semibold",
+                      COUPON_RISK_COLOR[budgetCoupon.riskLevel]
+                    )}
+                  >
+                    {RISK_LABEL[budgetCoupon.riskLevel]}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {budgetCoupon.description}
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  const lines = [
+                    `${budgetCoupon.emoji} ${budgetCoupon.name} — ${budgetCoupon.totalColumns} kolon · ${budgetCoupon.totalCost} TL`,
+                    "",
+                    ...budgetCoupon.picks.map(
+                      (p, i) =>
+                        `${(i + 1).toString().padStart(2, " ")}. ${p.homeTeam} - ${p.awayTeam}  →  ${p.label}`
+                    ),
+                  ];
+                  try {
+                    await navigator.clipboard.writeText(lines.join("\n"));
+                    setBudgetCopied(true);
+                    setTimeout(() => setBudgetCopied(false), 2000);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-400"
+              >
+                {budgetCopied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" /> Kopyalandı
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" /> Kuponu Kopyala
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <CouponMetric icon={Lock} label="Tek" value={budgetCoupon.bankoCount} color="text-emerald-400" />
+              <CouponMetric icon={Layers} label="Çift" value={budgetCoupon.doubleCount} color="text-amber-400" />
+              <CouponMetric icon={Siren} label="Üçlü" value={budgetCoupon.tripleCount} color="text-rose-400" />
+              <CouponMetric icon={Calculator} label="Kolon" value={budgetCoupon.totalColumns} color="text-primary" />
+              <CouponMetric icon={Wallet} label="Maliyet" value={`${budgetCoupon.totalCost} TL`} color="text-cyan-400" />
+            </div>
+
+            <div className="mt-3 space-y-1.5">
+              {budgetCoupon.picks.map((p, idx) => (
+                <div
+                  key={p.matchId}
+                  className="flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5 text-xs"
+                >
+                  <span className="w-5 shrink-0 text-right text-[10px] text-muted-foreground">
+                    {idx + 1}.
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-medium">{p.homeTeam}</span>
+                    <span className="mx-1 text-muted-foreground">vs</span>
+                    <span className="font-medium">{p.awayTeam}</span>
+                  </span>
+                  {p.isBanko && <Star className="h-3 w-3 shrink-0 fill-emerald-400 text-emerald-400" />}
+                  {p.isSurprise && <Siren className="h-3 w-3 shrink-0 text-rose-400" />}
+                  <span
+                    className={cn(
+                      "shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-bold",
+                      MODE_BADGE[p.mode]
+                    )}
+                    title={p.reasoning}
+                  >
+                    {p.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <div className="rounded-md bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-400">
+                <ShieldCheck className="mr-1 inline h-3 w-3" />
+                Tutturma: <strong>%{budgetCoupon.expectedAccuracy.toFixed(2)}</strong>
+              </div>
+              <div className="rounded-md bg-primary/10 px-2.5 py-1.5 text-[11px] text-primary">
+                <TrendingUp className="mr-1 inline h-3 w-3" />
+                Bütçe kullanımı:{" "}
+                <strong>%{Math.round((budgetCoupon.totalCost / budget) * 100)}</strong>
+              </div>
+              <div className="rounded-md bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-400">
+                <Wallet className="mr-1 inline h-3 w-3" />
+                Kalan: <strong>{budget - budgetCoupon.totalCost} TL</strong>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 rounded-md bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-400">
+            <AlertTriangle className="mr-1 inline h-3 w-3" />
+            Bu bütçe çok düşük (en az 20 TL gerekli).
+          </div>
+        )}
       </div>
     </div>
   );

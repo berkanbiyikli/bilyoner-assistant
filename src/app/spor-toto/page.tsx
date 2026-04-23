@@ -230,9 +230,7 @@ function saveSelection(weekKey: string, ids: number[]) {
 }
 
 export default function SporTotoPage() {
-  const [date, setDate] = useState<string>(() =>
-    new Date().toISOString().split("T")[0]
-  );
+  const [date, setDate] = useState<string>("");
   const [program, setProgram] = useState<TotoProgram | null>(null);
   const [summary, setSummary] = useState<TotoBulletinSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -242,11 +240,16 @@ export default function SporTotoPage() {
   const [selectedForeignIds, setSelectedForeignIds] = useState<number[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const weekKey = useMemo(() => getWeekKey(date), [date]);
+  // İlk render sonrası tarihi ayarla (hydration mismatch'i önle)
+  useEffect(() => {
+    if (!date) setDate(new Date().toISOString().split("T")[0]);
+  }, [date]);
+
+  const weekKey = useMemo(() => (date ? getWeekKey(date) : ""), [date]);
 
   // localStorage'dan seçimi yükle
   useEffect(() => {
-    setSelectedForeignIds(loadSelection(weekKey));
+    if (weekKey) setSelectedForeignIds(loadSelection(weekKey));
   }, [weekKey]);
 
   const fetchData = useCallback(async () => {
@@ -392,7 +395,10 @@ export default function SporTotoPage() {
             9 TR maçı zaten otomatik geliyor — toplam 15 maç üzerinden detaylı analiz başlayacak.
           </p>
           <button
-            onClick={() => setPickerOpen(true)}
+            onClick={() => {
+              console.log("[Spor Toto] Picker button clicked");
+              setPickerOpen(true);
+            }}
             className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <Trophy className="h-4 w-4" />

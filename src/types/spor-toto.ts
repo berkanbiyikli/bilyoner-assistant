@@ -70,8 +70,61 @@ export interface TotoMatch {
   // AI tahmin
   aiPrediction?: TotoAIPrediction;
 
+  // Spor Toto özel: TR ligi banko mu, yabancı sürpriz adayı mı?
+  totoTier: "tr_banko" | "foreign_surprise";
+
+  // Sürpriz potansiyeli (yüksekse banko yapma!)
+  surprise: TotoSurprise;
+
+  // Motivasyon analizi (puan durumu bağlamı)
+  motivation: TotoMotivation;
+
+  // Sakat/cezalı oyuncular
+  injuries: {
+    home: TotoInjuryInfo[];
+    away: TotoInjuryInfo[];
+    homeCount: number;
+    awayCount: number;
+  };
+
+  // Hakem detayı (varsa)
+  refereeName?: string;
+
   // Maç sonucu (settle sonrası)
   result?: TotoSelection;        // Maç sonucu: 1, 0, 2
+}
+
+// ---- Sürpriz Skoru ----
+export interface TotoSurprise {
+  score: number;                 // 0-100, yüksek = sürpriz olasılığı yüksek
+  level: "low" | "medium" | "high" | "extreme";
+  reasons: string[];             // Neden sürpriz olabilir?
+  upsetPick?: TotoSelection;     // Sürpriz tahmin (favorinin tersi)
+  upsetOdds?: number;            // Sürprizin oranı
+}
+
+// ---- Motivasyon Bağlamı ----
+export interface TotoMotivation {
+  homeContext: TeamMotivationContext;
+  awayContext: TeamMotivationContext;
+  intensity: "low" | "medium" | "high"; // Maçın motivasyon yoğunluğu
+  summary: string;               // Genel motivasyon özeti
+}
+
+export interface TeamMotivationContext {
+  status: "title_race" | "european" | "midtable" | "relegation_battle" | "relegated_safe" | "unknown";
+  label: string;                 // "Şampiyonluk yarışında", "Küme hattında" vs
+  urgency: "critical" | "high" | "medium" | "low";
+  pointsToTarget?: number;       // Hedefe puan farkı
+  targetDescription?: string;    // "Avrupa kupalarına 2 puan", "Küme düşmeden 1 puan"
+}
+
+// ---- Sakat Oyuncu ----
+export interface TotoInjuryInfo {
+  name: string;
+  reason: string;                // "Knee Injury", "Suspended" vs
+  type: string;                  // "Missing Fixture", "Questionable"
+  importance: "key" | "regular" | "rotation"; // Tahmini önem
 }
 
 // ---- Takım Detay Bilgisi ----
@@ -337,4 +390,20 @@ export interface TotoBulletinSummary {
 
   // Popular picks
   popularPicks: { matchId: string; pick: TotoSelection; reason: string }[];
+
+  // ---- Spor Toto özel kupon stratejisi ----
+  // Banko adayları (yüksek güven, düşük sürpriz)
+  bankoCandidates: { matchId: string; pick: TotoSelection; confidence: number; reason: string }[];
+
+  // Sürpriz alarmı (banko görünüp sürpriz çıkabilecek)
+  surpriseAlerts: { matchId: string; favoritePick: TotoSelection; upsetPick: TotoSelection; reason: string; surpriseScore: number }[];
+
+  // Çoklu seçim önerileri (1X, X2, 12)
+  doubleChanceCandidates: { matchId: string; picks: TotoSelection[]; reason: string }[];
+
+  // TR vs Yabancı dağılımı
+  tierBreakdown: {
+    trBanko: number;
+    foreignSurprise: number;
+  };
 }

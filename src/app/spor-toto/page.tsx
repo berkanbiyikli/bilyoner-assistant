@@ -22,9 +22,15 @@ import {
   ChevronUp,
   Clock,
   Loader2,
-  BarChart3,
   Trophy as TrophyIcon,
-  Filter,
+  Lock,
+  Siren,
+  HeartCrack,
+  UserX,
+  Megaphone,
+  Calculator,
+  Star,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -34,6 +40,9 @@ import type {
   TotoSelection,
   TotoKeyFactor,
   FormResult,
+  TotoSurprise,
+  TeamMotivationContext,
+  TotoMotivation,
 } from "@/types/spor-toto";
 
 // ============================================
@@ -56,6 +65,35 @@ const RISK_COLOR: Record<"low" | "medium" | "high", string> = {
   low: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   medium: "bg-amber-500/15 text-amber-400 border-amber-500/30",
   high: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+};
+
+const SURPRISE_COLOR: Record<TotoSurprise["level"], string> = {
+  low: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+  medium: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+  high: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  extreme: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+};
+
+const SURPRISE_LABEL: Record<TotoSurprise["level"], string> = {
+  low: "Sürpriz Düşük",
+  medium: "Sürpriz Orta",
+  high: "Sürpriz Riski",
+  extreme: "Tuzak!",
+};
+
+const MOTIVATION_COLOR: Record<TotoMotivation["intensity"], string> = {
+  high: "bg-rose-500/10 text-rose-400 border-rose-500/30",
+  medium: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+  low: "bg-muted/40 text-muted-foreground border-border",
+};
+
+const MOTIVATION_STATUS_LABEL: Record<TeamMotivationContext["status"], string> = {
+  title_race: "🏆 Şampiyonluk",
+  european: "🌍 Avrupa Hattı",
+  midtable: "Orta Sıra",
+  relegation_battle: "🔥 Küme Hattı",
+  relegated_safe: "💤 Garanti",
+  unknown: "?",
 };
 
 const DIFFICULTY_LABEL: Record<TotoBulletinSummary["difficulty"], string> = {
@@ -108,6 +146,7 @@ function FormBadge({ result }: { result: FormResult }) {
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString("tr-TR", {
+    weekday: "short",
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -143,24 +182,24 @@ interface ApiResponse {
   error?: string;
 }
 
+type ViewMode = "all" | "tr" | "foreign" | "surprise" | "banko";
+
 export default function SporTotoPage() {
   const [date, setDate] = useState<string>(() =>
     new Date().toISOString().split("T")[0]
   );
-  const [days, setDays] = useState<number>(7);
   const [program, setProgram] = useState<TotoProgram | null>(null);
   const [summary, setSummary] = useState<TotoBulletinSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [leagueFilter, setLeagueFilter] = useState<string>("all");
-  const [pickFilter, setPickFilter] = useState<"all" | TotoSelection>("all");
+  const [view, setView] = useState<ViewMode>("all");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/spor-toto?date=${date}&days=${days}`);
+      const res = await fetch(`/api/spor-toto?date=${date}&days=4`);
       const data: ApiResponse = await res.json();
       if (!data.success || !data.program) {
         setError(data.error || "Bülten yüklenemedi");
@@ -175,7 +214,7 @@ export default function SporTotoPage() {
     } finally {
       setLoading(false);
     }
-  }, [date, days]);
+  }, [date]);
 
   useEffect(() => {
     fetchData();
@@ -190,22 +229,28 @@ export default function SporTotoPage() {
     });
   };
 
-  const leagues = useMemo(() => {
-    if (!program) return [];
-    const set = new Map<string, string>();
-    for (const m of program.matches) set.set(m.league.name, m.league.flag);
-    return Array.from(set.entries()).map(([name, flag]) => ({ name, flag }));
-  }, [program]);
-
   const filteredMatches = useMemo(() => {
     if (!program) return [];
     return program.matches.filter((m) => {
-      if (leagueFilter !== "all" && m.league.name !== leagueFilter) return false;
-      if (pickFilter !== "all" && m.aiPrediction?.recommendation !== pickFilter)
-        return false;
-      return true;
+      switch (view) {
+        case "tr":
+          return m.totoTier === "tr_banko";
+        case "foreign":
+          return m.totoTier === "foreign_surprise";
+        case "surprise":
+          return m.surprise.level === "high" || m.surprise.level === "extreme";
+        case "banko":
+          return (
+            m.aiPrediction &&
+            m.aiPrediction.confidence >= 65 &&
+            m.surprise.level !== "high" &&
+            m.surprise.level !== "extreme"
+          );
+        default:
+          return true;
+      }
     });
-  }, [program, leagueFilter, pickFilter]);
+  }, [program, view]);
 
   return (
     <div className="space-y-6">
@@ -217,7 +262,8 @@ export default function SporTotoPage() {
             Spor Toto Analiz
           </h1>
           <p className="text-sm text-muted-foreground">
-            Bu haftanın Spor Toto liglerindeki maçlar — derinlemesine AI analizi.
+            Cuma → Pazartesi · 9 TR + 6 yabancı maç ·{" "}
+            <span className="text-primary">Az kolon, çok kazanç stratejisi</span>
           </p>
         </div>
 
@@ -231,15 +277,6 @@ export default function SporTotoPage() {
               className="bg-transparent text-sm outline-none"
             />
           </div>
-          <select
-            value={days}
-            onChange={(e) => setDays(parseInt(e.target.value, 10))}
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none"
-          >
-            <option value={3}>3 gün</option>
-            <option value={5}>5 gün</option>
-            <option value={7}>7 gün</option>
-          </select>
           <button
             onClick={fetchData}
             disabled={loading}
@@ -264,141 +301,159 @@ export default function SporTotoPage() {
         </div>
       )}
 
-      {/* Program Header */}
-      {program && (
+      {/* Bülten başlığı */}
+      {program && summary && (
         <div className="rounded-xl border border-border bg-gradient-to-br from-primary/10 to-card p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                {program.season} Sezonu
+                {program.season} · Cuma → Pazartesi
               </div>
               <h2 className="text-xl font-bold">{program.name}</h2>
               <div className="mt-1 text-sm text-muted-foreground">
-                {program.startDate} → {program.endDate} ·{" "}
-                {program.totalMatches} maç
+                {program.startDate} → {program.endDate} · {program.totalMatches} maç
+                {" · "}
+                <span className="font-semibold text-emerald-400">
+                  {summary.tierBreakdown.trBanko} TR
+                </span>
+                {" + "}
+                <span className="font-semibold text-sky-400">
+                  {summary.tierBreakdown.foreignSurprise} Yabancı
+                </span>
               </div>
             </div>
-            {summary && (
-              <div className="flex items-center gap-4 text-sm">
-                <div className="text-center">
-                  <div className="text-xs text-muted-foreground">Zorluk</div>
-                  <div
-                    className={cn(
-                      "text-base font-bold",
-                      DIFFICULTY_COLOR[summary.difficulty]
-                    )}
-                  >
-                    {DIFFICULTY_LABEL[summary.difficulty]}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-xs text-muted-foreground">
-                    Beklenen Doğru
-                  </div>
-                  <div className="text-base font-bold text-primary">
-                    {summary.expectedCorrect.toFixed(1)}/
-                    {summary.totalMatches}
-                  </div>
+            <div className="flex items-center gap-4 text-sm">
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground">Zorluk</div>
+                <div className={cn("text-base font-bold", DIFFICULTY_COLOR[summary.difficulty])}>
+                  {DIFFICULTY_LABEL[summary.difficulty]}
                 </div>
               </div>
-            )}
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground">Beklenen Doğru</div>
+                <div className="text-base font-bold text-primary">
+                  {summary.expectedCorrect.toFixed(1)}/{summary.totalMatches}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {summary && (
-            <p className="mt-4 rounded-lg bg-muted/40 p-3 text-sm text-foreground/90">
-              <Sparkles className="mr-1.5 inline h-3.5 w-3.5 text-primary" />
-              {summary.aiSummary}
-            </p>
-          )}
+          <p className="mt-4 rounded-lg bg-muted/40 p-3 text-sm text-foreground/90">
+            <Sparkles className="mr-1.5 inline h-3.5 w-3.5 text-primary" />
+            {summary.aiSummary}
+          </p>
         </div>
       )}
 
-      {/* Summary cards */}
-      {summary && program && (
-        <div className="grid gap-4 md:grid-cols-3">
-          {/* Distribution */}
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <BarChart3 className="h-4 w-4 text-primary" />
-              Dağılım
+      {/* Sürpriz Alarmı + Banko Adayları */}
+      {program && summary && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Sürpriz Alarm */}
+          <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-rose-400">
+              <Siren className="h-4 w-4" />
+              Sürpriz Alarmı ({summary.surpriseAlerts.length})
             </div>
-            <div className="mt-3 space-y-2 text-sm">
-              <DistributionBar
-                label="Net Ev Sahibi"
-                value={summary.distribution.strongHome}
-                total={summary.totalMatches}
-                color="bg-emerald-500"
-              />
-              <DistributionBar
-                label="Dengeli"
-                value={summary.distribution.balanced}
-                total={summary.totalMatches}
-                color="bg-amber-500"
-              />
-              <DistributionBar
-                label="Net Deplasman"
-                value={summary.distribution.strongAway}
-                total={summary.totalMatches}
-                color="bg-sky-500"
-              />
-            </div>
-          </div>
-
-          {/* Leagues */}
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Trophy className="h-4 w-4 text-primary" />
-              Lig Dağılımı
-            </div>
-            <div className="mt-3 max-h-40 space-y-1.5 overflow-y-auto text-sm">
-              {summary.matchesByLeague.map((l) => (
-                <div
-                  key={l.league}
-                  className="flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-1.5 truncate">
-                    <span>{l.flag}</span>
-                    <span className="truncate">{l.league}</span>
-                  </span>
-                  <span className="font-semibold text-foreground">
-                    {l.count}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Popular Picks */}
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Flame className="h-4 w-4 text-primary" />
-              En Güvenli Tahminler
-            </div>
-            <div className="mt-3 space-y-2 text-sm">
-              {summary.popularPicks.length === 0 && (
-                <div className="text-xs text-muted-foreground">
-                  Yüksek güvenli tahmin yok.
+            <p className="mt-1 text-xs text-muted-foreground">
+              Banko görünüp tuzak olabilecek maçlar — çift şans veya alternatif düşün.
+            </p>
+            <div className="mt-3 space-y-2 max-h-[280px] overflow-y-auto pr-1">
+              {summary.surpriseAlerts.length === 0 && (
+                <div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
+                  Sürpriz alarmı yok ✅ Sıkı kupon güvenli.
                 </div>
               )}
-              {summary.popularPicks.map((p) => {
-                const m = program.matches.find((x) => x.id === p.matchId);
+              {summary.surpriseAlerts.map((alert) => {
+                const m = program.matches.find((x) => x.id === alert.matchId);
                 if (!m) return null;
                 return (
                   <div
-                    key={p.matchId}
-                    className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5"
+                    key={alert.matchId}
+                    className="rounded-lg border border-rose-500/20 bg-card p-2.5"
                   >
-                    <span className="truncate text-xs">
-                      {m.homeTeam.shortName} vs {m.awayTeam.shortName}
-                    </span>
-                    <span
-                      className={cn(
-                        "rounded border px-1.5 py-0.5 text-[10px] font-bold",
-                        PICK_COLOR[p.pick]
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                          {m.bulletinOrder}
+                        </span>
+                        <span className="font-medium">
+                          {m.homeTeam.shortName} vs {m.awayTeam.shortName}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10px]">
+                        <span className="text-muted-foreground line-through">
+                          {alert.favoritePick}
+                        </span>
+                        <span className="text-rose-400">→</span>
+                        <span
+                          className={cn(
+                            "rounded border px-1.5 py-0.5 font-bold",
+                            PICK_COLOR[alert.upsetPick]
+                          )}
+                        >
+                          {alert.upsetPick}
+                        </span>
+                        <span className="ml-1 rounded bg-rose-500/20 px-1.5 py-0.5 font-bold text-rose-400">
+                          %{alert.surpriseScore}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-1.5 text-[11px] text-muted-foreground">
+                      {alert.reason}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Banko Adayları */}
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400">
+              <Lock className="h-4 w-4" />
+              Banko Adayları ({summary.bankoCandidates.length})
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Yüksek güven + düşük sürpriz — sıkı kupon temeli.
+            </p>
+            <div className="mt-3 space-y-1.5 max-h-[280px] overflow-y-auto pr-1">
+              {summary.bankoCandidates.length === 0 && (
+                <div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
+                  Net banko aday yok — çift şans gerekli.
+                </div>
+              )}
+              {summary.bankoCandidates.map((b) => {
+                const m = program.matches.find((x) => x.id === b.matchId);
+                if (!m) return null;
+                return (
+                  <div
+                    key={b.matchId}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-card p-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-2 text-xs">
+                      <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary shrink-0">
+                        {m.bulletinOrder}
+                      </span>
+                      {m.totoTier === "tr_banko" && (
+                        <Star className="h-3 w-3 shrink-0 fill-emerald-400 text-emerald-400" />
                       )}
-                    >
-                      {p.pick} · %{m.aiPrediction?.confidence ?? 0}
-                    </span>
+                      <span className="truncate font-medium">
+                        {m.homeTeam.shortName} - {m.awayTeam.shortName}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <span
+                        className={cn(
+                          "rounded border px-1.5 py-0.5 text-[10px] font-bold",
+                          PICK_COLOR[b.pick]
+                        )}
+                      >
+                        {b.pick}
+                      </span>
+                      <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">
+                        %{b.confidence}
+                      </span>
+                    </div>
                   </div>
                 );
               })}
@@ -407,43 +462,19 @@ export default function SporTotoPage() {
         </div>
       )}
 
-      {/* Filters */}
-      {program && program.matches.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <select
-            value={leagueFilter}
-            onChange={(e) => setLeagueFilter(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs"
-          >
-            <option value="all">Tüm Ligler</option>
-            {leagues.map((l) => (
-              <option key={l.name} value={l.name}>
-                {l.flag} {l.name}
-              </option>
-            ))}
-          </select>
+      {/* Kupon Stratejisi */}
+      {program && summary && (
+        <CouponStrategyCard summary={summary} program={program} />
+      )}
 
-          <div className="flex items-center gap-1">
-            {(["all", "1", "0", "2"] as const).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPickFilter(p)}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                  pickFilter === p
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-card text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {p === "all" ? "Tümü" : p}
-              </button>
-            ))}
-          </div>
-
-          <span className="ml-auto text-xs text-muted-foreground">
-            {filteredMatches.length} / {program.matches.length} maç
-          </span>
+      {/* View tabs */}
+      {program && summary && (
+        <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-card p-1">
+          <ViewTab current={view} value="all" label={`Tümü (${program.matches.length})`} icon={Layers} onChange={setView} />
+          <ViewTab current={view} value="tr" label={`TR (${summary.tierBreakdown.trBanko})`} icon={Star} onChange={setView} />
+          <ViewTab current={view} value="foreign" label={`Yabancı (${summary.tierBreakdown.foreignSurprise})`} icon={Trophy} onChange={setView} />
+          <ViewTab current={view} value="surprise" label={`Sürpriz (${summary.surpriseAlerts.length})`} icon={Siren} onChange={setView} />
+          <ViewTab current={view} value="banko" label={`Banko (${summary.bankoCandidates.length})`} icon={Lock} onChange={setView} />
         </div>
       )}
 
@@ -460,7 +491,7 @@ export default function SporTotoPage() {
           ))}
           {filteredMatches.length === 0 && !loading && (
             <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
-              Bu kriterlerde maç bulunamadı.
+              Bu kriterlerde maç yok.
             </div>
           )}
         </div>
@@ -470,32 +501,145 @@ export default function SporTotoPage() {
 }
 
 // ============================================
-// Distribution bar
+// View tab
 // ============================================
 
-function DistributionBar({
+function ViewTab({
+  current,
+  value,
+  label,
+  icon: Icon,
+  onChange,
+}: {
+  current: ViewMode;
+  value: ViewMode;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  onChange: (v: ViewMode) => void;
+}) {
+  const active = current === value;
+  return (
+    <button
+      onClick={() => onChange(value)}
+      className={cn(
+        "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+        active
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </button>
+  );
+}
+
+// ============================================
+// Coupon Strategy Card
+// ============================================
+
+function CouponStrategyCard({
+  summary,
+  program,
+}: {
+  summary: TotoBulletinSummary;
+  program: TotoProgram;
+}) {
+  const bankoCount = summary.bankoCandidates.length;
+  const surpriseCount = summary.surpriseAlerts.length;
+  const doubleCount = summary.doubleChanceCandidates.length;
+
+  const hardPicks = bankoCount;
+  const doublesNeeded = Math.min(
+    doubleCount + surpriseCount,
+    program.totalMatches - hardPicks
+  );
+  const triplesNeeded = Math.max(
+    0,
+    program.totalMatches - hardPicks - doublesNeeded
+  );
+
+  const totalCombinations =
+    Math.pow(2, doublesNeeded) * Math.pow(3, triplesNeeded);
+  const costPerColumn = 2;
+  const totalCost = totalCombinations * costPerColumn;
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-card p-4">
+      <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+        <Calculator className="h-4 w-4" />
+        Önerilen Kupon Stratejisi
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Bankoları tek, dengelileri çift şans, sürpriz dolu maçları üçlü oyna.
+      </p>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-4">
+        <StrategyMetric
+          label="Tek Seçim"
+          value={hardPicks}
+          color="text-emerald-400"
+          icon={Lock}
+          desc="Banko aday"
+        />
+        <StrategyMetric
+          label="Çift Şans"
+          value={doublesNeeded}
+          color="text-amber-400"
+          icon={Layers}
+          desc="1X / X2 / 12"
+        />
+        <StrategyMetric
+          label="Üçlü"
+          value={triplesNeeded}
+          color="text-rose-400"
+          icon={Siren}
+          desc="Tüm seçenekler"
+        />
+        <StrategyMetric
+          label="Toplam"
+          value={totalCombinations}
+          color="text-primary"
+          icon={Calculator}
+          desc={`~${totalCost.toFixed(0)} TL`}
+        />
+      </div>
+
+      {hardPicks >= 12 && (
+        <div className="mt-3 rounded-lg bg-emerald-500/10 p-2.5 text-xs text-emerald-400">
+          ✨ <strong>Mükemmel hafta!</strong> Çok fazla banko var — 1-2 kolonlu sıkı kupon yapılabilir.
+        </div>
+      )}
+      {hardPicks < 8 && surpriseCount >= 5 && (
+        <div className="mt-3 rounded-lg bg-rose-500/10 p-2.5 text-xs text-rose-400">
+          ⚠️ <strong>Riskli hafta!</strong> Az banko, çok sürpriz — kolon sayısı patlayabilir, sistem oyna.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StrategyMetric({
   label,
   value,
-  total,
   color,
+  icon: Icon,
+  desc,
 }: {
   label: string;
   value: number;
-  total: number;
   color: string;
+  icon: React.ComponentType<{ className?: string }>;
+  desc: string;
 }) {
-  const pct = total > 0 ? (value / total) * 100 : 0;
   return (
-    <div>
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-semibold">
-          {value} (%{Math.round(pct)})
-        </span>
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
       </div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className={cn("h-full", color)} style={{ width: `${pct}%` }} />
-      </div>
+      <div className={cn("mt-1 text-2xl font-bold", color)}>{value}</div>
+      <div className="text-[10px] text-muted-foreground">{desc}</div>
     </div>
   );
 }
@@ -515,24 +659,45 @@ function MatchCard({
 }) {
   const ai = match.aiPrediction;
   const probs = match.stats.probabilities;
+  const isFinished = match.status === "finished";
+  const isLive = match.status === "live" || match.status === "halftime";
+  const correctPick =
+    match.result && ai && match.result === ai.recommendation;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      {/* Top row */}
+    <div
+      className={cn(
+        "overflow-hidden rounded-xl border bg-card transition-colors",
+        match.totoTier === "tr_banko"
+          ? "border-emerald-500/20"
+          : "border-border",
+        match.surprise.level === "extreme" && "border-rose-500/40"
+      )}
+    >
       <button
         onClick={onToggle}
         className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/30"
       >
         {/* Order badge */}
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">
+        <div
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold",
+            match.totoTier === "tr_banko"
+              ? "bg-emerald-500/15 text-emerald-400"
+              : "bg-primary/10 text-primary"
+          )}
+        >
           {match.bulletinOrder}
         </div>
 
         {/* League + time */}
-        <div className="hidden w-32 shrink-0 text-xs text-muted-foreground sm:block">
+        <div className="hidden w-36 shrink-0 text-xs text-muted-foreground sm:block">
           <div className="flex items-center gap-1">
             <span>{match.league.flag}</span>
             <span className="truncate">{match.league.name}</span>
+            {match.totoTier === "tr_banko" && (
+              <Star className="h-3 w-3 fill-emerald-400 text-emerald-400" />
+            )}
           </div>
           <div className="mt-0.5 flex items-center gap-1">
             <Clock className="h-3 w-3" />
@@ -541,7 +706,7 @@ function MatchCard({
         </div>
 
         {/* Teams */}
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {match.homeTeam.logo && (
               <Image
@@ -554,6 +719,17 @@ function MatchCard({
               />
             )}
             <span className="truncate font-medium">{match.homeTeam.name}</span>
+            {match.homeTeam.position > 0 && (
+              <span className="hidden rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline">
+                {match.homeTeam.position}.
+              </span>
+            )}
+            {match.injuries.homeCount > 0 && (
+              <span className="hidden items-center gap-0.5 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] text-rose-400 sm:inline-flex">
+                <UserX className="h-2.5 w-2.5" />
+                {match.injuries.homeCount}
+              </span>
+            )}
           </div>
           <div className="mt-1 flex items-center gap-2">
             {match.awayTeam.logo && (
@@ -567,8 +743,51 @@ function MatchCard({
               />
             )}
             <span className="truncate font-medium">{match.awayTeam.name}</span>
+            {match.awayTeam.position > 0 && (
+              <span className="hidden rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline">
+                {match.awayTeam.position}.
+              </span>
+            )}
+            {match.injuries.awayCount > 0 && (
+              <span className="hidden items-center gap-0.5 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] text-rose-400 sm:inline-flex">
+                <UserX className="h-2.5 w-2.5" />
+                {match.injuries.awayCount}
+              </span>
+            )}
           </div>
         </div>
+
+        {/* Score / Status */}
+        {(isFinished || isLive) && match.score && (
+          <div className="hidden text-center sm:block">
+            <div className="text-xs text-muted-foreground">
+              {isLive ? `${match.elapsed}'` : "MS"}
+            </div>
+            <div
+              className={cn(
+                "text-xl font-bold",
+                isLive ? "text-emerald-400" : "text-foreground"
+              )}
+            >
+              {match.score.home ?? 0}-{match.score.away ?? 0}
+            </div>
+          </div>
+        )}
+
+        {/* Surprise badge */}
+        {match.surprise.level !== "low" && (
+          <div
+            className={cn(
+              "hidden shrink-0 rounded-lg border px-2 py-1 text-center text-[10px] md:block",
+              SURPRISE_COLOR[match.surprise.level]
+            )}
+          >
+            <div className="flex items-center gap-1">
+              <Siren className="h-3 w-3" />
+              <span className="font-bold">%{match.surprise.score}</span>
+            </div>
+          </div>
+        )}
 
         {/* Odds */}
         <div className="hidden gap-1 sm:flex">
@@ -582,15 +801,12 @@ function MatchCard({
           <div
             className={cn(
               "hidden shrink-0 rounded-lg border px-3 py-1.5 text-center md:block",
-              PICK_COLOR[ai.recommendation]
+              PICK_COLOR[ai.recommendation],
+              correctPick && "ring-2 ring-emerald-500/50"
             )}
           >
-            <div className="text-[10px] uppercase tracking-wider opacity-80">
-              AI
-            </div>
-            <div className="text-base font-bold leading-tight">
-              {ai.recommendation}
-            </div>
+            <div className="text-[10px] uppercase tracking-wider opacity-80">AI</div>
+            <div className="text-base font-bold leading-tight">{ai.recommendation}</div>
             <div className="text-[10px] font-medium">%{ai.confidence}</div>
           </div>
         )}
@@ -604,13 +820,88 @@ function MatchCard({
 
       {/* Expanded details */}
       {expanded && (
-        <div className="border-t border-border bg-muted/10 p-5 space-y-5">
+        <div className="space-y-5 border-t border-border bg-muted/10 p-5">
+          {/* Sürpriz uyarısı */}
+          {match.surprise.level !== "low" && (
+            <div
+              className={cn(
+                "rounded-lg border p-3",
+                SURPRISE_COLOR[match.surprise.level]
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <Siren className="h-4 w-4" />
+                  {SURPRISE_LABEL[match.surprise.level]} (skor:{" "}
+                  {match.surprise.score})
+                </div>
+                {match.surprise.upsetPick && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="text-muted-foreground">Sürpriz:</span>
+                    <span
+                      className={cn(
+                        "rounded border px-1.5 py-0.5 font-bold",
+                        PICK_COLOR[match.surprise.upsetPick]
+                      )}
+                    >
+                      {match.surprise.upsetPick}
+                    </span>
+                    {match.surprise.upsetOdds && (
+                      <span className="font-bold">
+                        @{match.surprise.upsetOdds.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {match.surprise.reasons.length > 0 && (
+                <ul className="mt-2 space-y-1 text-xs">
+                  {match.surprise.reasons.map((r, i) => (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-current opacity-60" />
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Motivasyon */}
+          <div
+            className={cn(
+              "rounded-lg border p-3",
+              MOTIVATION_COLOR[match.motivation.intensity]
+            )}
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Megaphone className="h-4 w-4" />
+              Motivasyon ·{" "}
+              {match.motivation.intensity === "high"
+                ? "Yüksek"
+                : match.motivation.intensity === "medium"
+                  ? "Orta"
+                  : "Düşük"}
+            </div>
+            <div className="mt-2 text-sm">{match.motivation.summary}</div>
+            <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
+              <MotivationPanel
+                team={match.homeTeam.name}
+                ctx={match.motivation.homeContext}
+              />
+              <MotivationPanel
+                team={match.awayTeam.name}
+                ctx={match.motivation.awayContext}
+              />
+            </div>
+          </div>
+
           {/* AI Recommendation */}
           {ai && (
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Sparkles className="h-4 w-4 text-primary" />
                     <span className="text-sm font-semibold">AI Tahmini</span>
                     <span
@@ -634,9 +925,7 @@ function MatchCard({
                           : "Yüksek Risk"}
                     </span>
                   </div>
-                  <p className="mt-2 text-sm text-foreground/90">
-                    {ai.reasoning}
-                  </p>
+                  <p className="mt-2 text-sm text-foreground/90">{ai.reasoning}</p>
                   {ai.alternativePick && (
                     <p className="mt-1.5 text-xs text-muted-foreground">
                       <span className="font-semibold">Alternatif:</span>{" "}
@@ -651,14 +940,35 @@ function MatchCard({
                   )}
                 </div>
                 <div className="text-right">
-                  <div className="text-3xl font-bold text-primary">
-                    %{ai.confidence}
-                  </div>
+                  <div className="text-3xl font-bold text-primary">%{ai.confidence}</div>
                   <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                     Güven
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Sakat oyuncular */}
+          {(match.injuries.homeCount > 0 || match.injuries.awayCount > 0) && (
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <HeartCrack className="h-3.5 w-3.5" />
+                Sakat / Cezalı Oyuncular
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <InjuryPanel team={match.homeTeam.name} list={match.injuries.home} />
+                <InjuryPanel team={match.awayTeam.name} list={match.injuries.away} />
+              </div>
+            </div>
+          )}
+
+          {/* Hakem */}
+          {match.refereeName && (
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3 text-sm">
+              <Megaphone className="h-4 w-4 text-muted-foreground" />
+              <span className="text-muted-foreground">Hakem:</span>
+              <span className="font-semibold">{match.refereeName}</span>
             </div>
           )}
 
@@ -716,37 +1026,26 @@ function MatchCard({
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Ev G</div>
-                    <div className="font-bold text-emerald-400">
-                      {match.stats.h2h.homeWins}
-                    </div>
+                    <div className="font-bold text-emerald-400">{match.stats.h2h.homeWins}</div>
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Beraberlik</div>
-                    <div className="font-bold text-amber-400">
-                      {match.stats.h2h.draws}
-                    </div>
+                    <div className="font-bold text-amber-400">{match.stats.h2h.draws}</div>
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Dep G</div>
-                    <div className="font-bold text-sky-400">
-                      {match.stats.h2h.awayWins}
-                    </div>
+                    <div className="font-bold text-sky-400">{match.stats.h2h.awayWins}</div>
                   </div>
                 </div>
                 {match.stats.h2h.recentMatches.length > 0 && (
                   <div className="mt-3 space-y-1 text-xs">
                     {match.stats.h2h.recentMatches.map((rm, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between rounded bg-muted/30 px-2 py-1"
-                      >
+                      <div key={i} className="flex items-center justify-between rounded bg-muted/30 px-2 py-1">
                         <span className="truncate text-muted-foreground">
                           {new Date(rm.date).toLocaleDateString("tr-TR")}
                         </span>
                         <span className="truncate">
-                          {rm.homeTeam}{" "}
-                          <span className="font-bold">{rm.score}</span>{" "}
-                          {rm.awayTeam}
+                          {rm.homeTeam} <span className="font-bold">{rm.score}</span> {rm.awayTeam}
                         </span>
                       </div>
                     ))}
@@ -793,9 +1092,7 @@ function MatchCard({
                       <Icon className="mt-0.5 h-4 w-4 shrink-0" />
                       <div>
                         <div className="font-semibold">{f.title}</div>
-                        <div className="mt-0.5 text-muted-foreground">
-                          {f.description}
-                        </div>
+                        <div className="mt-0.5 text-muted-foreground">{f.description}</div>
                       </div>
                     </div>
                   );
@@ -803,27 +1100,6 @@ function MatchCard({
               </div>
             </div>
           )}
-
-          {/* Odds detail */}
-          <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Oranlar {match.odds.bookmaker && `(${match.odds.bookmaker})`}
-            </div>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-              <OddBox label="1" value={match.odds.home} />
-              <OddBox label="X" value={match.odds.draw} />
-              <OddBox label="2" value={match.odds.away} />
-              {match.odds.over25 !== undefined && (
-                <OddBox label="Ü 2.5" value={match.odds.over25} />
-              )}
-              {match.odds.under25 !== undefined && (
-                <OddBox label="A 2.5" value={match.odds.under25} />
-              )}
-              {match.odds.bttsYes !== undefined && (
-                <OddBox label="KG+" value={match.odds.bttsYes} />
-              )}
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -833,6 +1109,62 @@ function MatchCard({
 // ============================================
 // Sub components
 // ============================================
+
+function MotivationPanel({ team, ctx }: { team: string; ctx: TeamMotivationContext }) {
+  return (
+    <div className="rounded-md bg-muted/30 p-2">
+      <div className="text-[10px] text-muted-foreground">{team}</div>
+      <div className="mt-0.5 text-xs font-semibold">
+        {MOTIVATION_STATUS_LABEL[ctx.status]}
+      </div>
+      <div className="text-[11px] text-muted-foreground">{ctx.label}</div>
+      {ctx.targetDescription && (
+        <div className="mt-1 text-[10px] text-foreground/80">
+          → {ctx.targetDescription}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InjuryPanel({
+  team,
+  list,
+}: {
+  team: string;
+  list: { name: string; reason: string; importance: "key" | "regular" | "rotation" }[];
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="mb-2 text-xs font-semibold">{team}</div>
+      {list.length === 0 ? (
+        <div className="text-[11px] text-muted-foreground">Eksik yok ✅</div>
+      ) : (
+        <ul className="space-y-1 text-[11px]">
+          {list.slice(0, 6).map((p, i) => (
+            <li
+              key={i}
+              className={cn(
+                "flex items-center justify-between gap-2 rounded px-1.5 py-1",
+                p.importance === "key"
+                  ? "bg-rose-500/10 text-rose-400"
+                  : "bg-muted/30"
+              )}
+            >
+              <span className="truncate font-medium">{p.name}</span>
+              <span className="shrink-0 text-[10px] opacity-80">{p.reason}</span>
+            </li>
+          ))}
+          {list.length > 6 && (
+            <li className="text-[10px] text-muted-foreground">
+              + {list.length - 6} oyuncu daha
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function OddsCell({
   label,
@@ -876,9 +1208,7 @@ function ProbCell({
   }[color];
   return (
     <div className={cn("rounded-lg border p-2 text-center", cls)}>
-      <div className="text-[10px] uppercase tracking-wider opacity-80">
-        {label}
-      </div>
+      <div className="text-[10px] uppercase tracking-wider opacity-80">{label}</div>
       <div className="text-lg font-bold">%{value}</div>
     </div>
   );
@@ -927,15 +1257,6 @@ function StatPill({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function OddBox({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-2 text-center">
-      <div className="text-[10px] text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-sm font-bold">{value.toFixed(2)}</div>
-    </div>
-  );
-}
-
 function TeamPanel({
   team,
   side,
@@ -967,7 +1288,6 @@ function TeamPanel({
         </div>
       </div>
 
-      {/* Form */}
       {team.form.length > 0 && (
         <div className="mt-3 flex items-center gap-2">
           <span className="text-[10px] text-muted-foreground">Form:</span>
@@ -976,26 +1296,19 @@ function TeamPanel({
               <FormBadge key={i} result={f} />
             ))}
           </div>
-          <span className="ml-auto text-xs font-semibold">
-            %{team.formPoints}
-          </span>
+          <span className="ml-auto text-xs font-semibold">%{team.formPoints}</span>
         </div>
       )}
 
-      {/* Quick stats */}
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
         <Stat label="Maç" value={team.played} />
         <Stat label="Avg Gol" value={team.avgGoalsScored.toFixed(2)} />
         <Stat label="Avg Yenilen" value={team.avgGoalsConceded.toFixed(2)} />
         <Stat label="KG Var %" value={`${Math.round(team.bttsRate)}`} />
         <Stat label="Clean Sheet %" value={`${Math.round(team.cleanSheetPct)}`} />
-        <Stat
-          label="Gol Atamama %"
-          value={`${Math.round(team.failedToScorePct)}`}
-        />
+        <Stat label="Gol Atamama %" value={`${Math.round(team.failedToScorePct)}`} />
       </div>
 
-      {/* Side specific */}
       {record && (
         <div className="mt-3 rounded-md bg-muted/30 p-2 text-[11px]">
           <div className="mb-1 font-semibold text-muted-foreground">
@@ -1003,28 +1316,22 @@ function TeamPanel({
           </div>
           <div className="grid grid-cols-3 gap-1 text-center">
             <div>
-              <span className="text-emerald-400 font-bold">{record.won}</span>{" "}
-              G
+              <span className="font-bold text-emerald-400">{record.won}</span> G
             </div>
             <div>
-              <span className="text-amber-400 font-bold">{record.drawn}</span>{" "}
-              B
+              <span className="font-bold text-amber-400">{record.drawn}</span> B
             </div>
             <div>
-              <span className="text-rose-400 font-bold">{record.lost}</span> M
+              <span className="font-bold text-rose-400">{record.lost}</span> M
             </div>
           </div>
           <div className="mt-1 text-center text-muted-foreground">
-            Kazanma %{Math.round(record.winRate)} · Avg gol{" "}
-            {record.avgGoals.toFixed(2)}
+            Kazanma %{Math.round(record.winRate)} · Avg gol {record.avgGoals.toFixed(2)}
           </div>
         </div>
       )}
 
-      {/* Streaks */}
-      {(team.streak.wins >= 2 ||
-        team.streak.losses >= 2 ||
-        team.streak.unbeaten >= 3) && (
+      {(team.streak.wins >= 2 || team.streak.losses >= 2 || team.streak.unbeaten >= 3) && (
         <div className="mt-2 flex flex-wrap gap-1 text-[10px]">
           {team.streak.wins >= 2 && (
             <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-emerald-400">

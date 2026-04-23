@@ -10,6 +10,7 @@ import {
   getH2H,
   getOdds,
   getPrediction,
+  getInjuries,
   getCurrentSeason,
   LEAGUES,
 } from "@/lib/api-football";
@@ -18,6 +19,7 @@ import type {
   StandingEntry,
   PredictionResponse,
   OddsResponse,
+  InjuryResponse,
 } from "@/types/api-football";
 import type {
   TotoProgram,
@@ -35,15 +37,23 @@ import type {
   TotoSelection,
   TeamRecord,
   TotoBulletinSummary,
+  TotoSurprise,
+  TotoMotivation,
+  TeamMotivationContext,
+  TotoInjuryInfo,
 } from "@/types/spor-toto";
 import { getCached, setCache } from "@/lib/cache";
 import { format, addDays, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
 
-// Spor Toto'da genellikle yer alan lig ID'leri
-const TOTO_LEAGUE_IDS = [
+// Türkiye ligleri (banko olarak kabul edilir)
+const TR_LEAGUE_IDS = [
   203,  // Süper Lig
   204,  // 1. Lig
+];
+
+// Yabancı ligler (sürpriz adayları)
+const FOREIGN_LEAGUE_IDS = [
   39,   // Premier League
   140,  // La Liga
   135,  // Serie A
@@ -56,44 +66,98 @@ const TOTO_LEAGUE_IDS = [
   848,  // Conference League
 ];
 
+const TOTO_LEAGUE_IDS = [...TR_LEAGUE_IDS, ...FOREIGN_LEAGUE_IDS];
+
+// Spor Toto bülten boyutu (9 TR banko + 6 yabancı sürpriz = 15)
+const MAX_TR_MATCHES = 9;
+const MAX_FOREIGN_MATCHES = 6;
+const MAX_TOTAL_MATCHES = 15;
+
+// ---- Hafta Aralığı Hesabı (Cuma-Pazartesi) ----
+
+/**
+ * Verilen tarihe göre Spor Toto haftasının başlangıç tarihini (Cuma) bulur.
+ * Bülten genelde Cumadan başlar Pazartesi biter.
+ */
+function getTotoWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+  // Cuma'ya en yakın geçmiş tarih (veya bugün)
+  let diff: number;
+  if (day === 5) diff = 0;             // Cuma
+  else if (day === 6) diff = -1;       // Cumartesi → 1 gün geri
+  else if (day === 0) diff = -2;       // Pazar → 2 gün geri
+  else if (day === 1) diff = -3;       // Pazartesi → 3 gün geri
+  else diff = (5 - day);               // Sal/Çar/Per → ileri Cuma'ya
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 // ---- Ana Bülten Oluşturma ----
 
 export async function buildTotoBulletin(
   targetDate?: string,
-  daysAhead: number = 3
+  daysAhead: number = 4 // Cuma-Pazartesi = 4 gün
 ): Promise<TotoProgram> {
-  const startDate = targetDate || format(new Date(), "yyyy-MM-dd");
-  const cacheKey = `toto-bulletin:${startDate}:${daysAhead}`;
+  // Hafta başlangıcını Cuma'ya hizala
+  const baseDate = targetDate ? parseISO(targetDate) : new Date();
+  const weekStart = getTotoWeekStart(baseDate);
+  const startDate = format(weekStart, "yyyy-MM-dd");
+
+  const cacheKey = `toto-bulletin:v2:${startDate}:${daysAhead}`;
   const cached = getCached<TotoProgram>(cacheKey);
   if (cached) return cached;
 
-  // Birkaç günlük maçları çek
+  // Cuma-Pazartesi arası maçları çek
   const allFixtures: FixtureResponse[] = [];
   for (let i = 0; i < daysAhead; i++) {
-    const date = format(addDays(parseISO(startDate), i), "yyyy-MM-dd");
+    const date = format(addDays(weekStart, i), "yyyy-MM-dd");
     const fixtures = await getFixturesByDate(date);
     allFixtures.push(...fixtures);
   }
 
-  // Sadece Spor Toto liglerindeki maçları filtrele
+  // Toto liglerindeki maçları filtrele
   const totoFixtures = allFixtures.filter((f) =>
     TOTO_LEAGUE_IDS.includes(f.league.id)
   );
 
-  // Fixture'ları sırala: önce tarih, sonra lig önceliği
-  totoFixtures.sort((a, b) => {
-    const timeA = new Date(a.fixture.date).getTime();
-    const timeB = new Date(b.fixture.date).getTime();
-    if (timeA !== timeB) return timeA - timeB;
+  // TR vs yabancı ayır
+  const trFixtures = totoFixtures.filter((f) =>
+    TR_LEAGUE_IDS.includes(f.league.id)
+  );
+  const foreignFixtures = totoFixtures.filter((f) =>
+    FOREIGN_LEAGUE_IDS.includes(f.league.id)
+  );
 
+  // Tarihe göre sırala
+  const sortByTime = (a: FixtureResponse, b: FixtureResponse) =>
+    new Date(a.fixture.date).getTime() - new Date(b.fixture.date).getTime();
+  trFixtures.sort(sortByTime);
+
+  // Yabancı maçları lig önceliği + tarih ile sırala (önemli ligler öncelik)
+  foreignFixtures.sort((a, b) => {
     const leagueA = LEAGUES.find((l) => l.id === a.league.id);
     const leagueB = LEAGUES.find((l) => l.id === b.league.id);
-    return (leagueA?.priority ?? 5) - (leagueB?.priority ?? 5);
+    const prDiff = (leagueA?.priority ?? 5) - (leagueB?.priority ?? 5);
+    if (prDiff !== 0) return prDiff;
+    return sortByTime(a, b);
   });
 
-  // Standing verileri (lig bazında cache)
+  // 9 TR + 6 yabancı = 15 maç (TR yetmezse yabancıdan tamamla)
+  const selectedTR = trFixtures.slice(0, MAX_TR_MATCHES);
+  const trShortfall = MAX_TR_MATCHES - selectedTR.length;
+  const foreignSlots = MAX_FOREIGN_MATCHES + Math.max(0, trShortfall);
+  const selectedForeign = foreignFixtures.slice(0, foreignSlots);
+
+  const selected = [...selectedTR, ...selectedForeign].slice(0, MAX_TOTAL_MATCHES);
+
+  // Tarihe göre genel sıralama (bülten görünüm sırası)
+  selected.sort(sortByTime);
+
+  // Standing verileri
   const standingsMap = new Map<number, StandingEntry[]>();
-  const uniqueLeagueIds = [...new Set(totoFixtures.map((f) => f.league.id))];
+  const uniqueLeagueIds = [...new Set(selected.map((f) => f.league.id))];
   const season = getCurrentSeason();
 
   await Promise.all(
@@ -111,19 +175,19 @@ export async function buildTotoBulletin(
 
   // Maçları Toto formatına dönüştür
   const matches: TotoMatch[] = await Promise.all(
-    totoFixtures.map(async (fixture, index) => {
-      return buildTotoMatch(fixture, index + 1, standingsMap);
+    selected.map(async (fixture, index) => {
+      const tier: TotoMatch["totoTier"] = TR_LEAGUE_IDS.includes(fixture.league.id)
+        ? "tr_banko"
+        : "foreign_surprise";
+      return buildTotoMatch(fixture, index + 1, standingsMap, tier);
     })
   );
 
-  const weekNum = getWeekNumber(new Date(startDate));
-  const endDate = format(
-    addDays(parseISO(startDate), daysAhead - 1),
-    "yyyy-MM-dd"
-  );
+  const weekNum = getWeekNumber(weekStart);
+  const endDate = format(addDays(weekStart, daysAhead - 1), "yyyy-MM-dd");
 
   const program: TotoProgram = {
-    id: `${format(new Date(startDate), "yyyy")}-W${weekNum}`,
+    id: `${format(weekStart, "yyyy")}-W${weekNum}`,
     name: `${weekNum}. Hafta Bülteni`,
     week: weekNum,
     season: `${season}-${season + 1}`,
@@ -145,15 +209,17 @@ export async function buildTotoBulletin(
 async function buildTotoMatch(
   fixture: FixtureResponse,
   order: number,
-  standingsMap: Map<number, StandingEntry[]>
+  standingsMap: Map<number, StandingEntry[]>,
+  tier: TotoMatch["totoTier"]
 ): Promise<TotoMatch> {
   const standings = standingsMap.get(fixture.league.id) || [];
 
-  // Paralel veri çekme (oran + tahmin)
-  const [odds, prediction, h2hData] = await Promise.all([
+  // Paralel veri çekme (oran + tahmin + h2h + sakat)
+  const [odds, prediction, h2hData, injuriesData] = await Promise.all([
     getOdds(fixture.fixture.id).catch(() => null),
     getPrediction(fixture.fixture.id).catch(() => null),
     getH2H(fixture.teams.home.id, fixture.teams.away.id, 10).catch(() => []),
+    getInjuries(fixture.fixture.id).catch(() => [] as InjuryResponse[]),
   ]);
 
   const homeStanding = standings.find(
@@ -197,6 +263,30 @@ async function buildTotoMatch(
     prediction
   );
 
+  // Yeni: motivasyon, sürpriz, sakat
+  const motivation = buildMotivation(
+    homeTeamInfo,
+    awayTeamInfo,
+    homeStanding,
+    awayStanding,
+    standings
+  );
+  const injuries = buildInjuries(
+    injuriesData,
+    fixture.teams.home.id,
+    fixture.teams.away.id
+  );
+  const surprise = buildSurprise(
+    homeTeamInfo,
+    awayTeamInfo,
+    matchStats,
+    totoOdds,
+    aiPrediction,
+    motivation,
+    injuries,
+    h2h
+  );
+
   const leagueConfig = LEAGUES.find((l) => l.id === fixture.league.id);
 
   return {
@@ -220,6 +310,11 @@ async function buildTotoMatch(
     odds: totoOdds,
     stats: matchStats,
     aiPrediction,
+    totoTier: tier,
+    surprise,
+    motivation,
+    injuries,
+    refereeName: fixture.fixture.referee || undefined,
     result:
       fixture.fixture.status.short === "FT"
         ? getMatchResult(fixture.goals)
@@ -942,11 +1037,121 @@ export function buildBulletinSummary(program: TotoProgram): TotoBulletinSummary 
       away: Math.round((totalAway / n) * 100) / 100,
     },
     distribution: { strongHome, balanced, strongAway },
-    aiSummary: `Bu hafta ${n} maçlık bültende ${strongHome} net favori, ${balanced} dengeli, ${strongAway} deplasman favori maç bulunuyor.`,
+    aiSummary: buildSummaryNarrative(matches, strongHome, balanced, strongAway),
     difficulty,
     expectedCorrect: Math.round(expectedCorrect * 10) / 10,
     popularPicks,
+    bankoCandidates: buildBankoCandidates(matches),
+    surpriseAlerts: buildSurpriseAlerts(matches),
+    doubleChanceCandidates: buildDoubleChanceCandidates(matches),
+    tierBreakdown: {
+      trBanko: matches.filter((m) => m.totoTier === "tr_banko").length,
+      foreignSurprise: matches.filter((m) => m.totoTier === "foreign_surprise").length,
+    },
   };
+}
+
+// ---- Banko Adayları (yüksek güven + düşük sürpriz) ----
+function buildBankoCandidates(matches: TotoMatch[]) {
+  return matches
+    .filter(
+      (m) =>
+        m.aiPrediction &&
+        m.aiPrediction.confidence >= 65 &&
+        m.surprise.level !== "high" &&
+        m.surprise.level !== "extreme"
+    )
+    .sort((a, b) => {
+      // Önce TR ligler, sonra güvene göre
+      if (a.totoTier !== b.totoTier) {
+        return a.totoTier === "tr_banko" ? -1 : 1;
+      }
+      return (b.aiPrediction!.confidence) - (a.aiPrediction!.confidence);
+    })
+    .slice(0, 9)
+    .map((m) => ({
+      matchId: m.id,
+      pick: m.aiPrediction!.recommendation,
+      confidence: m.aiPrediction!.confidence,
+      reason: m.aiPrediction!.reasoning,
+    }));
+}
+
+// ---- Sürpriz Alarmları ----
+function buildSurpriseAlerts(matches: TotoMatch[]) {
+  return matches
+    .filter((m) => m.surprise.level === "high" || m.surprise.level === "extreme")
+    .sort((a, b) => b.surprise.score - a.surprise.score)
+    .map((m) => ({
+      matchId: m.id,
+      favoritePick: m.aiPrediction?.recommendation || "1",
+      upsetPick: m.surprise.upsetPick || (m.aiPrediction?.recommendation === "1" ? "2" : "1"),
+      reason: m.surprise.reasons.join(" · ") || "Yüksek sürpriz potansiyeli",
+      surpriseScore: m.surprise.score,
+    }));
+}
+
+// ---- Çift Şans Adayları (1X, X2, 12) ----
+function buildDoubleChanceCandidates(matches: TotoMatch[]) {
+  return matches
+    .filter((m) => {
+      const probs = m.stats.probabilities;
+      const max = Math.max(probs.homeWin, probs.draw, probs.awayWin);
+      // Hiçbir seçenek %50'yi geçmiyorsa çift şans öner
+      return max < 50 && max >= 35;
+    })
+    .map((m) => {
+      const probs = m.stats.probabilities;
+      // En düşük olasılığı çıkar
+      let picks: TotoSelection[];
+      let reason: string;
+      if (probs.awayWin <= probs.homeWin && probs.awayWin <= probs.draw) {
+        picks = ["1", "0"];
+        reason = `Ev sahibi+beraberlik %${probs.homeWin + probs.draw} — deplasman zayıf`;
+      } else if (probs.homeWin <= probs.awayWin && probs.homeWin <= probs.draw) {
+        picks = ["0", "2"];
+        reason = `Beraberlik+deplasman %${probs.draw + probs.awayWin} — ev sahibi zayıf`;
+      } else {
+        picks = ["1", "2"];
+        reason = `Ev+deplasman %${probs.homeWin + probs.awayWin} — beraberlik düşük`;
+      }
+      return { matchId: m.id, picks, reason };
+    });
+}
+
+// ---- Anlatımsal Özet ----
+function buildSummaryNarrative(
+  matches: TotoMatch[],
+  strongHome: number,
+  balanced: number,
+  strongAway: number
+): string {
+  const n = matches.length || 1;
+  const surpriseCount = matches.filter(
+    (m) => m.surprise.level === "high" || m.surprise.level === "extreme"
+  ).length;
+  const bankoCount = matches.filter(
+    (m) =>
+      m.aiPrediction &&
+      m.aiPrediction.confidence >= 65 &&
+      m.surprise.level !== "high" &&
+      m.surprise.level !== "extreme"
+  ).length;
+  const trCount = matches.filter((m) => m.totoTier === "tr_banko").length;
+
+  const parts = [
+    `Bu haftaki ${n} maçlık bültende ${trCount} TR ligi maçı var.`,
+    `${bankoCount} maç banko adayı, ${surpriseCount} maçta sürpriz potansiyeli yüksek.`,
+    `${strongHome} net ev sahibi favorisi, ${balanced} dengeli, ${strongAway} net deplasman favorisi.`,
+  ];
+
+  if (surpriseCount >= 4) {
+    parts.push("⚠️ Sürpriz oranı yüksek — az kolonlu kupon riskli olabilir, çift şans değerlendirin.");
+  } else if (bankoCount >= 10) {
+    parts.push("✅ Banko bol — 1-2 kolonlu sıkı kupon mümkün.");
+  }
+
+  return parts.join(" ");
 }
 
 // ---- Yardımcı Fonksiyonlar ----
@@ -1028,4 +1233,332 @@ function factorial(n: number): number {
   let result = 1;
   for (let i = 2; i <= n; i++) result *= i;
   return result;
+}
+
+// ============================================
+// Motivasyon Analizi
+// ============================================
+
+function buildMotivation(
+  home: TotoTeamInfo,
+  away: TotoTeamInfo,
+  homeStanding: StandingEntry | undefined,
+  awayStanding: StandingEntry | undefined,
+  allStandings: StandingEntry[]
+): TotoMotivation {
+  const totalTeams = allStandings.length || 20;
+  const homeContext = analyzeTeamMotivation(home, homeStanding, totalTeams, allStandings);
+  const awayContext = analyzeTeamMotivation(away, awayStanding, totalTeams, allStandings);
+
+  // Motivasyon yoğunluğu
+  const urgencyScore = (urg: TeamMotivationContext["urgency"]) =>
+    urg === "critical" ? 3 : urg === "high" ? 2 : urg === "medium" ? 1 : 0;
+  const total = urgencyScore(homeContext.urgency) + urgencyScore(awayContext.urgency);
+  const intensity: TotoMotivation["intensity"] =
+    total >= 4 ? "high" : total >= 2 ? "medium" : "low";
+
+  // Özet
+  let summary = "";
+  if (homeContext.status === "relegation_battle" && awayContext.status === "relegation_battle") {
+    summary = "🔥 Dipte 6 puanlık maç — iki takım da düşme korkusuyla mücadele edecek.";
+  } else if (homeContext.status === "title_race" && awayContext.status === "title_race") {
+    summary = "🏆 Şampiyonluk yarışı — iki taraf da puan kaybını kaldıramaz.";
+  } else if (homeContext.urgency === "critical" || awayContext.urgency === "critical") {
+    const critical = homeContext.urgency === "critical" ? home.name : away.name;
+    summary = `⚠️ ${critical} için kritik maç — ${homeContext.urgency === "critical" ? homeContext.label.toLowerCase() : awayContext.label.toLowerCase()}`;
+  } else if (homeContext.status === "relegated_safe" && awayContext.status === "relegated_safe") {
+    summary = "💤 Garanti kalan iki takım — motivasyon düşük olabilir.";
+  } else {
+    summary = `${home.name}: ${homeContext.label} · ${away.name}: ${awayContext.label}`;
+  }
+
+  return { homeContext, awayContext, intensity, summary };
+}
+
+function analyzeTeamMotivation(
+  team: TotoTeamInfo,
+  standing: StandingEntry | undefined,
+  totalTeams: number,
+  allStandings: StandingEntry[]
+): TeamMotivationContext {
+  if (!standing || standing.rank === 0) {
+    return {
+      status: "unknown",
+      label: "Bilinmiyor",
+      urgency: "low",
+    };
+  }
+
+  const rank = standing.rank;
+  const points = standing.points;
+
+  // Lig dilimleri
+  const titleZone = Math.max(2, Math.floor(totalTeams * 0.1));         // ilk %10
+  const europeanZone = Math.max(4, Math.floor(totalTeams * 0.3));      // ilk %30
+  const relegationZone = Math.max(3, Math.floor(totalTeams * 0.2));    // son %20
+  const relegationStart = totalTeams - relegationZone + 1;
+
+  // Şampiyonluk yarışı
+  if (rank <= titleZone) {
+    const leader = allStandings[0];
+    const gap = leader ? leader.points - points : 0;
+    return {
+      status: "title_race",
+      label: rank === 1 ? "Lider" : `Şampiyonluk yarışında (${rank}.)`,
+      urgency: gap <= 6 ? "critical" : "high",
+      pointsToTarget: gap > 0 ? gap : undefined,
+      targetDescription: gap > 0 ? `Lidere ${gap} puan` : "Liderlik koltuğu",
+    };
+  }
+
+  // Avrupa kupaları yarışı
+  if (rank <= europeanZone) {
+    const targetTeam = allStandings[europeanZone - 1] || allStandings[europeanZone] || allStandings[0];
+    const gap = targetTeam ? targetTeam.points - points : 0;
+    const aboveBoundary = rank < europeanZone;
+    return {
+      status: "european",
+      label: aboveBoundary ? "Avrupa hattında" : "Avrupa hattı çevresinde",
+      urgency: Math.abs(gap) <= 4 ? "high" : "medium",
+      pointsToTarget: aboveBoundary ? undefined : gap,
+      targetDescription: aboveBoundary
+        ? "Avrupa kupası hattını koruyor"
+        : `Avrupa hattına ${gap} puan`,
+    };
+  }
+
+  // Küme düşme hattı
+  if (rank >= relegationStart) {
+    const safeTeam = allStandings[relegationStart - 2] || allStandings[relegationStart - 1];
+    const gap = safeTeam ? safeTeam.points - points : 0;
+    return {
+      status: "relegation_battle",
+      label: `Küme hattında (${rank}.)`,
+      urgency: gap <= 3 ? "critical" : "high",
+      pointsToTarget: gap > 0 ? gap : undefined,
+      targetDescription: gap > 0 ? `Kalmaya ${gap} puan` : "Düşme hattının üstünde",
+    };
+  }
+
+  // Küme hattının hemen üstü (3 puanlık tampon içinde)
+  const safetyMargin = (allStandings[relegationStart - 1]?.points ?? points) - points;
+  if (safetyMargin >= -3 && safetyMargin <= 5) {
+    return {
+      status: "relegation_battle",
+      label: `Küme hattı çevresinde (${rank}.)`,
+      urgency: "high",
+      pointsToTarget: 5 - safetyMargin,
+      targetDescription: "Düşme bölgesine yakın",
+    };
+  }
+
+  // Mid-table
+  return {
+    status: "midtable",
+    label: `Lig ortasında (${rank}.)`,
+    urgency: "low",
+  };
+}
+
+// ============================================
+// Sakat / Cezalı Oyuncular
+// ============================================
+
+function buildInjuries(
+  injuriesData: InjuryResponse[],
+  homeTeamId: number,
+  awayTeamId: number
+): TotoMatch["injuries"] {
+  const home: TotoInjuryInfo[] = [];
+  const away: TotoInjuryInfo[] = [];
+
+  for (const inj of injuriesData) {
+    const info: TotoInjuryInfo = {
+      name: inj.player.name,
+      reason: inj.player.reason || "Belirtilmemiş",
+      type: inj.player.type || "Missing Fixture",
+      importance: classifyInjuryImportance(inj.player.reason),
+    };
+    if (inj.team.id === homeTeamId) home.push(info);
+    else if (inj.team.id === awayTeamId) away.push(info);
+  }
+
+  // Sıralama: önce key, sonra regular
+  const order = (i: TotoInjuryInfo) =>
+    i.importance === "key" ? 0 : i.importance === "regular" ? 1 : 2;
+  home.sort((a, b) => order(a) - order(b));
+  away.sort((a, b) => order(a) - order(b));
+
+  return {
+    home,
+    away,
+    homeCount: home.length,
+    awayCount: away.length,
+  };
+}
+
+function classifyInjuryImportance(reason: string): TotoInjuryInfo["importance"] {
+  const r = (reason || "").toLowerCase();
+  // Kırmızı kart / ceza genelde kilit oyuncu için kritik
+  if (r.includes("red card") || r.includes("suspended") || r.includes("ban")) return "key";
+  // Uzun süreli sakatlıklar genelde önemli
+  if (r.includes("acl") || r.includes("cruciate") || r.includes("surgery")) return "key";
+  if (r.includes("muscle") || r.includes("hamstring") || r.includes("knock")) return "regular";
+  return "regular";
+}
+
+// ============================================
+// Sürpriz Skoru
+// ============================================
+
+function buildSurprise(
+  home: TotoTeamInfo,
+  away: TotoTeamInfo,
+  stats: TotoMatchStats,
+  odds: TotoOdds,
+  ai: TotoAIPrediction,
+  motivation: TotoMotivation,
+  injuries: TotoMatch["injuries"],
+  h2h: TotoH2H
+): TotoSurprise {
+  const reasons: string[] = [];
+  let score = 0;
+
+  // 1) AI güveni düşükse → temel sürpriz riski
+  if (ai.confidence < 50) {
+    score += 25;
+    reasons.push(`AI güveni düşük (%${ai.confidence})`);
+  } else if (ai.confidence < 60) {
+    score += 12;
+  }
+
+  // Favori ve underdog tespiti (orana göre)
+  const oddsArr: { pick: TotoSelection; odd: number }[] = [
+    { pick: "1", odd: odds.home },
+    { pick: "0", odd: odds.draw },
+    { pick: "2", odd: odds.away },
+  ].sort((a, b) => a.odd - b.odd);
+  const favorite = oddsArr[0];
+  const underdog = oddsArr[2];
+
+  // 2) Underdog form patlaması
+  const underdogTeam =
+    underdog.pick === "1" ? home : underdog.pick === "2" ? away : null;
+  const favoriteTeam =
+    favorite.pick === "1" ? home : favorite.pick === "2" ? away : null;
+
+  if (underdogTeam && underdogTeam.formPoints >= 70) {
+    score += 20;
+    reasons.push(`${underdogTeam.name} ateş formda (%${underdogTeam.formPoints})`);
+  }
+
+  if (favoriteTeam && favoriteTeam.formPoints <= 35) {
+    score += 18;
+    reasons.push(`Favori ${favoriteTeam.name} kötü formda (%${favoriteTeam.formPoints})`);
+  }
+
+  // 3) Favorinin sakatlık yükü
+  const favoriteInjuries =
+    favorite.pick === "1"
+      ? injuries.homeCount
+      : favorite.pick === "2"
+        ? injuries.awayCount
+        : 0;
+  const keyInjuries =
+    favorite.pick === "1"
+      ? injuries.home.filter((i) => i.importance === "key").length
+      : favorite.pick === "2"
+        ? injuries.away.filter((i) => i.importance === "key").length
+        : 0;
+
+  if (keyInjuries >= 2) {
+    score += 22;
+    reasons.push(`Favoride ${keyInjuries} kilit eksik`);
+  } else if (keyInjuries === 1 && favoriteInjuries >= 3) {
+    score += 12;
+    reasons.push(`Favoride kilit + toplam ${favoriteInjuries} eksik`);
+  }
+
+  // 4) H2H underdog lehine baskınsa
+  if (h2h.totalMatches >= 3) {
+    if (favorite.pick === "1" && h2h.awayWins > h2h.homeWins) {
+      score += 12;
+      reasons.push(`H2H'de deplasman üstün (${h2h.awayWins}-${h2h.homeWins})`);
+    } else if (favorite.pick === "2" && h2h.homeWins > h2h.awayWins) {
+      score += 12;
+      reasons.push(`H2H'de ev sahibi üstün (${h2h.homeWins}-${h2h.awayWins})`);
+    }
+  }
+
+  // 5) Motivasyon dengesizliği — underdog tarafının motivasyonu daha yüksekse
+  const homeUrg = urgencyValue(motivation.homeContext.urgency);
+  const awayUrg = urgencyValue(motivation.awayContext.urgency);
+  if (favorite.pick === "1" && awayUrg > homeUrg && awayUrg >= 2) {
+    score += 14;
+    reasons.push(`Deplasman daha motive (${motivation.awayContext.label})`);
+  } else if (favorite.pick === "2" && homeUrg > awayUrg && homeUrg >= 2) {
+    score += 14;
+    reasons.push(`Ev sahibi daha motive (${motivation.homeContext.label})`);
+  } else if (favorite.pick !== "0" && motivation.intensity === "high") {
+    score += 6;
+  }
+
+  // 6) Üç olasılık dengeliyse (hiçbiri %50'yi geçmiyorsa)
+  const probs = stats.probabilities;
+  const maxProb = Math.max(probs.homeWin, probs.draw, probs.awayWin);
+  if (maxProb < 45) {
+    score += 15;
+    reasons.push("Hiçbir sonuç net favori değil");
+  }
+
+  // 7) Beraberlik olasılığı yüksekse + favori varsa → sürpriz
+  if (probs.draw >= 30 && favorite.pick !== "0") {
+    score += 8;
+    reasons.push(`Beraberlik olasılığı yüksek (%${probs.draw})`);
+  }
+
+  // 8) Streak bozulması — uzun seri sona ererse sürpriz
+  if (favoriteTeam && favoriteTeam.streak.wins >= 5) {
+    score += 6;
+    reasons.push(`Favori ${favoriteTeam.streak.wins} maçlık seri — düşüş normalleşebilir`);
+  }
+
+  score = Math.min(100, Math.round(score));
+
+  let level: TotoSurprise["level"];
+  if (score >= 70) level = "extreme";
+  else if (score >= 50) level = "high";
+  else if (score >= 30) level = "medium";
+  else level = "low";
+
+  // Sürpriz tahmin = favorinin tersi
+  let upsetPick: TotoSelection | undefined;
+  let upsetOdds: number | undefined;
+  if (favorite.pick === "1") {
+    // Underdog (deplasman) ya da beraberlik
+    if (probs.draw > probs.awayWin && odds.draw <= odds.away) {
+      upsetPick = "0";
+      upsetOdds = odds.draw;
+    } else {
+      upsetPick = "2";
+      upsetOdds = odds.away;
+    }
+  } else if (favorite.pick === "2") {
+    if (probs.draw > probs.homeWin && odds.draw <= odds.home) {
+      upsetPick = "0";
+      upsetOdds = odds.draw;
+    } else {
+      upsetPick = "1";
+      upsetOdds = odds.home;
+    }
+  } else {
+    upsetPick = probs.homeWin >= probs.awayWin ? "1" : "2";
+    upsetOdds = upsetPick === "1" ? odds.home : odds.away;
+  }
+
+  return { score, level, reasons, upsetPick, upsetOdds };
+}
+
+function urgencyValue(urg: TeamMotivationContext["urgency"]): number {
+  return urg === "critical" ? 3 : urg === "high" ? 2 : urg === "medium" ? 1 : 0;
 }

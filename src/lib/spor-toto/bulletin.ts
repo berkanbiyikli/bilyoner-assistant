@@ -167,8 +167,9 @@ export async function buildTotoBulletin(
 
   const selected = [...selectedTR, ...selectedForeign].slice(0, MAX_TOTAL_MATCHES);
 
-  // Tarihe göre genel sıralama (bülten görünüm sırası)
-  selected.sort(sortByTime);
+  // Bilyoner sırası: TR önce (kendi içinde tarihe göre), sonra yabancılar
+  // (lig grubunda + kendi içinde tarihe göre). selectedTR ve selectedForeign
+  // zaten yukarıda sıralandığı için ek sıralamaya gerek yok.
 
   // Standing verileri
   const standingsMap = new Map<number, StandingEntry[]>();

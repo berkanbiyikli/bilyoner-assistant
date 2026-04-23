@@ -816,7 +816,7 @@ const MODE_BADGE: Record<CouponMatchPick["mode"], string> = {
 
 function SporTotoCouponsCard({ matches }: { matches: TotoMatch[] }) {
   const coupons = useMemo(() => buildSporTotoCoupons(matches), [matches]);
-  const [activeId, setActiveId] = useState<string>("dengeli");
+  const [activeId, setActiveId] = useState<string>("dengeli-a");
   const [copied, setCopied] = useState(false);
 
   if (coupons.length === 0) return null;
@@ -846,7 +846,7 @@ function SporTotoCouponsCard({ matches }: { matches: TotoMatch[] }) {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-primary">
           <Ticket className="h-4 w-4" />
-          5 Spor Toto Kupon Önerisi
+          7 Spor Toto Kupon Önerisi
         </div>
         <span className="text-[10px] text-muted-foreground">
           Kolon başı {active.pricePerColumn} TL
@@ -857,7 +857,7 @@ function SporTotoCouponsCard({ matches }: { matches: TotoMatch[] }) {
       </p>
 
       {/* Kupon seçici tabs */}
-      <div className="mt-3 grid gap-2 sm:grid-cols-5">
+      <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-7">
         {coupons.map((c) => {
           const isActive = c.id === active.id;
           return (

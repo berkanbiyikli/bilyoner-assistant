@@ -127,36 +127,55 @@ function buildDoubleChance(a: MatchAnalysis): TotoSelection[] {
 }
 
 /**
+ * Çoklu seçim hedeflerinin nasıl seçileceğini belirleyen strateji.
+ *  - difficulty: en düşük güvenli (en zor) maçlardan başla (varsayılan)
+ *  - surprise: sürpriz alarmı en yüksek maçlardan başla
+ *  - foreign: yabancı maçları çoklu seç (TR'leri banko bırak)
+ */
+export type CouponStrategy = "difficulty" | "surprise" | "foreign";
+
+/**
  * Bir kupon profilini uygular: doubleCount kadar maçı çift,
- * tripleCount kadar maçı üçlü yapar (en zor maçlardan başlayarak).
+ * tripleCount kadar maçı üçlü yapar (strateji'ye göre öncelik).
  */
 function applyCouponProfile(
   analyses: MatchAnalysis[],
   doubleCount: number,
-  tripleCount: number
+  tripleCount: number,
+  strategy: CouponStrategy = "difficulty"
 ): CouponMatchPick[] {
-  // Zorluk azalan sırada: en zor maçlar önce çoklu olsun
-  const sortedByDifficulty = [...analyses].sort(
-    (a, b) => b.difficulty - a.difficulty
+  // Strateji'ye göre maç önceliklendirme skoru (yüksek = önce çoklu yap)
+  const priorityScore = (a: MatchAnalysis): number => {
+    const surpriseScore = a.match.surprise?.score ?? 0;
+    const isForeign = a.match.totoTier === "foreign_surprise";
+    switch (strategy) {
+      case "surprise":
+        // Sürpriz alarmı + zorluk
+        return surpriseScore * 1.5 + a.difficulty * 50;
+      case "foreign":
+        // Yabancılar her zaman önce çoklu, sonra zorluk
+        return (isForeign ? 1000 : 0) + a.difficulty * 100 + surpriseScore;
+      case "difficulty":
+      default:
+        // En zor maçlar önce
+        return a.difficulty * 100 + (a.isSurprise ? 30 : 0);
+    }
+  };
+
+  const sorted = [...analyses].sort(
+    (a, b) => priorityScore(b) - priorityScore(a)
   );
 
-  // Sürpriz adayı maçlar üçlü için öncelikli (favorinin tersine de açık)
   const tripleSet = new Set<string>();
   const doubleSet = new Set<string>();
 
-  // 1) Üçlüler: en yüksek difficulty + sürpriz olanlar
-  const tripleCandidates = sortedByDifficulty.slice(0, tripleCount + 2);
-  // Sürprizleri öne al
-  tripleCandidates.sort((a, b) => {
-    if (a.isSurprise !== b.isSurprise) return a.isSurprise ? -1 : 1;
-    return b.difficulty - a.difficulty;
-  });
-  for (const a of tripleCandidates.slice(0, tripleCount)) {
+  // Üçlüler: en yüksek öncelikli + sürpriz olanlar
+  for (const a of sorted) {
+    if (tripleSet.size >= tripleCount) break;
     tripleSet.add(a.match.id);
   }
-
-  // 2) Çiftler: kalan zor maçlardan
-  for (const a of sortedByDifficulty) {
+  // Çiftler: kalan öncelikli maçlardan
+  for (const a of sorted) {
     if (tripleSet.has(a.match.id)) continue;
     if (doubleSet.size >= doubleCount) break;
     doubleSet.add(a.match.id);
@@ -268,8 +287,7 @@ export function buildSporTotoCoupons(matches: TotoMatch[]): SporTotoCoupon[] {
   const analyses = matches.map(analyzeMatch);
   const total = matches.length;
 
-  // 5 strateji profili (double, triple sayıları)
-  // total <= 15 varsayımıyla
+  // Kupon profilleri: 7 farklı kupon (banko, tedbirli, 3x dengeli, geniş, sistem)
   const profiles: Array<{
     id: string;
     name: string;
@@ -278,6 +296,7 @@ export function buildSporTotoCoupons(matches: TotoMatch[]): SporTotoCoupon[] {
     risk: SporTotoCoupon["riskLevel"];
     doubles: number;
     triples: number;
+    strategy: CouponStrategy;
   }> = [
     {
       id: "banko",
@@ -288,6 +307,7 @@ export function buildSporTotoCoupons(matches: TotoMatch[]): SporTotoCoupon[] {
       risk: "very_high",
       doubles: 0,
       triples: 0,
+      strategy: "difficulty",
     },
     {
       id: "tedbirli",
@@ -298,16 +318,40 @@ export function buildSporTotoCoupons(matches: TotoMatch[]): SporTotoCoupon[] {
       risk: "high",
       doubles: 3,
       triples: 0,
+      strategy: "difficulty",
     },
     {
-      id: "dengeli",
-      name: "Dengeli",
+      id: "dengeli-a",
+      name: "Dengeli A · Zorluk",
       emoji: "⚖️",
       description:
-        "4 çifte şans + 1 üçlü. Klasik Spor Toto kupon profili — orta maliyet, güvenli.",
+        "4 çifte şans + 1 üçlü. En zor 5 maça çoklu seçim — klasik dengeli yaklaşım.",
       risk: "medium",
       doubles: 4,
       triples: 1,
+      strategy: "difficulty",
+    },
+    {
+      id: "dengeli-b",
+      name: "Dengeli B · Sürpriz",
+      emoji: "🎲",
+      description:
+        "4 çifte şans + 1 üçlü. Sürpriz alarmı en yüksek maçlara öncelik — favoriler banko kalır.",
+      risk: "medium",
+      doubles: 4,
+      triples: 1,
+      strategy: "surprise",
+    },
+    {
+      id: "dengeli-c",
+      name: "Dengeli C · Yabancı Odaklı",
+      emoji: "🌍",
+      description:
+        "4 çifte şans + 1 üçlü. TR maçları banko, yabancılar çoklu — Türkiye liginde güvende oyna.",
+      risk: "medium",
+      doubles: 4,
+      triples: 1,
+      strategy: "foreign",
     },
     {
       id: "genis",
@@ -318,6 +362,7 @@ export function buildSporTotoCoupons(matches: TotoMatch[]): SporTotoCoupon[] {
       risk: "low",
       doubles: 6,
       triples: 1,
+      strategy: "difficulty",
     },
     {
       id: "sistem",
@@ -328,6 +373,7 @@ export function buildSporTotoCoupons(matches: TotoMatch[]): SporTotoCoupon[] {
       risk: "very_low",
       doubles: 7,
       triples: 2,
+      strategy: "difficulty",
     },
   ];
 
@@ -335,7 +381,7 @@ export function buildSporTotoCoupons(matches: TotoMatch[]): SporTotoCoupon[] {
     .map((profile) => {
       const doubles = Math.min(profile.doubles, Math.max(0, total - profile.triples));
       const triples = Math.min(profile.triples, Math.max(0, total - doubles));
-      const picks = applyCouponProfile(analyses, doubles, triples);
+      const picks = applyCouponProfile(analyses, doubles, triples, profile.strategy);
       const totalColumns = computeColumns(picks);
       const totalCost = totalColumns * PRICE_PER_COLUMN;
       const bankoCount = picks.filter((p) => p.mode === "single").length;
